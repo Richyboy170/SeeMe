@@ -124,7 +124,8 @@ For production, replace `AmazonS3FullAccess` with a custom policy:
 - These instructions are for the **current AWS Console (2026)**
 - If you see different options, you may be in the classic console - switch to the new console
 - CloudFront deployment takes 5-15 minutes - be patient after clicking "Create"
-- **Key terms:** Use "Origin access control" (OAC), NOT "Origin access identity" (OAI - deprecated)
+- The new interface uses simplified settings with "recommended" options
+- AWS will automatically create Origin Access Control (OAC) and update your S3 bucket policy
 
 ### Create CloudFront Distribution
 
@@ -135,76 +136,92 @@ For production, replace `AmazonS3FullAccess` with a custom policy:
 
 2. **Create Distribution**
    - Click the orange "Create distribution" button or "Create a CloudFront distribution" button
-   - You'll see a long form with multiple sections
+   - You'll see the new distribution creation wizard
 
-3. **Origin Settings**
+3. **Distribution Information**
 
-   **Origin domain:**
-   - Click the input field - you'll see a dropdown list of your S3 buckets
-   - Select your S3 bucket: `seeme-images-dev.s3.us-east-1.amazonaws.com` (or your region)
-   - Note: Do NOT use the website endpoint option
+   **Distribution name (optional):**
+   - Enter: `seeme-cdn-dev`
 
-   **Origin path:**
+   **Description (optional):**
+   - Enter: `SeeMe development image CDN`
+
+   **Distribution type:**
+   - Select **"Single website or app"** (recommended for SeeMe)
+   - Do NOT select "Multi-tenant architecture" (that's for SaaS platforms with multiple domains)
+
+   - Click **"Next"** or **"Continue"**
+
+4. **Specify Origin**
+
+   **Origin type:**
+   - Select **"Amazon S3"** (first option)
+   - Description shows: "Deliver static assets like files and images, statically generated websites or single page applications (SPA)."
+
+   **S3 origin:**
+   - Click **"Browse S3"** button
+   - Select your S3 bucket: `seeme-images-dev`
+   - Or manually enter: `seeme-images-dev.s3.us-east-1.amazonaws.com` (use your region)
+
+   **Origin path (optional):**
    - Leave blank
 
-   **Name:**
-   - Auto-filled (e.g., `seeme-images-dev.s3.us-east-1.amazonaws.com`)
-   - Leave as is
+5. **Settings**
 
-   **Origin access:**
-   - Select "Origin access control settings (recommended)"
-   - Click "Create new OAC" (or "Create control setting")
-   - In the popup:
-     - **Name:** `seeme-s3-oac` (or leave default)
-     - **Signing behavior:** "Sign requests (recommended)" - should be selected
-     - **Origin type:** S3 - should be auto-selected
-     - Click "Create"
+   **Allow private S3 bucket access to CloudFront:**
+   - Select **"Allow private S3 bucket access to CloudFront - Recommended"** ✓
+   - This checkbox option tells AWS to automatically:
+     - Create Origin Access Control (OAC)
+     - Update your S3 bucket policy to allow CloudFront access
+     - Restrict S3 access to only this CloudFront distribution
 
-   **Enable Origin Shield:**
-   - Select "No" (to save costs in development)
+6. **Origin Settings**
 
-   **Additional settings:**
-   - Leave other origin settings as default
+   - Select **"Use recommended origin settings"** (radio button)
+   - Do NOT select "Customize origin settings" (unless you need advanced config)
+   
+   This applies these defaults:
+   - Connection attempts: 3
+   - Connection timeout: 10 seconds
+   - Origin Shield: Disabled (saves costs)
 
-4. **Default Cache Behavior Settings**
+7. **Cache Settings**
 
-   Scroll down to "Default cache behavior" section:
+   - Select **"Use recommended cache settings tailored to serving S3 content"** (radio button)
+   - Do NOT select "Customize cache settings" (unless you need advanced config)
+   
+   This applies optimized defaults for S3 content delivery.
 
-   **Path pattern:**
-   - Default (*) - leave as is
+8. **Web Application Firewall (WAF)**
 
-   **Compress objects automatically:**
-   - Select "Yes" (recommended)
+   You'll see two radio button options:
 
-   **Viewer protocol policy:**
-   - Select "Redirect HTTP to HTTPS"
+   - ○ Enable security protections
+   - **● Do not enable security protections** ← **SELECT THIS ONE**
 
-   **Allowed HTTP methods:**
-   - Select "GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE"
+   **What to select:**
+   - Select **"Do not enable security protections"**
+   - This is the free option for development
 
-   **Restrict viewer access:**
-   - Select "No" (for development)
+   **Why "Do not enable" for now:**
+   - Saves ~$14/month during development
+   - You can enable WAF later when ready for production
+   - Not necessary for local testing
 
-   **Cache key and origin requests:**
-   - Select "Cache policy and origin request policy (recommended)"
-   - **Cache policy:** Select "CachingOptimized" from dropdown
-   - **Origin request policy:** Select "CORS-S3Origin" from dropdown
-   - **Response headers policy:** Optional (leave as "No policy" for now)
+   **Note:** If you select "Enable security protections":
+   - Costs ~$14 for 10 million requests/month
+   - Includes protection against common vulnerabilities
+   - Optional checkboxes appear:
+     - ☐ Use monitor mode
+     - ☐ Protection against Layer 7 DDoS attacks (Recommended)
 
-5. **Function associations (optional)**
-   - Leave blank for now
+9. **Additional Settings** (if shown)
 
-6. **Web Application Firewall (WAF)**
-   - Select "Do not enable security protections" (for development)
-   - Note: In production, enable AWS WAF
-
-7. **Settings**
-
-   Scroll down to the "Settings" section:
+   Depending on your AWS interface, you may see these additional settings. If you don't see them, they'll use default values:
 
    **Price class:**
-   - Select "Use only North America and Europe" (or "Use all edge locations" if you prefer)
-   - Recommendation for dev: "Use only North America and Europe" to reduce costs
+   - Select "Use only North America and Europe" (to reduce costs in dev)
+   - Or select "Use all edge locations" if you need global coverage
 
    **Alternate domain name (CNAME):**
    - Leave empty (we'll use the CloudFront domain for now)
@@ -212,46 +229,56 @@ For production, replace `AmazonS3FullAccess` with a custom policy:
    **Custom SSL certificate:**
    - Select "Default CloudFront Certificate (*.cloudfront.net)"
 
-   **Supported HTTP versions:**
-   - Leave as "HTTP/2" (or select "HTTP/2 and HTTP/3" if available)
-
-   **Default root object:**
-   - Leave empty
-
    **Standard logging:**
    - Select "Off" (for development)
 
    **IPv6:**
    - Select "On" (recommended)
 
-   **Description:**
-   - Optional: "SeeMe development image CDN"
+10. **Review and Create**
 
-8. **Create Distribution**
-   - Review all settings
-   - Click "Create distribution" button at the bottom
-   - Wait for the distribution to be created (takes a few seconds)
+    You'll see a summary page showing:
 
-9. **Copy the Bucket Policy**
+    **General configuration:**
+    - Distribution name: `seeme-cdn-dev`
+    - Description: `SeeMe development image CDN`
+    - Billing: Pay-as-you-go ($0/month)
 
-   After creation, you'll see a blue banner at the top:
+    **Origin:**
+    - S3 origin: `seeme-images-dev.s3.us-east-1.amazonaws.com`
+    - Origin path: -
+    - Grant CloudFront access to origin: Yes
+    - Enable Origin Shield: No
+    - Connection attempts: 3
+    - Connection timeout: 10
 
-   > "The S3 bucket policy needs to be updated"
+    **Cache settings:**
+    - Default cache settings tailored to serving content from S3
 
-   - Click "Copy policy" button in the banner
-   - The policy will be copied to your clipboard
+    **Security:**
+    - Security protections: None
+    - Use monitor mode: No
 
-10. **Update S3 Bucket Policy**
+    **Verify everything looks correct**, then click **"Create distribution"**
 
-    - Go back to S3 service (open in new tab or use back button)
-    - Navigate to your bucket: `seeme-images-dev`
-    - Click the "Permissions" tab
+11. **Wait for Creation**
+
+    - The distribution will be created in a few seconds
+    - You'll be redirected to the CloudFront distributions list
+    - **Status** will show "Deploying"
+    - **Wait 5-15 minutes** for deployment to complete
+
+12. **Verify S3 Bucket Policy Was Updated**
+
+    Since you selected "Allow private S3 bucket access to CloudFront", AWS should automatically update your bucket policy.
+
+    **Verify it worked:**
+    
+    - Go to S3 service → `seeme-images-dev` bucket
+    - Click "Permissions" tab
     - Scroll to "Bucket policy" section
-    - Click "Edit"
-    - Paste the policy you copied (Ctrl+V or Cmd+V)
-    - The policy should look like:
-
-    ```json
+    - You should see a policy similar to:
+```json
     {
         "Version": "2012-10-17",
         "Statement": [
@@ -265,38 +292,103 @@ For production, replace `AmazonS3FullAccess` with a custom policy:
                 "Resource": "arn:aws:s3:::seeme-images-dev/*",
                 "Condition": {
                     "StringEquals": {
-                        "AWS:SourceArn": "arn:aws:cloudfront::ACCOUNT-ID:distribution/DISTRIBUTION-ID"
+                        "AWS:SourceArn": "arn:aws:cloudfront::YOUR-ACCOUNT-ID:distribution/YOUR-DISTRIBUTION-ID"
                     }
                 }
             }
         ]
     }
-    ```
+```
 
-    - Click "Save changes"
+    **If the policy wasn't automatically added:**
+    - Go back to CloudFront distributions
+    - Look for a blue banner saying "The S3 bucket policy needs to be updated"
+    - Click "Copy policy" button
+    - Go to S3 → `seeme-images-dev` → Permissions → Bucket policy → Edit
+    - Paste the policy and click "Save changes"
 
-11. **Note the Distribution Details**
+13. **Note the Distribution Details**
 
-    Go back to CloudFront distributions list:
+    Go to CloudFront distributions list and find your `seeme-cdn-dev` distribution:
 
     - **Distribution domain name:** Copy this (e.g., `d111111abcdef8.cloudfront.net`)
     - **Status:** Should show "Deploying" → Wait for it to change to "Enabled"
     - **State:** Should show "Enabled" when ready (takes 5-15 minutes)
 
-    Save the distribution domain for your `.env` file:
-    ```
+    **Save the distribution domain for your `.env` file:**
+```env
     CLOUDFRONT_URL=https://d111111abcdef8.cloudfront.net
-    ```
+```
 
-12. **Test the Distribution (After Deployment)**
+14. **Test the Distribution (After Deployment)**
 
     Once status shows "Enabled" and state shows "Deployed":
 
-    - Upload a test image to your S3 bucket
+    **Method 1: Using AWS Console**
+    - Go to S3 → `seeme-images-dev`
+    - Upload a test image (e.g., `test-image.jpg`)
     - Try accessing it via CloudFront URL:
-      - `https://d111111abcdef8.cloudfront.net/your-test-image.jpg`
-    - If you get 403 error, verify the S3 bucket policy was updated correctly
+```
+      https://d111111abcdef8.cloudfront.net/test-image.jpg
+```
+    - Should load successfully!
 
+    **Method 2: Using AWS CLI** (if installed)
+```bash
+    # Upload test image
+    aws s3 cp test-image.jpg s3://seeme-images-dev/test-image.jpg
+    
+    # Test CloudFront URL
+    Invoke-WebRequest -Uri "https://d2kdnvrdpp8w48.cloudfront.net/Screenshot%202025-04-29%20111840.png" -Method Head
+```
+
+    **Expected result:**
+    - Status: `200 OK`
+    - Headers should include `X-Cache: Miss from cloudfront` (first request)
+    - Subsequent requests: `X-Cache: Hit from cloudfront`
+
+    **If you get 403 Forbidden error:**
+    - Verify the S3 bucket policy was updated correctly (step 12)
+    - Verify the distribution is fully deployed ("Enabled" status)
+    - Check that "Block all public access" is still ON in S3 (CloudFront handles access via OAC)
+    - Wait a few more minutes - CloudFront can take up to 15 minutes to fully propagate
+
+---
+
+## Troubleshooting
+
+### Distribution Won't Delete
+- Must disable first, then wait for "Disabled" status
+- Then you can delete
+
+### 403 Forbidden Errors
+1. Verify S3 bucket policy includes CloudFront OAC policy
+2. Wait for CloudFront to fully deploy (up to 15 min)
+3. Ensure "Block all public access" is enabled in S3
+4. Verify the file exists in S3 bucket
+
+### Slow Performance
+- CloudFront caches content at edge locations
+- First request to each location will be slower (cache miss)
+- Subsequent requests will be fast (cache hit)
+
+### Cost Concerns
+- Free tier: 1 TB data transfer out per month
+- First 10 million requests free per month
+- Monitor usage in AWS Billing dashboard
+
+---
+
+## Summary
+
+Your CloudFront distribution is now configured with:
+- ✅ Secure access to private S3 bucket via OAC
+- ✅ HTTPS-only delivery (HTTP redirects to HTTPS)
+- ✅ Optimized caching for S3 content
+- ✅ No WAF costs during development ($0/month)
+- ✅ Ready to serve images globally with low latency
+
+**Next step:** Update your `.env` file with the CloudFront URL and continue with Firebase Authentication setup!
 ---
 
 ## 3. Firebase Authentication Setup
@@ -455,55 +547,38 @@ mongodb+srv://seeme_app:<password>@seeme-cluster-dev.xxxxx.mongodb.net/?retryWri
 
 ### Update .env File
 
-Create or update `.env` in the root directory:
+1. **Copy the template file:**
+   ```bash
+   cp .env.example .env
+   ```
 
-```env
-# ===================================
-# AWS S3
-# ===================================
-AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=AKIA****************
-AWS_SECRET_ACCESS_KEY=****************************************
-S3_BUCKET=seeme-images-dev
-CLOUDFRONT_URL=https://d1234567890abc.cloudfront.net
+2. **Update the following cloud service credentials in `.env`:**
 
-# ===================================
-# FIREBASE
-# ===================================
-FIREBASE_PROJECT_ID=seeme-app-dev
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMII...\n-----END PRIVATE KEY-----\n"
-FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@seeme-app-dev.iam.gserviceaccount.com
+   **AWS S3:**
+   - `AWS_REGION` - Your AWS region (e.g., `us-east-1`)
+   - `AWS_ACCESS_KEY_ID` - From IAM user creation (Step 1)
+   - `AWS_SECRET_ACCESS_KEY` - From IAM user creation (Step 1)
+   - `S3_BUCKET` - Your S3 bucket name (e.g., `seeme-images-dev`)
+   - `CLOUDFRONT_URL` - Your CloudFront distribution URL (Step 2)
 
-# ===================================
-# MONGODB ATLAS
-# ===================================
-MONGODB_URI=mongodb+srv://seeme_app:YOUR_PASSWORD@seeme-cluster-dev.xxxxx.mongodb.net/seeme?retryWrites=true&w=majority
+   **Firebase:**
+   - `FIREBASE_PROJECT_ID` - From Firebase project settings
+   - `FIREBASE_PRIVATE_KEY` - From service account JSON file
+   - `FIREBASE_CLIENT_EMAIL` - From service account JSON file
 
-# ===================================
-# LOCAL SERVICES (from docker-compose)
-# ===================================
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=seeme_dev
-DB_USER=seeme
-DB_PASSWORD=seeme_dev_password_2026
+   **MongoDB Atlas:**
+   - `MONGODB_URI` - Your MongoDB connection string (Step 4)
 
-REDIS_URL=redis://:seeme_redis_2026@localhost:6379
-RABBITMQ_URL=amqp://seeme:seeme_rabbit_2026@localhost:5672/seeme_vhost
+   **Security:**
+   - `JWT_SECRET` - Generate a secure random string (minimum 32 characters)
+     ```bash
+     # Generate using Node.js:
+     node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+     ```
 
-# ===================================
-# APPLICATION
-# ===================================
-NODE_ENV=development
-PORT=3000
-CORS_ORIGIN=http://localhost:19006
-JWT_SECRET=your_very_secure_random_string_minimum_32_characters_here
+3. **See `.env.example` for complete configuration options and defaults**
 
-# ===================================
-# ML SERVICE
-# ===================================
-ML_SERVICE_URL=http://localhost:8000
-```
+4. **Verify `.env` is in `.gitignore` to prevent committing secrets**
 
 ### Verify Configuration
 
