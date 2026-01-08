@@ -27,7 +27,8 @@
       "Bash(python verify_setup.py:*)",
       "Bash(npm run seed:*)",
       "Bash(npm run dev:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(npx create-expo-app:*)"
     ]
   }
 }
