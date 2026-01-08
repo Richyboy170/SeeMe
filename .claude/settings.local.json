@@ -4,7 +4,8 @@
       "Bash(node -e:*)",
       "Bash(git -c user.useConfigOnly=true commit --quiet --allow-empty-message --file -)",
       "Bash(docker-compose up:*)",
-      "Bash(docker-compose ps:*)"
+      "Bash(docker-compose ps:*)",
+      "Bash(docker-compose logs:*)"
     ]
   }
 }
