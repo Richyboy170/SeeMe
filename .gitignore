@@ -1,0 +1,202 @@
+# SeeMe - Comprehensive .gitignore
+
+# ===================================
+# SECRETS & ENVIRONMENT VARIABLES
+# ===================================
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.test
+**/.env
+**/.env.local
+
+# AWS & Cloud Credentials
+*.pem
+*.key
+*-key.json
+credentials.json
+firebase-adminsdk*.json
+aws-credentials.json
+
+# ===================================
+# NODE.JS / BACKEND
+# ===================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Build outputs
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# Testing
+coverage/
+*.lcov
+.nyc_output
+
+# Cache
+.npm
+.eslintcache
+.cache
+
+# ===================================
+# PYTHON / ML SERVICE
+# ===================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ML Models & Training Data
+*.h5
+*.pkl
+*.pth
+*.pt
+*.onnx
+*.pb
+checkpoints/
+models/weights/
+training_data/
+datasets/
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb
+
+# ===================================
+# REACT NATIVE / MOBILE
+# ===================================
+mobile/.expo/
+mobile/.expo-shared/
+mobile/node_modules/
+
+# iOS
+mobile/ios/Pods/
+mobile/ios/build/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+*.moved-aside
+*.xccheckout
+*.xcscmblueprint
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Android
+mobile/android/build/
+mobile/android/.gradle
+mobile/android/captures/
+mobile/android/.externalNativeBuild
+mobile/android/.cxx
+mobile/android/local.properties
+*.apk
+*.aab
+
+# ===================================
+# DATABASES
+# ===================================
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# PostgreSQL
+*.dump
+*.sql.gz
+
+# MongoDB
+*.bson
+dump/
+
+# ===================================
+# DOCKER
+# ===================================
+docker-compose.override.yml
+*.dockerignore.local
+
+# ===================================
+# IDE & EDITORS
+# ===================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ===================================
+# LOGS
+# ===================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+pnpm-debug.log*
+
+# ===================================
+# TEMPORARY FILES
+# ===================================
+tmp/
+temp/
+*.tmp
+*.bak
+
+# ===================================
+# USER UPLOADED CONTENT (Development)
+# ===================================
+uploads/
+user_images/
+processed_images/
+
+# ===================================
+# TERRAFORM (Infrastructure)
+# ===================================
+infrastructure/.terraform/
+infrastructure/*.tfstate
+infrastructure/*.tfstate.*
+infrastructure/*.tfvars
+infrastructure/.terraform.lock.hcl
+infrastructure/crash.log
+infrastructure/override.tf
+infrastructure/override.tf.json
+
+# ===================================
+# OS SPECIFIC
+# ===================================
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ===================================
+# DOCUMENTATION BUILD
+# ===================================
+docs/_build/
+docs/.doctrees/
+site/

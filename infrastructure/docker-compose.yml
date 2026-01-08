@@ -1,0 +1,116 @@
+version: '3.9'
+
+services:
+  # PostgreSQL 15 - Relational Database
+  # Stores: Users, Posts, Social Graph, Comments, Likes
+  postgres:
+    image: postgres:15-alpine
+    container_name: seeme-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: seeme_dev
+      POSTGRES_USER: seeme
+      POSTGRES_PASSWORD: seeme_dev_password_2026
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seeme -d seeme_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - seeme-network
+
+  # MongoDB 6 - Document Database
+  # Stores: Avatar Configurations, Marketplace Data, Analytics
+  mongodb:
+    image: mongo:6-jammy
+    container_name: seeme-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: seeme
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/seeme --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - seeme-network
+
+  # Redis 7 - In-Memory Cache & Session Store
+  # Stores: Session Data, Cache, Real-time Data
+  redis:
+    image: redis:7-alpine
+    container_name: seeme-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass seeme_redis_2026
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - seeme-network
+
+  # RabbitMQ 3.12 - Message Queue
+  # Handles: Async Image Processing, Email Jobs, Notifications
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: seeme-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: seeme
+      RABBITMQ_DEFAULT_PASS: seeme_rabbit_2026
+      RABBITMQ_DEFAULT_VHOST: seeme_vhost
+    ports:
+      - "5672:5672"   # AMQP protocol
+      - "15672:15672" # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - rabbitmq_logs:/var/log/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - seeme-network
+
+# Named Volumes for Data Persistence
+volumes:
+  postgres_data:
+    driver: local
+    name: seeme-postgres-data
+  mongo_data:
+    driver: local
+    name: seeme-mongo-data
+  mongo_config:
+    driver: local
+    name: seeme-mongo-config
+  redis_data:
+    driver: local
+    name: seeme-redis-data
+  rabbitmq_data:
+    driver: local
+    name: seeme-rabbitmq-data
+  rabbitmq_logs:
+    driver: local
+    name: seeme-rabbitmq-logs
+
+# Network Configuration
+networks:
+  seeme-network:
+    driver: bridge
+    name: seeme-network
