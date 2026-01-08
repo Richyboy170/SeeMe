@@ -100,10 +100,21 @@ const startServer = async () => {
 
     // Connect to databases
     logger.info('Connecting to databases...');
-    await connectPostgreSQL();
+
+    // Try to connect to PostgreSQL (non-blocking in development)
+    try {
+      await connectPostgreSQL();
+    } catch (error) {
+      if (process.env.NODE_ENV === 'development') {
+        logger.warn('PostgreSQL connection failed - continuing in degraded mode', { error });
+      } else {
+        throw error;
+      }
+    }
+
     await connectMongoDB();
     await connectRedis();
-    logger.info('All database connections established');
+    logger.info('Database connections established');
 
     // Start Express server
     app.listen(PORT, HOST, () => {

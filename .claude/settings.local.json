@@ -25,7 +25,9 @@
       "Bash(./venv/Scripts/pip.exe --version)",
       "Bash(docker run:*)",
       "Bash(python verify_setup.py:*)",
-      "Bash(npm run seed:*)"
+      "Bash(npm run seed:*)",
+      "Bash(npm run dev:*)",
+      "Bash(curl:*)"
     ]
   }
 }
