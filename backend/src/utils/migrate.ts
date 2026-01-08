@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { sequelize } from '../config/database';
 import { logger } from './logger';
+// Import models to register them with Sequelize
 import User from '../models/User';
 import Post from '../models/Post';
 
@@ -13,7 +14,9 @@ dotenv.config();
  */
 async function migrate(): Promise<void> {
   try {
-    logger.info('Starting database migration...');
+    // Reference models to ensure they're registered with Sequelize
+    const models = [User, Post];
+    logger.info(`Starting database migration for ${models.length} models...`);
 
     // Test database connection
     await sequelize.authenticate();

@@ -1,0 +1,29 @@
+# FastAPI Framework
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-multipart==0.0.12
+pydantic==2.9.2
+pydantic-settings==2.6.1
+
+# ML/CV Libraries
+torch==2.5.1
+torchvision==0.20.1
+opencv-python==4.10.0.84
+mediapipe==0.10.9
+numpy==1.26.4
+pillow==11.0.0
+
+# AWS
+boto3==1.35.65
+
+# Queue System
+celery==5.4.0
+redis==5.2.0
+
+# Utilities
+python-dotenv==1.0.1
+requests==2.32.3
+aiofiles==24.1.0
+
+# Logging
+loguru==0.7.2

@@ -9,7 +9,23 @@
       "Bash(test:*)",
       "Bash(npm install)",
       "Bash(gh:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(npm run migrate:*)",
+      "Bash(docker-compose exec:*)",
+      "Bash(cat:*)",
+      "Bash(docker-compose down:*)",
+      "Bash(docker volume rm:*)",
+      "Bash(docker-compose stop:*)",
+      "Bash(docker-compose rm:*)",
+      "Bash(where.exe:*)",
+      "Bash(\"C:/Program Files/GitHub CLI/gh.exe\" auth login --web)",
+      "Bash(docker-compose restart:*)",
+      "Bash(./venv/Scripts/python.exe:*)",
+      "Bash(git push:*)",
+      "Bash(./venv/Scripts/pip.exe --version)",
+      "Bash(docker run:*)",
+      "Bash(python verify_setup.py:*)",
+      "Bash(npm run seed:*)"
     ]
   }
 }

@@ -32,7 +32,7 @@ export interface AuthRequest extends Request {
  */
 export const authenticateToken = async (
   req: AuthRequest,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
@@ -79,7 +79,7 @@ export const authenticateToken = async (
  */
 export const optionalAuth = async (
   req: AuthRequest,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
@@ -119,7 +119,7 @@ export const generateToken = (user: { id: string; username: string; email: strin
 
   const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
 
-  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn });
+  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn } as jwt.SignOptions);
 };
 
 /**
@@ -127,7 +127,7 @@ export const generateToken = (user: { id: string; username: string; email: strin
  * Requires authenticateToken to run first
  */
 export const verifyResourceOwnership = (userIdParam: string = 'userId') => {
-  return async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  return async (req: AuthRequest, _res: Response, next: NextFunction): Promise<void> => {
     try {
       if (!req.user) {
         throw new APIError('Authentication required', 401);
@@ -152,7 +152,7 @@ export const verifyResourceOwnership = (userIdParam: string = 'userId') => {
  */
 export const requireAgeVerification = async (
   req: AuthRequest,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {

@@ -29,7 +29,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Request Logging Middleware
-app.use((req: Request, res: Response, next) => {
+app.use((req: Request, _res: Response, next) => {
   logger.info('Incoming request', {
     method: req.method,
     path: req.path,
@@ -39,7 +39,7 @@ app.use((req: Request, res: Response, next) => {
 });
 
 // Health Check Endpoint
-app.get('/health', (req: Request, res: Response) => {
+app.get('/health', (_req: Request, res: Response) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
