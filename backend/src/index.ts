@@ -9,6 +9,8 @@ import { connectMongoDB, disconnectMongoDB } from './config/mongodb';
 import { connectRedis, disconnectRedis } from './config/redis';
 import { initializeFirebase } from './config/firebase';
 import authRoutes from './routes/auth';
+import postRoutes from './routes/posts';
+import { celeryClient } from './config/celery';
 
 // Load environment variables
 dotenv.config();
@@ -52,7 +54,7 @@ app.get('/health', (_req: Request, res: Response) => {
 app.use('/api/auth', authRoutes);
 // app.use('/api/users', userRoutes);
 // app.use('/api/avatars', avatarRoutes);
-// app.use('/api/posts', postRoutes);
+app.use('/api/posts', postRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response) => {
@@ -79,6 +81,7 @@ const gracefulShutdown = async (signal: string) => {
     await disconnectPostgreSQL();
     await disconnectMongoDB();
     await disconnectRedis();
+    await celeryClient.disconnect();
     logger.info('All database connections closed');
   } catch (error) {
     logger.error('Error during shutdown', { error });

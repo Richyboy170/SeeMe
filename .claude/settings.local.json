@@ -28,7 +28,25 @@
       "Bash(npm run seed:*)",
       "Bash(npm run dev:*)",
       "Bash(curl:*)",
-      "Bash(npx create-expo-app:*)"
+      "Bash(npx create-expo-app:*)",
+      "Bash(cp:*)",
+      "Bash(npx expo install:*)",
+      "Bash(npx expo start --clear)",
+      "Bash(npx tsc:*)",
+      "Bash(npm install:*)",
+      "Bash(npm test:*)",
+      "Bash(docker exec:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(docker logs:*)",
+      "Bash(docker restart:*)",
+      "Bash(PGPASSWORD=seeme_dev_password_2026 psql:*)",
+      "Bash(docker inspect:*)",
+      "Bash(docker-compose build:*)",
+      "Bash(docker-compose:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(mkdir:*)"
     ]
   }
 }

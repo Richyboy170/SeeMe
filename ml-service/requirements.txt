@@ -12,6 +12,7 @@ opencv-python==4.10.0.84
 mediapipe==0.10.9
 numpy==1.26.4
 pillow==11.0.0
+scipy==1.11.4
 
 # AWS
 boto3==1.35.65
