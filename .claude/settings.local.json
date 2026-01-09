@@ -46,7 +46,9 @@
       "Bash(docker-compose build:*)",
       "Bash(docker-compose:*)",
       "Bash(python -m json.tool:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(python:*)",
+      "Bash(pip install:*)"
     ]
   }
 }

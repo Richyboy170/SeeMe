@@ -4,6 +4,8 @@ Detects faces, extracts landmarks, and validates face angles
 """
 
 import mediapipe as mp
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
 import cv2
 import numpy as np
 from typing import List, Dict, Optional
@@ -21,25 +23,56 @@ class FaceDetector:
     Face detection and landmark extraction using MediaPipe
     """
 
-    def __init__(self):
-        self.mp_face_detection = mp.solutions.face_detection
-        self.mp_face_mesh = mp.solutions.face_mesh
+    def __init__(self, model_path: Optional[str] = None):
+        """
+        Initialize FaceDetector
 
-        # Initialize detectors
-        self.face_detection = self.mp_face_detection.FaceDetection(
-            model_selection=1,  # 0=short range (<2m), 1=long range (>2m)
-            min_detection_confidence=0.7
-        )
+        Args:
+            model_path: Optional path to face_landmarker.task model file
+                       If None, will attempt to use default bundled model
+        """
+        # Download model if not provided
+        if model_path is None:
+            # Try to use the default model location
+            import os
+            from pathlib import Path
 
-        self.face_mesh = self.mp_face_mesh.FaceMesh(
-            static_image_mode=True,
-            max_num_faces=5,
-            refine_landmarks=True,
-            min_detection_confidence=0.5,
+            # Check common model locations
+            possible_paths = [
+                "models/face_landmarker.task",
+                "../models/face_landmarker.task",
+                "../../models/face_landmarker.task",
+            ]
+
+            for path in possible_paths:
+                if os.path.exists(path):
+                    model_path = path
+                    break
+
+            if model_path is None:
+                # Model not found - provide instructions
+                raise FileNotFoundError(
+                    "Face landmarker model not found. Please download it:\n"
+                    "1. Download from: https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task\n"
+                    "2. Save to: models/face_landmarker.task\n"
+                    "Or specify model_path parameter."
+                )
+
+        # Create FaceLandmarker for both detection and landmarks
+        base_options = python.BaseOptions(model_asset_path=model_path)
+
+        options = vision.FaceLandmarkerOptions(
+            base_options=base_options,
+            running_mode=vision.RunningMode.IMAGE,
+            num_faces=5,
+            min_face_detection_confidence=0.7,
+            min_face_presence_confidence=0.5,
             min_tracking_confidence=0.5
         )
 
-        print("FaceDetector initialized successfully")
+        self.landmarker = vision.FaceLandmarker.create_from_options(options)
+
+        print(f"FaceDetector initialized successfully with model: {model_path}")
 
     def detect_faces(self, image: np.ndarray) -> Optional[List[Dict]]:
         """
@@ -51,7 +84,7 @@ class FaceDetector:
         Returns:
             List of dicts with:
             - bbox: {x, y, width, height} in pixels
-            - landmarks: List of 468 (x, y, z) tuples
+            - landmarks: List of 478 (x, y, z) tuples
             - confidence: Detection confidence score
 
         Raises:
@@ -62,43 +95,56 @@ class FaceDetector:
         rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         h, w, _ = image.shape
 
-        # Detect faces
-        detection_results = self.face_detection.process(rgb_image)
+        # Convert to MediaPipe Image format
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_image)
 
-        if not detection_results.detections:
+        # Detect faces and landmarks
+        detection_result = self.landmarker.detect(mp_image)
+
+        if not detection_result.face_landmarks:
             raise NoFaceDetectedError("No face detected in image")
 
         # Too many faces
-        if len(detection_results.detections) > 5:
+        if len(detection_result.face_landmarks) > 5:
             raise TooManyFacesError(
-                f"Found {len(detection_results.detections)} faces, maximum is 5"
+                f"Found {len(detection_result.face_landmarks)} faces, maximum is 5"
             )
 
-        # Extract landmarks
-        mesh_results = self.face_mesh.process(rgb_image)
-
-        if not mesh_results.multi_face_landmarks:
-            raise NoFaceDetectedError("Face detected but landmarks extraction failed")
-
         faces = []
-        for i, (detection, face_landmarks) in enumerate(
-            zip(detection_results.detections, mesh_results.multi_face_landmarks)
-        ):
-            bbox = detection.location_data.relative_bounding_box
+        for i, face_landmarks in enumerate(detection_result.face_landmarks):
+            # Get bounding box from landmarks
+            landmark_points = [(lm.x * w, lm.y * h) for lm in face_landmarks]
+            xs = [p[0] for p in landmark_points]
+            ys = [p[1] for p in landmark_points]
+
+            x_min, x_max = min(xs), max(xs)
+            y_min, y_max = min(ys), max(ys)
+
+            # Add padding to bbox
+            padding = 0.1
+            width = x_max - x_min
+            height = y_max - y_min
+            x_min = max(0, x_min - width * padding)
+            y_min = max(0, y_min - height * padding)
+            width = width * (1 + 2 * padding)
+            height = height * (1 + 2 * padding)
+
+            # Get confidence (default to 0.9 if not available)
+            confidence = 0.9
 
             # Convert relative to absolute coordinates
             face_data = {
                 'bbox': {
-                    'x': int(bbox.xmin * w),
-                    'y': int(bbox.ymin * h),
-                    'width': int(bbox.width * w),
-                    'height': int(bbox.height * h)
+                    'x': int(x_min),
+                    'y': int(y_min),
+                    'width': int(width),
+                    'height': int(height)
                 },
                 'landmarks': [
-                    (lm.x * w, lm.y * h, lm.z)
-                    for lm in face_landmarks.landmark
+                    (lm.x * w, lm.y * h, lm.z if hasattr(lm, 'z') else 0)
+                    for lm in face_landmarks
                 ],
-                'confidence': detection.score[0]
+                'confidence': confidence
             }
 
             faces.append(face_data)
@@ -182,17 +228,17 @@ class FaceDetector:
         # Phase 1 limits: Frontal faces only
         if abs(angles['yaw']) >= 45:
             raise FaceAngleTooExtremeError(
-                f"Yaw angle {angles['yaw']:.1f}° exceeds limit of 45°"
+                f"Yaw angle {angles['yaw']:.1f}deg exceeds limit of 45deg"
             )
 
         if abs(angles['pitch']) >= 30:
             raise FaceAngleTooExtremeError(
-                f"Pitch angle {angles['pitch']:.1f}° exceeds limit of 30°"
+                f"Pitch angle {angles['pitch']:.1f}deg exceeds limit of 30deg"
             )
 
         if abs(angles['roll']) >= 30:
             raise FaceAngleTooExtremeError(
-                f"Roll angle {angles['roll']:.1f}° exceeds limit of 30°"
+                f"Roll angle {angles['roll']:.1f}deg exceeds limit of 30deg"
             )
 
         return True
@@ -226,7 +272,5 @@ class FaceDetector:
 
     def __del__(self):
         """Clean up MediaPipe resources"""
-        if hasattr(self, 'face_detection'):
-            self.face_detection.close()
-        if hasattr(self, 'face_mesh'):
-            self.face_mesh.close()
+        if hasattr(self, 'landmarker'):
+            self.landmarker.close()

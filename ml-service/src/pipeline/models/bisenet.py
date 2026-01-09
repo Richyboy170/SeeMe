@@ -161,7 +161,8 @@ class BiSeNet(nn.Module):
         self.sp = SpatialPath()
 
         # Feature fusion
-        self.ffm = FeatureFusionModule(256, 256)
+        # Input: feat_sp (128) + feat_cp8 (256) + feat_cp16 (128) = 512 channels
+        self.ffm = FeatureFusionModule(512, 256)
 
         # Output head
         self.conv_out = nn.Conv2d(256, n_classes, kernel_size=1, stride=1, padding=0)
