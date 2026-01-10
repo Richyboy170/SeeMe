@@ -3,6 +3,7 @@ Configuration management for ML Service using Pydantic Settings
 """
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
+from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -14,12 +15,12 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
-    # AWS S3 Configuration
-    aws_access_key_id: str
-    aws_secret_access_key: str
+    # AWS S3 Configuration (Optional for local development)
+    aws_access_key_id: Optional[str] = None
+    aws_secret_access_key: Optional[str] = None
     aws_region: str = "us-east-1"
-    s3_bucket: str
-    cloudfront_url: str
+    s3_bucket: Optional[str] = None
+    cloudfront_url: Optional[str] = None
 
     # Redis Configuration
     redis_url: str = "redis://:seeme_redis_2026@localhost:6379/0"

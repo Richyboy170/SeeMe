@@ -10,6 +10,12 @@ import { connectRedis, disconnectRedis } from './config/redis';
 import { initializeFirebase } from './config/firebase';
 import authRoutes from './routes/auth';
 import postRoutes from './routes/posts';
+import feedRoutes from './routes/feed';
+import internalRoutes from './routes/internal';
+import followRoutes from './routes/follows';
+import likeRoutes from './routes/likes';
+import commentRoutes from './routes/comments';
+import coinsRoutes from './routes/coins';
 import { celeryClient } from './config/celery';
 
 // Load environment variables
@@ -52,9 +58,14 @@ app.get('/health', (_req: Request, res: Response) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
-// app.use('/api/users', userRoutes);
+app.use('/api/users', followRoutes);
 // app.use('/api/avatars', avatarRoutes);
 app.use('/api/posts', postRoutes);
+app.use('/api/feed', feedRoutes);
+app.use('/api/internal', internalRoutes);
+app.use('/api', likeRoutes);
+app.use('/api', commentRoutes);
+app.use('/api/coins', coinsRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response) => {

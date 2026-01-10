@@ -11,6 +11,8 @@ export interface UserAttributes {
   passwordHash: string;
   ageVerified: boolean;
   activeAvatarId: string | null;
+  positivityGiveCounter: number;
+  positivityRank: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -18,7 +20,7 @@ export interface UserAttributes {
 /**
  * Optional attributes for user creation
  */
-interface UserCreationAttributes extends Optional<UserAttributes, 'id' | 'ageVerified' | 'activeAvatarId' | 'createdAt' | 'updatedAt'> {}
+interface UserCreationAttributes extends Optional<UserAttributes, 'id' | 'ageVerified' | 'activeAvatarId' | 'positivityGiveCounter' | 'positivityRank' | 'createdAt' | 'updatedAt'> {}
 
 /**
  * User model representing registered users in the platform
@@ -30,6 +32,8 @@ export class User extends Model<UserAttributes, UserCreationAttributes> implemen
   public passwordHash!: string;
   public ageVerified!: boolean;
   public activeAvatarId!: string | null;
+  public positivityGiveCounter!: number;
+  public positivityRank!: string;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 }
@@ -84,6 +88,24 @@ User.init(
       allowNull: true,
       defaultValue: null,
       comment: 'ID of the currently active avatar'
+    },
+    positivityGiveCounter: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: false,
+      comment: 'Total number of coins given to others'
+    },
+    positivityRank: {
+      type: DataTypes.STRING(20),
+      defaultValue: 'beginner',
+      allowNull: false,
+      validate: {
+        isIn: {
+          args: [['beginner', 'kind', 'generous', 'inspirational', 'legend']],
+          msg: 'Invalid positivity rank'
+        }
+      },
+      comment: 'Positivity rank based on coins given'
     },
     createdAt: {
       type: DataTypes.DATE,

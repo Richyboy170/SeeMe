@@ -1,5 +1,6 @@
 import { Sequelize } from 'sequelize';
 import { logger } from '../utils/logger';
+import { setupAssociations } from '../models/associations';
 
 /**
  * PostgreSQL database connection using Sequelize ORM
@@ -32,6 +33,10 @@ export const sequelize = new Sequelize({
 export const connectPostgreSQL = async (): Promise<void> => {
   try {
     await sequelize.authenticate();
+
+    // Set up model associations
+    setupAssociations();
+
     logger.info('PostgreSQL connected successfully', {
       host: process.env.DB_HOST,
       database: process.env.DB_NAME

@@ -10,8 +10,12 @@
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
-    "migrate": "node dist/utils/migrate.js",
-    "seed": "node dist/utils/seed.js"
+    "migrate": "ts-node src/utils/migrate.ts",
+    "migrate:prod": "node dist/utils/migrate.js",
+    "seed": "node dist/utils/seed.js",
+    "test:feed": "ts-node src/tests/test_feed_system.ts",
+    "test:post": "ts-node src/tests/test_post_system.ts",
+    "test:all": "npm run test:post && npm run test:feed"
   },
   "keywords": [
     "avatar",
@@ -37,6 +41,7 @@
     "pg-hstore": "^2.3.4",
     "redis": "^4.6.12",
     "sequelize": "^6.35.2",
+    "sharp": "^0.34.5",
     "uuid": "^9.0.1",
     "winston": "^3.11.0"
   },

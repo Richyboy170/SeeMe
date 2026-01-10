@@ -1,0 +1,38 @@
+Loading image: ../testPic/image.jpg
+Image loaded: (162, 200, 3)
+
+============================================================
+Initializing IntegratedFacePipeline...
+============================================================
+FaceDetector initialized successfully with model: models/face_landmarker.task
+WARNING: No pretrained weights loaded. Model initialized with random weights.
+For production use, download pretrained BiSeNet weights.
+FaceParser initialized on cpu
+Initializing DepthEstimator on cpu...
+Loaded pretrained MiDaS DPT_Large model
+DepthEstimator initialized successfully on cpu
+NormalEstimator initialized successfully
+EdgeDetector initialized successfully
+
+Pipeline Configuration:
+  Workstreams: 1.1: Face Detection & Segmentation, 1.2: Structure Extraction
+  Device: cpu
+
+Active Components:
+  face_detector: active
+  face_parser: active
+  face_extractor: active
+  depth_estimator: active
+  normal_estimator: active
+  edge_detector: active
+
+============================================================
+Processing Image...
+============================================================
+
+============================================================
+PROCESSING RESULT: FAILED
+============================================================
+
+Error: 'masks'
+Error Type: UnexpectedError

@@ -6,6 +6,8 @@ import {
   StyleSheet,
   RefreshControl,
 } from 'react-native';
+import PostCard from '../../components/PostCard';
+import { api } from '../../services/api';
 
 export default function FeedScreen() {
   const [refreshing, setRefreshing] = React.useState(false);
@@ -13,8 +15,29 @@ export default function FeedScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    // Will fetch posts from API
-    setRefreshing(false);
+    try {
+      const data = await api.getFeed(1);
+      setPosts(data.posts || []);
+    } catch (error) {
+      console.error('Error fetching feed:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleLike = async (postId: string) => {
+    // TODO: Implement like functionality
+    console.log('Like post:', postId);
+  };
+
+  const handleComment = (postId: string) => {
+    // TODO: Navigate to comments screen
+    console.log('Comment on post:', postId);
+  };
+
+  const handleUserPress = (userId: string) => {
+    // TODO: Navigate to user profile
+    console.log('View user profile:', userId);
   };
 
   return (
@@ -23,9 +46,12 @@ export default function FeedScreen() {
         data={posts}
         keyExtractor={(item: any) => item.id}
         renderItem={({ item }) => (
-          <View style={styles.postCard}>
-            <Text>Post placeholder</Text>
-          </View>
+          <PostCard
+            post={item}
+            onLike={handleLike}
+            onComment={handleComment}
+            onUserPress={handleUserPress}
+          />
         )}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -46,12 +72,7 @@ export default function FeedScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
-  },
-  postCard: {
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    backgroundColor: '#F9FAFB',
   },
   empty: {
     flex: 1,

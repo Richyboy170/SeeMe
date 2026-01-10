@@ -118,6 +118,43 @@ class ApiClient {
     const response = await this.client.patch('/users/me', data);
     return response.data;
   }
+
+  // Coins methods
+  async getMyCoins() {
+    const response = await this.client.get('/coins/me');
+    return response.data;
+  }
+
+  async claimCooldownCoins() {
+    const response = await this.client.post('/coins/claim-cooldown');
+    return response.data;
+  }
+
+  async giveCoins(data: {
+    toUserId: string;
+    amount: number;
+    message?: string;
+    contextType?: string;
+    contextId?: string;
+  }) {
+    const response = await this.client.post('/coins/give', data);
+    return response.data;
+  }
+
+  async getCoinsHistory(limit: number = 50) {
+    const response = await this.client.get(`/coins/history?limit=${limit}`);
+    return response.data;
+  }
+
+  async getGiveLeaderboard(limit: number = 50) {
+    const response = await this.client.get(`/coins/leaderboard?limit=${limit}`);
+    return response.data;
+  }
+
+  async getGivingActivity(page: number = 1) {
+    const response = await this.client.get(`/coins/activity?page=${page}`);
+    return response.data;
+  }
 }
 
 export const api = new ApiClient();

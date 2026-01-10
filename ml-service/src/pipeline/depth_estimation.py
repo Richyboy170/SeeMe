@@ -39,33 +39,36 @@ class DepthEstimator:
 
         try:
             # Load MiDaS model
+            # Using DPT_Large for better compatibility with newer PyTorch/timm versions
             if model_path is not None:
                 # Load from local file
                 self.model = torch.hub.load(
                     "intel-isl/MiDaS",
-                    "DPT_BEiT_L_512",
-                    pretrained=False
+                    "DPT_Large",
+                    pretrained=False,
+                    trust_repo=True
                 )
-                self.model.load_state_dict(
-                    torch.load(model_path, map_location=self.device)
-                )
+                state_dict = torch.load(model_path, map_location=self.device)
+                self.model.load_state_dict(state_dict, strict=False)
                 print(f"Loaded MiDaS model from {model_path}")
             else:
-                # Download pretrained model from torch hub
+                # Download pretrained model
+                # DPT_Large is more stable and compatible than DPT_BEiT_L_512
                 self.model = torch.hub.load(
                     "intel-isl/MiDaS",
-                    "DPT_BEiT_L_512",
-                    pretrained=True
+                    "DPT_Large",
+                    pretrained=True,
+                    trust_repo=True
                 )
-                print("Loaded pretrained MiDaS model from torch hub")
+                print("Loaded pretrained MiDaS DPT_Large model")
 
             # Move model to device and set to eval mode
             self.model.to(self.device)
             self.model.eval()
 
-            # Load transform
+            # Load transform (matching DPT_Large model)
             midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
-            self.transform = midas_transforms.beit512_transform
+            self.transform = midas_transforms.dpt_transform
 
             print(f"DepthEstimator initialized successfully on {self.device}")
 
@@ -244,10 +247,13 @@ class DepthEstimator:
 
     def __del__(self):
         """Cleanup resources"""
-        if hasattr(self, 'model'):
-            del self.model
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        try:
+            if hasattr(self, 'model'):
+                del self.model
+            if torch is not None and hasattr(torch.cuda, 'is_available') and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except:
+            pass  # Ignore cleanup errors during shutdown
 
 
 if __name__ == "__main__":

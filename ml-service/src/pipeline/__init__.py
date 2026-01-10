@@ -17,6 +17,7 @@ from .face_extraction import FaceExtractor
 from .depth_estimation import DepthEstimator
 from .normal_estimation import NormalEstimator
 from .edge_detection import EdgeDetector
+from .integrated_pipeline import IntegratedFacePipeline
 
 __all__ = [
     # Exceptions
@@ -32,5 +33,7 @@ __all__ = [
     'DepthEstimator',
     'NormalEstimator',
     'EdgeDetector',
+    # Integrated pipeline
+    'IntegratedFacePipeline',
     'FACE_PARSING_CLASSES',
 ]

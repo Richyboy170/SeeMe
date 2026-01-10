@@ -3357,10 +3357,528 @@ export class PostController {
 - Image handling robust
 - Error handling comprehensive
 - API documented
+# PHASE 2
+## WORKSTREAM 2.1: POST CREATION & MANAGEMENT
+
+**Agent:** Backend Post Agent
+**Duration:** Weeks 14-16 (3 weeks)
+**Dependencies:** Phase 1 complete (CV pipeline working)
+**Output:** Complete post creation system with processing queue
 
 ---
 
-### **Task 2.1.2: S3 Integration & Image Management**
+### Task 2.1.1: Post Data Model & API
+
+**Conditions:**
+- [ ] Post model defined with all required fields
+- [ ] Database migrations created
+- [ ] CRUD API endpoints implemented
+- [ ] Image upload handling
+- [ ] Processing status tracking
+
+**Implementation Requirements:**
+
+**Database Schema:**
+```sql
+-- PostgreSQL schema
+CREATE TABLE posts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    
+    -- Image URLs
+    original_image_url TEXT NOT NULL,
+    processed_image_url TEXT,
+    thumbnail_url TEXT,
+    
+    -- Content
+    caption TEXT,
+    
+    -- Processing status
+    status VARCHAR(20) NOT NULL DEFAULT 'processing',
+        -- Values: 'processing', 'completed', 'failed'
+    processing_error TEXT,
+    processing_started_at TIMESTAMP,
+    processing_completed_at TIMESTAMP,
+    processing_time_seconds FLOAT,
+    
+    -- Avatar used
+    avatar_id VARCHAR(50),
+    
+    -- Engagement metrics
+    likes_count INTEGER DEFAULT 0,
+    comments_count INTEGER DEFAULT 0,
+    
+    -- Metadata
+    image_width INTEGER,
+    image_height INTEGER,
+    faces_detected INTEGER,
+    
+    -- Timestamps
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    
+    -- Indexes
+    INDEX idx_posts_user_created (user_id, created_at DESC),
+    INDEX idx_posts_status (status),
+    INDEX idx_posts_created (created_at DESC)
+);
+
+-- Trigger to update updated_at
+CREATE TRIGGER update_posts_updated_at
+    BEFORE UPDATE ON posts
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+```
+
+**Post Model (Sequelize):**
+```typescript
+// backend/src/models/Post.ts
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database';
+
+export class Post extends Model {
+    public id!: string;
+    public userId!: string;
+    public originalImageUrl!: string;
+    public processedImageUrl!: string | null;
+    public thumbnailUrl!: string | null;
+    public caption!: string | null;
+    public status!: 'processing' | 'completed' | 'failed';
+    public processingError!: string | null;
+    public processingStartedAt!: Date | null;
+    public processingCompletedAt!: Date | null;
+    public processingTimeSeconds!: number | null;
+    public avatarId!: string | null;
+    public likesCount!: number;
+    public commentsCount!: number;
+    public imageWidth!: number | null;
+    public imageHeight!: number | null;
+    public facesDetected!: number | null;
+    public createdAt!: Date;
+    public updatedAt!: Date;
+}
+
+Post.init({
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    userId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: {
+            model: 'users',
+            key: 'id'
+        },
+        onDelete: 'CASCADE'
+    },
+    originalImageUrl: {
+        type: DataTypes.TEXT,
+        allowNull: false
+    },
+    processedImageUrl: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    thumbnailUrl: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    caption: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+        validate: {
+            len: [0, 2200]  // Instagram-like caption length
+        }
+    },
+    status: {
+        type: DataTypes.ENUM('processing', 'completed', 'failed'),
+        allowNull: false,
+        defaultValue: 'processing'
+    },
+    processingError: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    processingStartedAt: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
+    processingCompletedAt: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
+    processingTimeSeconds: {
+        type: DataTypes.FLOAT,
+        allowNull: true
+    },
+    avatarId: {
+        type: DataTypes.STRING(50),
+        allowNull: true
+    },
+    likesCount: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+        allowNull: false
+    },
+    commentsCount: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+        allowNull: false
+    },
+    imageWidth: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+    },
+    imageHeight: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+    },
+    facesDetected: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+    }
+}, {
+    sequelize,
+    tableName: 'posts',
+    timestamps: true,
+    indexes: [
+        {
+            fields: ['userId', 'createdAt']
+        },
+        {
+            fields: ['status']
+        },
+        {
+            fields: ['createdAt']
+        }
+    ]
+});
+```
+
+**API Routes:**
+```typescript
+// backend/src/routes/posts.ts
+import { Router } from 'express';
+import multer from 'multer';
+import { authenticateToken } from '../middleware/auth';
+import { PostController } from '../controllers/PostController';
+
+const router = Router();
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 10 * 1024 * 1024  // 10MB limit
+    },
+    fileFilter: (req, file, cb) => {
+        // Only accept images
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only image files are allowed'));
+        }
+    }
+});
+
+// Create new post
+router.post(
+    '/',
+    authenticateToken,
+    upload.single('image'),
+    PostController.createPost
+);
+
+// Get post by ID
+router.get('/:postId', PostController.getPost);
+
+// Get post processing status
+router.get('/:postId/status', PostController.getPostStatus);
+
+// Update post (edit caption)
+router.put(
+    '/:postId',
+    authenticateToken,
+    PostController.updatePost
+);
+
+// Delete post
+router.delete(
+    '/:postId',
+    authenticateToken,
+    PostController.deletePost
+);
+
+// Get user's posts
+router.get(
+    '/user/:username',
+    PostController.getUserPosts
+);
+
+export default router;
+```
+
+**Post Controller:**
+```typescript
+// backend/src/controllers/PostController.ts
+import { Request, Response } from 'express';
+import { Post } from '../models/Post';
+import { User } from '../models/User';
+import { S3Service } from '../services/S3Service';
+import { MLService } from '../services/MLService';
+import { AuthRequest } from '../middleware/auth';
+import sharp from 'sharp';
+
+export class PostController {
+    static async createPost(req: AuthRequest, res: Response) {
+        try {
+            const { caption } = req.body;
+            const userId = req.user!.id;
+            
+            if (!req.file) {
+                return res.status(400).json({ error: 'Image file required' });
+            }
+            
+            // Get user's active avatar
+            const user = await User.findByPk(userId);
+            const avatarId = user?.activeAvatarId || 'default';
+            
+            // Get image dimensions
+            const metadata = await sharp(req.file.buffer).metadata();
+            const imageWidth = metadata.width;
+            const imageHeight = metadata.height;
+            
+            // Upload original image to S3
+            const originalKey = `originals/${userId}/${Date.now()}_${req.file.originalname}`;
+            const originalUrl = await S3Service.uploadImage(
+                req.file.buffer,
+                originalKey,
+                req.file.mimetype
+            );
+            
+            // Create post record
+            const post = await Post.create({
+                userId,
+                originalImageUrl: originalUrl,
+                caption: caption || null,
+                status: 'processing',
+                avatarId,
+                imageWidth,
+                imageHeight,
+                processingStartedAt: new Date()
+            });
+            
+            // Queue ML processing job
+            await MLService.queueProcessingJob({
+                postId: post.id,
+                userId,
+                originalImageUrl: originalUrl,
+                avatarId
+            });
+            
+            res.status(201).json({
+                postId: post.id,
+                status: 'processing',
+                message: 'Post created, processing avatar...',
+                estimatedTime: 10  // seconds
+            });
+            
+        } catch (error) {
+            console.error('Error creating post:', error);
+            res.status(500).json({ error: 'Failed to create post' });
+        }
+    }
+    
+    static async getPost(req: Request, res: Response) {
+        try {
+            const { postId } = req.params;
+            
+            const post = await Post.findByPk(postId, {
+                include: [{
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'username', 'activeAvatarId']
+                }]
+            });
+            
+            if (!post) {
+                return res.status(404).json({ error: 'Post not found' });
+            }
+            
+            res.json({
+                id: post.id,
+                user: post.user,
+                imageUrl: post.processedImageUrl || post.originalImageUrl,
+                thumbnailUrl: post.thumbnailUrl,
+                caption: post.caption,
+                status: post.status,
+                likesCount: post.likesCount,
+                commentsCount: post.commentsCount,
+                createdAt: post.createdAt
+            });
+            
+        } catch (error) {
+            console.error('Error getting post:', error);
+            res.status(500).json({ error: 'Failed to get post' });
+        }
+    }
+    
+    static async getPostStatus(req: Request, res: Response) {
+        try {
+            const { postId } = req.params;
+            
+            const post = await Post.findByPk(postId, {
+                attributes: [
+                    'id', 'status', 'processedImageUrl', 'thumbnailUrl',
+                    'processingError', 'processingTimeSeconds'
+                ]
+            });
+            
+            if (!post) {
+                return res.status(404).json({ error: 'Post not found' });
+            }
+            
+            res.json({
+                postId: post.id,
+                status: post.status,
+                processedImageUrl: post.processedImageUrl,
+                thumbnailUrl: post.thumbnailUrl,
+                error: post.processingError,
+                processingTime: post.processingTimeSeconds
+            });
+            
+        } catch (error) {
+            console.error('Error getting post status:', error);
+            res.status(500).json({ error: 'Failed to get status' });
+        }
+    }
+    
+    static async updatePost(req: AuthRequest, res: Response) {
+        try {
+            const { postId } = req.params;
+            const { caption } = req.body;
+            const userId = req.user!.id;
+            
+            const post = await Post.findByPk(postId);
+            
+            if (!post) {
+                return res.status(404).json({ error: 'Post not found' });
+            }
+            
+            if (post.userId !== userId) {
+                return res.status(403).json({ error: 'Not authorized' });
+            }
+            
+            await post.update({ caption });
+            
+            res.json({ message: 'Post updated', post });
+            
+        } catch (error) {
+            console.error('Error updating post:', error);
+            res.status(500).json({ error: 'Failed to update post' });
+        }
+    }
+    
+    static async deletePost(req: AuthRequest, res: Response) {
+        try {
+            const { postId } = req.params;
+            const userId = req.user!.id;
+            
+            const post = await Post.findByPk(postId);
+            
+            if (!post) {
+                return res.status(404).json({ error: 'Post not found' });
+            }
+            
+            if (post.userId !== userId) {
+                return res.status(403).json({ error: 'Not authorized' });
+            }
+            
+            // Delete images from S3
+            if (post.originalImageUrl) {
+                await S3Service.deleteImage(post.originalImageUrl);
+            }
+            if (post.processedImageUrl) {
+                await S3Service.deleteImage(post.processedImageUrl);
+            }
+            if (post.thumbnailUrl) {
+                await S3Service.deleteImage(post.thumbnailUrl);
+            }
+            
+            await post.destroy();
+            
+            res.json({ message: 'Post deleted' });
+            
+        } catch (error) {
+            console.error('Error deleting post:', error);
+            res.status(500).json({ error: 'Failed to delete post' });
+        }
+    }
+    
+    static async getUserPosts(req: Request, res: Response) {
+        try {
+            const { username } = req.params;
+            const page = parseInt(req.query.page as string) || 1;
+            const limit = 20;
+            const offset = (page - 1) * limit;
+            
+            // Find user by username
+            const user = await User.findOne({ where: { username } });
+            
+            if (!user) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+            
+            const { rows: posts, count } = await Post.findAndCountAll({
+                where: {
+                    userId: user.id,
+                    status: 'completed'  // Only show completed posts
+                },
+                order: [['createdAt', 'DESC']],
+                limit,
+                offset,
+                attributes: [
+                    'id', 'processedImageUrl', 'thumbnailUrl', 'caption',
+                    'likesCount', 'commentsCount', 'createdAt'
+                ]
+            });
+            
+            res.json({
+                posts,
+                pagination: {
+                    page,
+                    limit,
+                    total: count,
+                    totalPages: Math.ceil(count / limit)
+                }
+            });
+            
+        } catch (error) {
+            console.error('Error getting user posts:', error);
+            res.status(500).json({ error: 'Failed to get posts' });
+        }
+    }
+}
+```
+
+**Quality Checks:**
+- [ ] Can create post with image upload
+- [ ] Image uploads to S3 successfully
+- [ ] Post record created in database
+- [ ] Can retrieve post by ID
+- [ ] Can update caption
+- [ ] Can delete post (removes from S3 and DB)
+- [ ] Proper authorization checks
+
+**Acceptance Criteria:**
+- All CRUD operations work
+- Image handling robust
+- Error handling comprehensive
+- API documented
+
+---
+
+### Task 2.1.2: S3 Integration & Image Management
 
 **Conditions:**
 - [ ] S3 service class implemented
@@ -3630,7 +4148,7 @@ export class ImageProcessor {
 
 ---
 
-### **Task 2.1.3: ML Processing Queue Integration**
+### Task 2.1.3: ML Processing Queue Integration
 
 **Conditions:**
 - [ ] RabbitMQ queue configured
@@ -5994,6 +6512,2504 @@ const styles = StyleSheet.create({
 
 **Exit Criteria:** Basic social media app functional, ready for friends testing
 
+---
+
+# PHASE 2.5: POSITIVITY COINS & KINDNESS ECOSYSTEM
+
+**Duration:** 4 weeks (Weeks 19.5-22.5)
+**Goal:** Create gamified kindness system to encourage positive behavior
+**Dependencies:** Phase 2 complete (social features working)
+**Parallel with:** Early Phase 3 preparation
+
+---
+
+## OVERVIEW
+
+**Positivity Coins Philosophy:**
+> "What if we could measure and reward kindness? Positivity Coins make being kind feel as good as getting likes - but with real meaning."
+
+**Core Concept:**
+- Users earn Positivity Coins through kind actions
+- Coins can be given to others to show appreciation
+- "Give Counter" publicly displays how much positivity someone spreads
+- Free cooldown coins prevent pay-to-win
+- Encourages daily engagement through cooldown mechanics
+
+**Key Metrics:**
+- Coins given per user per week (target: 5+)
+- Give Counter visibility (on all profiles)
+- Daily active users claiming cooldown coins (target: 40%+)
+- Positive content increase (meaningful posts, kind comments)
+
+---
+
+## WORKSTREAM 2.5.1: COINS SYSTEM BACKEND
+
+**Agent:** Coins System Agent
+**Duration:** Week 1-2
+**Output:** Complete coins economy infrastructure
+
+---
+
+### **Task 2.5.1.1: Database Schema & Models**
+
+**Database Schema:**
+```sql
+-- Positivity Coins table
+CREATE TABLE positivity_coins (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    
+    -- Coin balances
+    total_coins INTEGER DEFAULT 0,  -- Total coins user currently has
+    lifetime_earned INTEGER DEFAULT 0,  -- Total coins ever earned
+    lifetime_given INTEGER DEFAULT 0,  -- Total coins ever given (for Give Counter)
+    
+    -- Cooldown system
+    cooldown_coins_available INTEGER DEFAULT 0,  -- 0-3 available cooldown coins
+    last_cooldown_claim TIMESTAMP,  -- When user last claimed cooldown coin
+    next_cooldown_available_at TIMESTAMP,  -- When next cooldown coin will be ready
+    
+    -- Stats
+    coins_from_posts INTEGER DEFAULT 0,
+    coins_from_comments INTEGER DEFAULT 0,
+    coins_from_ads INTEGER DEFAULT 0,
+    coins_from_cooldown INTEGER DEFAULT 0,
+    coins_from_other INTEGER DEFAULT 0,
+    
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    
+    INDEX idx_positivity_coins_user (user_id),
+    INDEX idx_positivity_coins_give_counter (lifetime_given DESC)
+);
+
+-- Coin transactions (history)
+CREATE TABLE coin_transactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    
+    from_user_id UUID REFERENCES users(id) ON DELETE SET NULL,  -- NULL if system-generated
+    to_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    
+    amount INTEGER NOT NULL,  -- Number of coins
+    transaction_type VARCHAR(30) NOT NULL,
+        -- Values: 'earned_post', 'earned_comment', 'earned_ad', 'earned_cooldown',
+        --         'given_to_user', 'received_from_user'
+    
+    -- Context
+    related_post_id UUID REFERENCES posts(id) ON DELETE SET NULL,
+    related_comment_id UUID REFERENCES comments(id) ON DELETE SET NULL,
+    message TEXT,  -- Optional message when giving coins
+    
+    created_at TIMESTAMP DEFAULT NOW(),
+    
+    INDEX idx_coin_transactions_from_user (from_user_id, created_at DESC),
+    INDEX idx_coin_transactions_to_user (to_user_id, created_at DESC),
+    INDEX idx_coin_transactions_type (transaction_type)
+);
+
+-- Coin giving activity (for notifications and feed)
+CREATE TABLE coin_giving_activity (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    
+    giver_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    receiver_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    
+    coins_amount INTEGER NOT NULL,
+    message TEXT,
+    
+    -- What triggered the gift
+    context_type VARCHAR(20),  -- 'post', 'comment', 'profile', 'general'
+    context_id UUID,  -- ID of post/comment if applicable
+    
+    created_at TIMESTAMP DEFAULT NOW(),
+    
+    INDEX idx_coin_giving_giver (giver_id, created_at DESC),
+    INDEX idx_coin_giving_receiver (receiver_id, created_at DESC)
+);
+
+-- Update users table
+ALTER TABLE users ADD COLUMN positivity_give_counter INTEGER DEFAULT 0;
+ALTER TABLE users ADD COLUMN positivity_rank VARCHAR(20) DEFAULT 'beginner';
+    -- Ranks: 'beginner', 'kind', 'generous', 'inspirational', 'legend'
+```
+
+**Sequelize Models:**
+```typescript
+// backend/src/models/PositivityCoins.ts
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database';
+
+export class PositivityCoins extends Model {
+    public userId!: string;
+    public totalCoins!: number;
+    public lifetimeEarned!: number;
+    public lifetimeGiven!: number;
+    
+    public cooldownCoinsAvailable!: number;
+    public lastCooldownClaim!: Date | null;
+    public nextCooldownAvailableAt!: Date | null;
+    
+    public coinsFromPosts!: number;
+    public coinsFromComments!: number;
+    public coinsFromAds!: number;
+    public coinsFromCooldown!: number;
+    public coinsFromOther!: number;
+    
+    public createdAt!: Date;
+    public updatedAt!: Date;
+}
+
+PositivityCoins.init({
+    userId: {
+        type: DataTypes.UUID,
+        primaryKey: true,
+        references: { model: 'users', key: 'id' }
+    },
+    totalCoins: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+        allowNull: false,
+        validate: { min: 0 }
+    },
+    lifetimeEarned: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+        allowNull: false
+    },
+    lifetimeGiven: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+        allowNull: false
+    },
+    cooldownCoinsAvailable: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+        allowNull: false,
+        validate: { min: 0, max: 3 }
+    },
+    lastCooldownClaim: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
+    nextCooldownAvailableAt: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
+    coinsFromPosts: { type: DataTypes.INTEGER, defaultValue: 0 },
+    coinsFromComments: { type: DataTypes.INTEGER, defaultValue: 0 },
+    coinsFromAds: { type: DataTypes.INTEGER, defaultValue: 0 },
+    coinsFromCooldown: { type: DataTypes.INTEGER, defaultValue: 0 },
+    coinsFromOther: { type: DataTypes.INTEGER, defaultValue: 0 }
+}, {
+    sequelize,
+    tableName: 'positivity_coins',
+    timestamps: true
+});
+
+// backend/src/models/CoinTransaction.ts
+export class CoinTransaction extends Model {
+    public id!: string;
+    public fromUserId!: string | null;
+    public toUserId!: string;
+    public amount!: number;
+    public transactionType!: string;
+    public relatedPostId!: string | null;
+    public relatedCommentId!: string | null;
+    public message!: string | null;
+    public createdAt!: Date;
+}
+
+CoinTransaction.init({
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    fromUserId: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: { model: 'users', key: 'id' }
+    },
+    toUserId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: { model: 'users', key: 'id' }
+    },
+    amount: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        validate: { min: 1 }
+    },
+    transactionType: {
+        type: DataTypes.STRING(30),
+        allowNull: false
+    },
+    relatedPostId: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: { model: 'posts', key: 'id' }
+    },
+    relatedCommentId: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: { model: 'comments', key: 'id' }
+    },
+    message: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    }
+}, {
+    sequelize,
+    tableName: 'coin_transactions',
+    timestamps: true,
+    updatedAt: false
+});
+
+// backend/src/models/CoinGivingActivity.ts
+export class CoinGivingActivity extends Model {
+    public id!: string;
+    public giverId!: string;
+    public receiverId!: string;
+    public coinsAmount!: number;
+    public message!: string | null;
+    public contextType!: string | null;
+    public contextId!: string | null;
+    public createdAt!: Date;
+}
+
+CoinGivingActivity.init({
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    giverId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: { model: 'users', key: 'id' }
+    },
+    receiverId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: { model: 'users', key: 'id' }
+    },
+    coinsAmount: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        validate: { min: 1 }
+    },
+    message: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    contextType: {
+        type: DataTypes.STRING(20),
+        allowNull: true
+    },
+    contextId: {
+        type: DataTypes.UUID,
+        allowNull: true
+    }
+}, {
+    sequelize,
+    tableName: 'coin_giving_activity',
+    timestamps: true,
+    updatedAt: false
+});
+
+// Associations
+import { User } from './User';
+
+User.hasOne(PositivityCoins, { foreignKey: 'userId', as: 'coins' });
+PositivityCoins.belongsTo(User, { foreignKey: 'userId' });
+
+CoinTransaction.belongsTo(User, { foreignKey: 'fromUserId', as: 'fromUser' });
+CoinTransaction.belongsTo(User, { foreignKey: 'toUserId', as: 'toUser' });
+
+CoinGivingActivity.belongsTo(User, { foreignKey: 'giverId', as: 'giver' });
+CoinGivingActivity.belongsTo(User, { foreignKey: 'receiverId', as: 'receiver' });
+```
+
+---
+
+### **Task 2.5.1.2: Coins Service Layer**
+
+**Core Coins Service:**
+```typescript
+// backend/src/services/CoinsService.ts
+import { sequelize } from '../config/database';
+import { PositivityCoins } from '../models/PositivityCoins';
+import { CoinTransaction } from '../models/CoinTransaction';
+import { CoinGivingActivity } from '../models/CoinGivingActivity';
+import { User } from '../models/User';
+
+const COOLDOWN_DURATION_MS = 3 * 60 * 60 * 1000;  // 3 hours
+const MAX_COOLDOWN_COINS = 3;
+
+export class CoinsService {
+    /**
+     * Initialize coins for new user
+     */
+    static async initializeUserCoins(userId: string): Promise<PositivityCoins> {
+        const coins = await PositivityCoins.create({
+            userId,
+            totalCoins: 3,  // Start with 3 free coins!
+            lifetimeEarned: 3,
+            cooldownCoinsAvailable: 0,
+            nextCooldownAvailableAt: new Date(Date.now() + COOLDOWN_DURATION_MS)
+        });
+        
+        // Record welcome transaction
+        await CoinTransaction.create({
+            fromUserId: null,  // System
+            toUserId: userId,
+            amount: 3,
+            transactionType: 'welcome_bonus'
+        });
+        
+        return coins;
+    }
+    
+    /**
+     * Get user's coin balance and cooldown status
+     */
+    static async getUserCoins(userId: string): Promise<{
+        totalCoins: number;
+        lifetimeGiven: number;
+        cooldownCoinsAvailable: number;
+        nextCooldownAt: Date | null;
+        minutesUntilNextCooldown: number | null;
+    }> {
+        let coins = await PositivityCoins.findByPk(userId);
+        
+        if (!coins) {
+            coins = await this.initializeUserCoins(userId);
+        }
+        
+        // Update cooldown coins if ready
+        await this.updateCooldownCoins(userId);
+        
+        // Refresh after update
+        coins = await PositivityCoins.findByPk(userId);
+        
+        const minutesUntilNext = coins!.nextCooldownAvailableAt
+            ? Math.max(0, Math.ceil((coins!.nextCooldownAvailableAt.getTime() - Date.now()) / (60 * 1000)))
+            : null;
+        
+        return {
+            totalCoins: coins!.totalCoins,
+            lifetimeGiven: coins!.lifetimeGiven,
+            cooldownCoinsAvailable: coins!.cooldownCoinsAvailable,
+            nextCooldownAt: coins!.nextCooldownAvailableAt,
+            minutesUntilNextCooldown: minutesUntilNext
+        };
+    }
+    
+    /**
+     * Update cooldown coins based on time elapsed
+     */
+    static async updateCooldownCoins(userId: string): Promise<void> {
+        const coins = await PositivityCoins.findByPk(userId);
+        if (!coins) return;
+        
+        const now = new Date();
+        
+        // If we have less than max cooldown coins and timer is up
+        if (coins.cooldownCoinsAvailable < MAX_COOLDOWN_COINS && 
+            coins.nextCooldownAvailableAt && 
+            now >= coins.nextCooldownAvailableAt) {
+            
+            // Calculate how many cooldown periods have passed
+            const msSinceLastCheck = now.getTime() - coins.nextCooldownAvailableAt.getTime();
+            const periodsElapsed = Math.floor(msSinceLastCheck / COOLDOWN_DURATION_MS) + 1;
+            
+            // Add coins (up to max)
+            const coinsToAdd = Math.min(
+                periodsElapsed,
+                MAX_COOLDOWN_COINS - coins.cooldownCoinsAvailable
+            );
+            
+            if (coinsToAdd > 0) {
+                const newCooldownCoins = coins.cooldownCoinsAvailable + coinsToAdd;
+                
+                // Set next cooldown time
+                const nextCooldownAt = newCooldownCoins >= MAX_COOLDOWN_COINS
+                    ? null  // Stop timer when at max
+                    : new Date(now.getTime() + COOLDOWN_DURATION_MS);
+                
+                await coins.update({
+                    cooldownCoinsAvailable: newCooldownCoins,
+                    nextCooldownAvailableAt: nextCooldownAt
+                });
+            }
+        }
+    }
+    
+    /**
+     * Claim cooldown coins
+     */
+    static async claimCooldownCoins(userId: string): Promise<{
+        coinsClaimed: number;
+        newBalance: number;
+    }> {
+        const transaction = await sequelize.transaction();
+        
+        try {
+            await this.updateCooldownCoins(userId);
+            
+            const coins = await PositivityCoins.findByPk(userId, { transaction });
+            if (!coins) throw new Error('Coins not initialized');
+            
+            if (coins.cooldownCoinsAvailable === 0) {
+                await transaction.rollback();
+                throw new Error('No cooldown coins available to claim');
+            }
+            
+            const coinsToClaim = coins.cooldownCoinsAvailable;
+            
+            // Move cooldown coins to main balance
+            await coins.update({
+                totalCoins: coins.totalCoins + coinsToClaim,
+                lifetimeEarned: coins.lifetimeEarned + coinsToClaim,
+                coinsFromCooldown: coins.coinsFromCooldown + coinsToClaim,
+                cooldownCoinsAvailable: 0,
+                lastCooldownClaim: new Date(),
+                nextCooldownAvailableAt: new Date(Date.now() + COOLDOWN_DURATION_MS)
+            }, { transaction });
+            
+            // Record transaction
+            await CoinTransaction.create({
+                fromUserId: null,
+                toUserId: userId,
+                amount: coinsToClaim,
+                transactionType: 'earned_cooldown'
+            }, { transaction });
+            
+            await transaction.commit();
+            
+            return {
+                coinsClaimed: coinsToClaim,
+                newBalance: coins.totalCoins + coinsToClaim
+            };
+            
+        } catch (error) {
+            await transaction.rollback();
+            throw error;
+        }
+    }
+    
+    /**
+     * Award coins for meaningful post
+     */
+    static async awardCoinsForPost(userId: string, postId: string): Promise<number> {
+        const COINS_PER_POST = 2;
+        
+        const transaction = await sequelize.transaction();
+        
+        try {
+            const coins = await PositivityCoins.findByPk(userId, { transaction });
+            if (!coins) throw new Error('Coins not initialized');
+            
+            await coins.update({
+                totalCoins: coins.totalCoins + COINS_PER_POST,
+                lifetimeEarned: coins.lifetimeEarned + COINS_PER_POST,
+                coinsFromPosts: coins.coinsFromPosts + COINS_PER_POST
+            }, { transaction });
+            
+            await CoinTransaction.create({
+                fromUserId: null,
+                toUserId: userId,
+                amount: COINS_PER_POST,
+                transactionType: 'earned_post',
+                relatedPostId: postId
+            }, { transaction });
+            
+            await transaction.commit();
+            
+            return COINS_PER_POST;
+            
+        } catch (error) {
+            await transaction.rollback();
+            throw error;
+        }
+    }
+    
+    /**
+     * Award coins for positive comment
+     */
+    static async awardCoinsForComment(userId: string, commentId: string): Promise<number> {
+        const COINS_PER_COMMENT = 1;
+        
+        const transaction = await sequelize.transaction();
+        
+        try {
+            const coins = await PositivityCoins.findByPk(userId, { transaction });
+            if (!coins) throw new Error('Coins not initialized');
+            
+            await coins.update({
+                totalCoins: coins.totalCoins + COINS_PER_COMMENT,
+                lifetimeEarned: coins.lifetimeEarned + COINS_PER_COMMENT,
+                coinsFromComments: coins.coinsFromComments + COINS_PER_COMMENT
+            }, { transaction });
+            
+            await CoinTransaction.create({
+                fromUserId: null,
+                toUserId: userId,
+                amount: COINS_PER_COMMENT,
+                transactionType: 'earned_comment',
+                relatedCommentId: commentId
+            }, { transaction });
+            
+            await transaction.commit();
+            
+            return COINS_PER_COMMENT;
+            
+        } catch (error) {
+            await transaction.rollback();
+            throw error;
+        }
+    }
+    
+    /**
+     * Award coins for watching ad
+     */
+    static async awardCoinsForAd(userId: string, adId: string): Promise<number> {
+        const COINS_PER_AD = 5;
+        const MAX_ADS_PER_DAY = 3;
+        
+        const transaction = await sequelize.transaction();
+        
+        try {
+            // Check how many ads watched today
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            const adsWatchedToday = await CoinTransaction.count({
+                where: {
+                    toUserId: userId,
+                    transactionType: 'earned_ad',
+                    createdAt: { [sequelize.Op.gte]: today }
+                }
+            });
+            
+            if (adsWatchedToday >= MAX_ADS_PER_DAY) {
+                await transaction.rollback();
+                throw new Error('Daily ad limit reached (max 3 per day)');
+            }
+            
+            const coins = await PositivityCoins.findByPk(userId, { transaction });
+            if (!coins) throw new Error('Coins not initialized');
+            
+            await coins.update({
+                totalCoins: coins.totalCoins + COINS_PER_AD,
+                lifetimeEarned: coins.lifetimeEarned + COINS_PER_AD,
+                coinsFromAds: coins.coinsFromAds + COINS_PER_AD
+            }, { transaction });
+            
+            await CoinTransaction.create({
+                fromUserId: null,
+                toUserId: userId,
+                amount: COINS_PER_AD,
+                transactionType: 'earned_ad',
+                message: adId
+            }, { transaction });
+            
+            await transaction.commit();
+            
+            return COINS_PER_AD;
+            
+        } catch (error) {
+            await transaction.rollback();
+            throw error;
+        }
+    }
+    
+    /**
+     * Give coins to another user
+     */
+    static async giveCoins(params: {
+        fromUserId: string;
+        toUserId: string;
+        amount: number;
+        message?: string;
+        contextType?: string;
+        contextId?: string;
+    }): Promise<{
+        success: boolean;
+        newBalance: number;
+        newGiveCounter: number;
+    }> {
+        const { fromUserId, toUserId, amount, message, contextType, contextId } = params;
+        
+        // Validation
+        if (fromUserId === toUserId) {
+            throw new Error('Cannot give coins to yourself');
+        }
+        
+        if (amount < 1 || amount > 100) {
+            throw new Error('Invalid coin amount (must be 1-100)');
+        }
+        
+        const transaction = await sequelize.transaction();
+        
+        try {
+            // Get giver's coins
+            const giverCoins = await PositivityCoins.findByPk(fromUserId, { transaction });
+            if (!giverCoins) throw new Error('Giver coins not initialized');
+            
+            if (giverCoins.totalCoins < amount) {
+                throw new Error('Insufficient coins');
+            }
+            
+            // Get receiver's coins
+            let receiverCoins = await PositivityCoins.findByPk(toUserId, { transaction });
+            if (!receiverCoins) {
+                receiverCoins = await this.initializeUserCoins(toUserId);
+            }
+            
+            // Get giver user for rank update
+            const giverUser = await User.findByPk(fromUserId, { transaction });
+            if (!giverUser) throw new Error('Giver not found');
+            
+            // Deduct from giver
+            await giverCoins.update({
+                totalCoins: giverCoins.totalCoins - amount,
+                lifetimeGiven: giverCoins.lifetimeGiven + amount
+            }, { transaction });
+            
+            // Add to receiver
+            await receiverCoins.update({
+                totalCoins: receiverCoins.totalCoins + amount,
+                lifetimeEarned: receiverCoins.lifetimeEarned + amount
+            }, { transaction });
+            
+            // Update giver's Give Counter on profile
+            const newGiveCounter = giverUser.positivityGiveCounter + amount;
+            await giverUser.update({
+                positivityGiveCounter: newGiveCounter,
+                positivityRank: this.calculateRank(newGiveCounter)
+            }, { transaction });
+            
+            // Record transactions
+            await CoinTransaction.create({
+                fromUserId,
+                toUserId,
+                amount,
+                transactionType: 'given_to_user',
+                message,
+                relatedPostId: contextType === 'post' ? contextId : null,
+                relatedCommentId: contextType === 'comment' ? contextId : null
+            }, { transaction });
+            
+            await CoinTransaction.create({
+                fromUserId,
+                toUserId,
+                amount,
+                transactionType: 'received_from_user',
+                message,
+                relatedPostId: contextType === 'post' ? contextId : null,
+                relatedCommentId: contextType === 'comment' ? contextId : null
+            }, { transaction });
+            
+            // Record giving activity (for feed/notifications)
+            await CoinGivingActivity.create({
+                giverId: fromUserId,
+                receiverId: toUserId,
+                coinsAmount: amount,
+                message,
+                contextType,
+                contextId
+            }, { transaction });
+            
+            await transaction.commit();
+            
+            // Send notification to receiver
+            // await NotificationService.notifyCoinsReceived(toUserId, fromUserId, amount, message);
+            
+            return {
+                success: true,
+                newBalance: giverCoins.totalCoins - amount,
+                newGiveCounter: newGiveCounter
+            };
+            
+        } catch (error) {
+            await transaction.rollback();
+            throw error;
+        }
+    }
+    
+    /**
+     * Calculate rank based on Give Counter
+     */
+    private static calculateRank(giveCounter: number): string {
+        if (giveCounter >= 1000) return 'legend';
+        if (giveCounter >= 500) return 'inspirational';
+        if (giveCounter >= 100) return 'generous';
+        if (giveCounter >= 20) return 'kind';
+        return 'beginner';
+    }
+    
+    /**
+     * Get leaderboard (top givers)
+     */
+    static async getGiveLeaderboard(limit: number = 50): Promise<Array<{
+        user: User;
+        giveCounter: number;
+        rank: string;
+    }>> {
+        const topGivers = await User.findAll({
+            order: [['positivityGiveCounter', 'DESC']],
+            limit,
+            attributes: ['id', 'username', 'activeAvatarId', 'positivityGiveCounter', 'positivityRank'],
+            where: {
+                positivityGiveCounter: { [sequelize.Op.gt]: 0 }
+            }
+        });
+        
+        return topGivers.map(user => ({
+            user,
+            giveCounter: user.positivityGiveCounter,
+            rank: user.positivityRank
+        }));
+    }
+    
+    /**
+     * Get user's coin transaction history
+     */
+    static async getTransactionHistory(
+        userId: string,
+        limit: number = 50
+    ): Promise<CoinTransaction[]> {
+        return await CoinTransaction.findAll({
+            where: {
+                [sequelize.Op.or]: [
+                    { fromUserId: userId },
+                    { toUserId: userId }
+                ]
+            },
+            include: [
+                { model: User, as: 'fromUser', attributes: ['id', 'username'] },
+                { model: User, as: 'toUser', attributes: ['id', 'username'] }
+            ],
+            order: [['createdAt', 'DESC']],
+            limit
+        });
+    }
+}
+```
+
+---
+
+### **Task 2.5.1.3: Coins API Endpoints**
+
+**API Routes:**
+```typescript
+// backend/src/routes/coins.ts
+import { Router } from 'express';
+import { authenticateToken } from '../middleware/auth';
+import { CoinsController } from '../controllers/CoinsController';
+
+const router = Router();
+
+// Get user's coin balance and status
+router.get('/me', authenticateToken, CoinsController.getMyCoins);
+
+// Claim cooldown coins
+router.post('/claim-cooldown', authenticateToken, CoinsController.claimCooldown);
+
+// Give coins to another user
+router.post('/give', authenticateToken, CoinsController.giveCoins);
+
+// Get transaction history
+router.get('/history', authenticateToken, CoinsController.getHistory);
+
+// Get leaderboard
+router.get('/leaderboard', CoinsController.getLeaderboard);
+
+// Get give activity feed
+router.get('/activity', CoinsController.getGivingActivity);
+
+// Record ad watch (internal)
+router.post('/reward-ad', authenticateToken, CoinsController.rewardAdWatch);
+
+export default router;
+```
+
+**Controller:**
+```typescript
+// backend/src/controllers/CoinsController.ts
+import { Request, Response } from 'express';
+import { CoinsService } from '../services/CoinsService';
+import { AuthRequest } from '../middleware/auth';
+
+export class CoinsController {
+    static async getMyCoins(req: AuthRequest, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const coins = await CoinsService.getUserCoins(userId);
+            
+            res.json({ coins });
+        } catch (error) {
+            console.error('Error getting coins:', error);
+            res.status(500).json({ error: 'Failed to get coins' });
+        }
+    }
+    
+    static async claimCooldown(req: AuthRequest, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const result = await CoinsService.claimCooldownCoins(userId);
+            
+            res.json({
+                message: `Claimed ${result.coinsClaimed} cooldown coins!`,
+                ...result
+            });
+        } catch (error) {
+            console.error('Error claiming cooldown:', error);
+            res.status(400).json({ error: error.message });
+        }
+    }
+    
+    static async giveCoins(req: AuthRequest, res: Response) {
+        try {
+            const fromUserId = req.user!.id;
+            const { toUserId, amount, message, contextType, contextId } = req.body;
+            
+            // Validation
+            if (!toUserId) {
+                return res.status(400).json({ error: 'Recipient required' });
+            }
+            
+            if (!amount || amount < 1) {
+                return res.status(400).json({ error: 'Invalid amount' });
+            }
+            
+            const result = await CoinsService.giveCoins({
+                fromUserId,
+                toUserId,
+                amount,
+                message,
+                contextType,
+                contextId
+            });
+            
+            res.json({
+                message: 'Coins given successfully!',
+                ...result
+            });
+        } catch (error) {
+            console.error('Error giving coins:', error);
+            res.status(400).json({ error: error.message });
+        }
+    }
+    
+    static async getHistory(req: AuthRequest, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const limit = parseInt(req.query.limit as string) || 50;
+            
+            const history = await CoinsService.getTransactionHistory(userId, limit);
+            
+            res.json({ history });
+        } catch (error) {
+            console.error('Error getting history:', error);
+            res.status(500).json({ error: 'Failed to get history' });
+        }
+    }
+    
+    static async getLeaderboard(req: Request, res: Response) {
+        try {
+            const limit = parseInt(req.query.limit as string) || 50;
+            const leaderboard = await CoinsService.getGiveLeaderboard(limit);
+            
+            res.json({ leaderboard });
+        } catch (error) {
+            console.error('Error getting leaderboard:', error);
+            res.status(500).json({ error: 'Failed to get leaderboard' });
+        }
+    }
+    
+    static async getGivingActivity(req: Request, res: Response) {
+        try {
+            const page = parseInt(req.query.page as string) || 1;
+            const limit = 20;
+            const offset = (page - 1) * limit;
+            
+            const { rows: activity, count } = await CoinGivingActivity.findAndCountAll({
+                include: [
+                    { model: User, as: 'giver', attributes: ['id', 'username', 'activeAvatarId'] },
+                    { model: User, as: 'receiver', attributes: ['id', 'username', 'activeAvatarId'] }
+                ],
+                order: [['createdAt', 'DESC']],
+                limit,
+                offset
+            });
+            
+            res.json({
+                activity,
+                pagination: {
+                    page,
+                    limit,
+                    total: count,
+                    totalPages: Math.ceil(count / limit)
+                }
+            });
+        } catch (error) {
+            console.error('Error getting activity:', error);
+            res.status(500).json({ error: 'Failed to get activity' });
+        }
+    }
+    
+    static async rewardAdWatch(req: AuthRequest, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const { adId } = req.body;
+            
+            if (!adId) {
+                return res.status(400).json({ error: 'Ad ID required' });
+            }
+            
+            const coinsEarned = await CoinsService.awardCoinsForAd(userId, adId);
+            
+            res.json({
+                message: `Earned ${coinsEarned} coins for watching ad!`,
+                coinsEarned
+            });
+        } catch (error) {
+            console.error('Error rewarding ad:', error);
+            res.status(400).json({ error: error.message });
+        }
+    }
+}
+```
+
+---
+
+## WORKSTREAM 2.5.2: MOBILE UI/UX
+
+**Agent:** Coins UI Agent
+**Duration:** Week 2-3
+**Output:** Beautiful, engaging coin system UI
+
+---
+
+### **Task 2.5.2.1: Coin Display Components**
+
+**Cooldown Coins Widget (3-coin stack icon):**
+```typescript
+// mobile/src/components/coins/CooldownCoinsWidget.tsx
+import React, { useEffect, useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import Animated, {
+    useSharedValue,
+    useAnimatedStyle,
+    withSpring,
+    withRepeat,
+    withSequence
+} from 'react-native-reanimated';
+
+interface CooldownCoinsWidgetProps {
+    cooldownCoinsAvailable: number;
+    minutesUntilNext: number | null;
+    onPress: () => void;
+}
+
+export default function CooldownCoinsWidget({
+    cooldownCoinsAvailable,
+    minutesUntilNext,
+    onPress
+}: CooldownCoinsWidgetProps) {
+    const scale = useSharedValue(1);
+    
+    // Pulse animation when coins available
+    useEffect(() => {
+        if (cooldownCoinsAvailable > 0) {
+            scale.value = withRepeat(
+                withSequence(
+                    withSpring(1.1),
+                    withSpring(1.0)
+                ),
+                -1,  // Infinite
+                true
+            );
+        } else {
+            scale.value = withSpring(1);
+        }
+    }, [cooldownCoinsAvailable]);
+    
+    const animatedStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: scale.value }]
+    }));
+    
+    const formatTimeUntilNext = (minutes: number | null): string => {
+        if (minutes === null) return '';
+        if (minutes === 0) return 'Ready!';
+        
+        const hours = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+        
+        if (hours > 0) {
+            return `${hours}h ${mins}m`;
+        }
+        return `${mins}m`;
+    };
+    
+    return (
+        <TouchableOpacity
+            style={styles.container}
+            onPress={onPress}
+            disabled={cooldownCoinsAvailable === 0}
+        >
+            <Animated.View style={[styles.iconContainer, animatedStyle]}>
+                {/* Stack of 3 coins */}
+                <View style={styles.coinStack}>
+                    {/* Bottom coin */}
+                    <View style={[styles.coin, styles.coin3, cooldownCoinsAvailable >= 1 && styles.coinActive]} />
+                    
+                    {/* Middle coin */}
+                    <View style={[styles.coin, styles.coin2, cooldownCoinsAvailable >= 2 && styles.coinActive]} />
+                    
+                    {/* Top coin */}
+                    <View style={[styles.coin, styles.coin1, cooldownCoinsAvailable >= 3 && styles.coinActive]} />
+                </View>
+                
+                {/* Badge showing count */}
+                {cooldownCoinsAvailable > 0 && (
+                    <View style={styles.badge}>
+                        <Text style={styles.badgeText}>{cooldownCoinsAvailable}</Text>
+                    </View>
+                )}
+            </Animated.View>
+            
+            <View style={styles.info}>
+                <Text style={styles.label}>Free Coins</Text>
+                {cooldownCoinsAvailable > 0 ? (
+                    <Text style={styles.ready}>Tap to claim!</Text>
+                ) : (
+                    <Text style={styles.timer}>{formatTimeUntilNext(minutesUntilNext)}</Text>
+                )}
+            </View>
+        </TouchableOpacity>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFF',
+        borderRadius: 16,
+        padding: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3
+    },
+    iconContainer: {
+        position: 'relative',
+        marginRight: 12
+    },
+    coinStack: {
+        width: 50,
+        height: 50,
+        position: 'relative'
+    },
+    coin: {
+        position: 'absolute',
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#D1D5DB',
+        borderWidth: 3,
+        borderColor: '#9CA3AF'
+    },
+    coin1: {
+        left: 10,
+        top: 0,
+        zIndex: 3
+    },
+    coin2: {
+        left: 5,
+        top: 5,
+        zIndex: 2
+    },
+    coin3: {
+        left: 0,
+        top: 10,
+        zIndex: 1
+    },
+    coinActive: {
+        backgroundColor: '#FBBF24',  // Gold
+        borderColor: '#F59E0B'
+    },
+    badge: {
+        position: 'absolute',
+        right: -5,
+        top: -5,
+        backgroundColor: '#EF4444',
+        borderRadius: 12,
+        minWidth: 24,
+        height: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 6
+    },
+    badgeText: {
+        color: '#FFF',
+        fontSize: 12,
+        fontWeight: 'bold'
+    },
+    info: {
+        flex: 1
+    },
+    label: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#374151',
+        marginBottom: 2
+    },
+    ready: {
+        fontSize: 13,
+        color: '#10B981',
+        fontWeight: '600'
+    },
+    timer: {
+        fontSize: 13,
+        color: '#6B7280'
+    }
+});
+```
+
+**Positivity Coins Balance Display:**
+```typescript
+// mobile/src/components/coins/CoinsBalance.tsx
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+
+interface CoinsBalanceProps {
+    totalCoins: number;
+    size?: 'small' | 'medium' | 'large';
+}
+
+export default function CoinsBalance({ totalCoins, size = 'medium' }: CoinsBalanceProps) {
+    const sizeStyles = {
+        small: {
+            container: styles.smallContainer,
+            icon: 16,
+            text: styles.smallText
+        },
+        medium: {
+            container: styles.mediumContainer,
+            icon: 20,
+            text: styles.mediumText
+        },
+        large: {
+            container: styles.largeContainer,
+            icon: 28,
+            text: styles.largeText
+        }
+    };
+    
+    const currentSize = sizeStyles[size];
+    
+    return (
+        <View style={[styles.container, currentSize.container]}>
+            <Ionicons name="heart" size={currentSize.icon} color="#FBBF24" />
+            <Text style={[styles.text, currentSize.text]}>
+                {totalCoins.toLocaleString()}
+            </Text>
+        </View>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFF',
+        borderRadius: 20,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 2
+    },
+    text: {
+        marginLeft: 6,
+        fontWeight: '700',
+        color: '#374151'
+    },
+    smallContainer: {
+        paddingHorizontal: 8,
+        paddingVertical: 4
+    },
+    smallText: {
+        fontSize: 13
+    },
+    mediumContainer: {
+        paddingHorizontal: 12,
+        paddingVertical: 6
+    },
+    mediumText: {
+        fontSize: 16
+    },
+    largeContainer: {
+        paddingHorizontal: 16,
+        paddingVertical: 8
+    },
+    largeText: {
+        fontSize: 20
+    }
+});
+```
+
+**Give Counter Badge (on profiles):**
+```typescript
+// mobile/src/components/coins/GiveCounterBadge.tsx
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+
+interface GiveCounterBadgeProps {
+    giveCounter: number;
+    rank: string;
+}
+
+export default function GiveCounterBadge({ giveCounter, rank }: GiveCounterBadgeProps) {
+    const rankColors = {
+        beginner: '#9CA3AF',
+        kind: '#60A5FA',
+        generous: '#A78BFA',
+        inspirational: '#F59E0B',
+        legend: '#EF4444'
+    };
+    
+    const rankEmojis = {
+        beginner: '🌱',
+        kind: '💙',
+        generous: '💜',
+        inspirational: '⭐',
+        legend: '🏆'
+    };
+    
+    return (
+        <View style={[styles.container, { borderColor: rankColors[rank] }]}>
+            <View style={styles.iconContainer}>
+                <Ionicons name="gift" size={20} color={rankColors[rank]} />
+            </View>
+            
+            <View style={styles.content}>
+                <View style={styles.row}>
+                    <Text style={styles.label}>Given</Text>
+                    <Text style={styles.emoji}>{rankEmojis[rank]}</Text>
+                </View>
+                <Text style={[styles.count, { color: rankColors[rank] }]}>
+                    {giveCounter.toLocaleString()}
+                </Text>
+                <Text style={[styles.rank, { color: rankColors[rank] }]}>
+                    {rank.charAt(0).toUpperCase() + rank.slice(1)}
+                </Text>
+            </View>
+        </View>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: {
+        flexDirection: 'row',
+        backgroundColor: '#FFF',
+        borderRadius: 12,
+        padding: 12,
+        borderWidth: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3
+    },
+    iconContainer: {
+        marginRight: 12,
+        justifyContent: 'center'
+    },
+    content: {
+        flex: 1
+    },
+    row: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 4
+    },
+    label: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#6B7280',
+        marginRight: 4
+    },
+    emoji: {
+        fontSize: 14
+    },
+    count: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        marginBottom: 2
+    },
+    rank: {
+        fontSize: 11,
+        fontWeight: '600',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5
+    }
+});
+```
+
+---
+
+### **Task 2.5.2.2: Coins Screens**
+
+**Main Coins Screen:**
+```typescript
+// mobile/src/screens/coins/CoinsScreen.tsx
+import React, { useState, useEffect } from 'react';
+import {
+    View,
+    ScrollView,
+    Text,
+    StyleSheet,
+    RefreshControl,
+    TouchableOpacity,
+    Alert
+} from 'react-native';
+import { api } from '../../services/api';
+import CooldownCoinsWidget from '../../components/coins/CooldownCoinsWidget';
+import CoinsBalance from '../../components/coins/CoinsBalance';
+import GiveCounterBadge from '../../components/coins/GiveCounterBadge';
+import { Ionicons } from '@expo/vector-icons';
+
+export default function CoinsScreen({ navigation }: any) {
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [coinsData, setCoinsData] = useState({
+        totalCoins: 0,
+        lifetimeGiven: 0,
+        cooldownCoinsAvailable: 0,
+        minutesUntilNextCooldown: null,
+        rank: 'beginner'
+    });
+    
+    useEffect(() => {
+        loadCoins();
+        
+        // Refresh every minute to update cooldown timer
+        const interval = setInterval(loadCoins, 60000);
+        return () => clearInterval(interval);
+    }, []);
+    
+    const loadCoins = async () => {
+        try {
+            const response = await api.getMyCoins();
+            setCoinsData({
+                totalCoins: response.coins.totalCoins,
+                lifetimeGiven: response.coins.lifetimeGiven,
+                cooldownCoinsAvailable: response.coins.cooldownCoinsAvailable,
+                minutesUntilNextCooldown: response.coins.minutesUntilNextCooldown,
+                rank: response.coins.rank || 'beginner'
+            });
+        } catch (error) {
+            console.error('Error loading coins:', error);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    };
+    
+    const handleClaimCooldown = async () => {
+        try {
+            const response = await api.claimCooldownCoins();
+            Alert.alert(
+                '🎉 Coins Claimed!',
+                `You received ${response.coinsClaimed} free coins!`,
+                [{ text: 'Awesome!', onPress: loadCoins }]
+            );
+        } catch (error) {
+            Alert.alert('Error', error.message || 'Failed to claim coins');
+        }
+    };
+    
+    const handleRefresh = () => {
+        setRefreshing(true);
+        loadCoins();
+    };
+    
+    return (
+        <ScrollView
+            style={styles.container}
+            refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            }
+        >
+            {/* Header */}
+            <View style={styles.header}>
+                <Text style={styles.title}>Positivity Coins</Text>
+                <Text style={styles.subtitle}>Spread kindness, earn rewards</Text>
+            </View>
+            
+            {/* Balance Card */}
+            <View style={styles.balanceCard}>
+                <Text style={styles.balanceLabel}>Your Balance</Text>
+                <CoinsBalance totalCoins={coinsData.totalCoins} size="large" />
+            </View>
+            
+            {/* Cooldown Coins */}
+            <View style={styles.section}>
+                <CooldownCoinsWidget
+                    cooldownCoinsAvailable={coinsData.cooldownCoinsAvailable}
+                    minutesUntilNext={coinsData.minutesUntilNextCooldown}
+                    onPress={handleClaimCooldown}
+                />
+                <Text style={styles.cooldownInfo}>
+                    💡 Free coins regenerate every 3 hours (max 3)
+                </Text>
+            </View>
+            
+            {/* Give Counter */}
+            <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Your Impact</Text>
+                <GiveCounterBadge
+                    giveCounter={coinsData.lifetimeGiven}
+                    rank={coinsData.rank}
+                />
+                <Text style={styles.giveInfo}>
+                    You've spread {coinsData.lifetimeGiven} positive vibes! Keep it up! 🌟
+                </Text>
+            </View>
+            
+            {/* Earn More Coins */}
+            <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Earn More Coins</Text>
+                
+                <EarnOption
+                    icon="create-outline"
+                    title="Write a Meaningful Post"
+                    reward="+2 coins"
+                    description="Share something positive or helpful"
+                    onPress={() => navigation.navigate('CreatePost')}
+                />
+                
+                <EarnOption
+                    icon="chatbubble-outline"
+                    title="Leave a Kind Comment"
+                    reward="+1 coin"
+                    description="Brighten someone's day"
+                    onPress={() => navigation.navigate('Feed')}
+                />
+                
+                <EarnOption
+                    icon="play-circle-outline"
+                    title="Watch an Ad"
+                    reward="+5 coins"
+                    description="Max 3 per day"
+                    onPress={() => navigation.navigate('WatchAd')}
+                />
+            </View>
+            
+            {/* Quick Actions */}
+            <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Quick Actions</Text>
+                
+                <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={() => navigation.navigate('CoinHistory')}
+                >
+                    <Ionicons name="list-outline" size={24} color="#007AFF" />
+                    <Text style={styles.actionText}>Transaction History</Text>
+                    <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={() => navigation.navigate('GiveLeaderboard')}
+                >
+                    <Ionicons name="trophy-outline" size={24} color="#F59E0B" />
+                    <Text style={styles.actionText}>Kindness Leaderboard</Text>
+                    <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={() => navigation.navigate('GiveActivity')}
+                >
+                    <Ionicons name="heart-outline" size={24} color="#EF4444" />
+                    <Text style={styles.actionText}>Recent Giving Activity</Text>
+                    <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+                </TouchableOpacity>
+            </View>
+        </ScrollView>
+    );
+}
+
+function EarnOption({ icon, title, reward, description, onPress }: any) {
+    return (
+        <TouchableOpacity style={styles.earnOption} onPress={onPress}>
+            <View style={styles.earnIcon}>
+                <Ionicons name={icon} size={28} color="#007AFF" />
+            </View>
+            <View style={styles.earnContent}>
+                <View style={styles.earnHeader}>
+                    <Text style={styles.earnTitle}>{title}</Text>
+                    <View style={styles.rewardBadge}>
+                        <Text style={styles.rewardText}>{reward}</Text>
+                    </View>
+                </View>
+                <Text style={styles.earnDescription}>{description}</Text>
+            </View>
+        </TouchableOpacity>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#F9FAFB'
+    },
+    header: {
+        padding: 20,
+        backgroundColor: '#FFF',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB'
+    },
+    title: {
+        fontSize: 28,
+        fontWeight: 'bold',
+        color: '#111827',
+        marginBottom: 4
+    },
+    subtitle: {
+        fontSize: 16,
+        color: '#6B7280'
+    },
+    balanceCard: {
+        backgroundColor: '#FFF',
+        margin: 16,
+        padding: 20,
+        borderRadius: 16,
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3
+    },
+    balanceLabel: {
+        fontSize: 14,
+        color: '#6B7280',
+        marginBottom: 12,
+        textTransform: 'uppercase',
+        letterSpacing: 1
+    },
+    section: {
+        padding: 16
+    },
+    sectionTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: '#111827',
+        marginBottom: 12
+    },
+    cooldownInfo: {
+        fontSize: 13,
+        color: '#6B7280',
+        marginTop: 12,
+        textAlign: 'center'
+    },
+    giveInfo: {
+        fontSize: 14,
+        color: '#6B7280',
+        marginTop: 12,
+        textAlign: 'center'
+    },
+    earnOption: {
+        flexDirection: 'row',
+        backgroundColor: '#FFF',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 2
+    },
+    earnIcon: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: '#EFF6FF',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 12
+    },
+    earnContent: {
+        flex: 1
+    },
+    earnHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 4
+    },
+    earnTitle: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#111827'
+    },
+    rewardBadge: {
+        backgroundColor: '#10B981',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 8
+    },
+    rewardText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#FFF'
+    },
+    earnDescription: {
+        fontSize: 14,
+        color: '#6B7280'
+    },
+    actionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFF',
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 2
+    },
+    actionText: {
+        flex: 1,
+        fontSize: 16,
+        fontWeight: '500',
+        color: '#111827',
+        marginLeft: 12
+    }
+});
+```
+
+**Give Coins Modal:**
+```typescript
+// mobile/src/components/coins/GiveCoinsModal.tsx
+import React, { useState } from 'react';
+import {
+    View,
+    Text,
+    Modal,
+    TextInput,
+    TouchableOpacity,
+    StyleSheet,
+    Alert,
+    ActivityIndicator
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { api } from '../../services/api';
+
+interface GiveCoinsModalProps {
+    visible: boolean;
+    recipientId: string;
+    recipientUsername: string;
+    contextType?: string;
+    contextId?: string;
+    onClose: () => void;
+    onSuccess: () => void;
+}
+
+export default function GiveCoinsModal({
+    visible,
+    recipientId,
+    recipientUsername,
+    contextType,
+    contextId,
+    onClose,
+    onSuccess
+}: GiveCoinsModalProps) {
+    const [amount, setAmount] = useState('1');
+    const [message, setMessage] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    
+    const presetAmounts = [1, 3, 5, 10];
+    
+    const handleGive = async () => {
+        const coinsAmount = parseInt(amount);
+        
+        if (isNaN(coinsAmount) || coinsAmount < 1 || coinsAmount > 100) {
+            Alert.alert('Invalid Amount', 'Please enter a number between 1 and 100');
+            return;
+        }
+        
+        setSubmitting(true);
+        
+        try {
+            await api.giveCoins({
+                toUserId: recipientId,
+                amount: coinsAmount,
+                message: message.trim() || undefined,
+                contextType,
+                contextId
+            });
+            
+            Alert.alert(
+                '💝 Coins Sent!',
+                `You gave ${coinsAmount} coin${coinsAmount > 1 ? 's' : ''} to @${recipientUsername}`,
+                [{ text: 'Great!', onPress: () => {
+                    onSuccess();
+                    onClose();
+                }}]
+            );
+        } catch (error) {
+            Alert.alert('Error', error.message || 'Failed to give coins');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+    
+    return (
+        <Modal
+            visible={visible}
+            transparent
+            animationType="fade"
+            onRequestClose={onClose}
+        >
+            <View style={styles.overlay}>
+                <View style={styles.modal}>
+                    {/* Header */}
+                    <View style={styles.header}>
+                        <Text style={styles.title}>Give Positivity Coins</Text>
+                        <TouchableOpacity onPress={onClose}>
+                            <Ionicons name="close" size={28} color="#6B7280" />
+                        </TouchableOpacity>
+                    </View>
+                    
+                    {/* Recipient */}
+                    <View style={styles.recipient}>
+                        <Ionicons name="person-circle" size={40} color="#9CA3AF" />
+                        <Text style={styles.recipientName}>@{recipientUsername}</Text>
+                    </View>
+                    
+                    {/* Amount Selection */}
+                    <View style={styles.section}>
+                        <Text style={styles.label}>How many coins?</Text>
+                        
+                        <View style={styles.presets}>
+                            {presetAmounts.map((preset) => (
+                                <TouchableOpacity
+                                    key={preset}
+                                    style={[
+                                        styles.presetButton,
+                                        amount === preset.toString() && styles.presetButtonActive
+                                    ]}
+                                    onPress={() => setAmount(preset.toString())}
+                                >
+                                    <Text style={[
+                                        styles.presetText,
+                                        amount === preset.toString() && styles.presetTextActive
+                                    ]}>
+                                        {preset}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                        
+                        <TextInput
+                            style={styles.amountInput}
+                            value={amount}
+                            onChangeText={setAmount}
+                            placeholder="Custom amount"
+                            keyboardType="number-pad"
+                            maxLength={3}
+                        />
+                    </View>
+                    
+                    {/* Message (Optional) */}
+                    <View style={styles.section}>
+                        <Text style={styles.label}>Add a message (optional)</Text>
+                        <TextInput
+                            style={styles.messageInput}
+                            value={message}
+                            onChangeText={setMessage}
+                            placeholder="You're awesome! 😊"
+                            multiline
+                            maxLength={200}
+                        />
+                        <Text style={styles.charCount}>{message.length}/200</Text>
+                    </View>
+                    
+                    {/* Actions */}
+                    <View style={styles.actions}>
+                        <TouchableOpacity
+                            style={styles.cancelButton}
+                            onPress={onClose}
+                        >
+                            <Text style={styles.cancelText}>Cancel</Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                            style={[styles.giveButton, submitting && styles.giveButtonDisabled]}
+                            onPress={handleGive}
+                            disabled={submitting}
+                        >
+                            {submitting ? (
+                                <ActivityIndicator color="#FFF" />
+                            ) : (
+                                <Text style={styles.giveText}>Give Coins 💝</Text>
+                            )}
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </View>
+        </Modal>
+    );
+}
+
+const styles = StyleSheet.create({
+    overlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20
+    },
+    modal: {
+        backgroundColor: '#FFF',
+        borderRadius: 20,
+        width: '100%',
+        maxWidth: 400,
+        padding: 20
+    },
+    header: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 20
+    },
+    title: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#111827'
+    },
+    recipient: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 16,
+        backgroundColor: '#F3F4F6',
+        borderRadius: 12,
+        marginBottom: 20
+    },
+    recipientName: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#111827',
+        marginLeft: 12
+    },
+    section: {
+        marginBottom: 20
+    },
+    label: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#374151',
+        marginBottom: 12
+    },
+    presets: {
+        flexDirection: 'row',
+        gap: 12,
+        marginBottom: 12
+    },
+    presetButton: {
+        flex: 1,
+        padding: 12,
+        borderRadius: 10,
+        borderWidth: 2,
+        borderColor: '#E5E7EB',
+        backgroundColor: '#FFF',
+        alignItems: 'center'
+    },
+    presetButtonActive: {
+        borderColor: '#FBBF24',
+        backgroundColor: '#FEF3C7'
+    },
+    presetText: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#6B7280'
+    },
+    presetTextActive: {
+        color: '#F59E0B'
+    },
+    amountInput: {
+        borderWidth: 2,
+        borderColor: '#E5E7EB',
+        borderRadius: 10,
+        padding: 12,
+        fontSize: 16
+    },
+    messageInput: {
+        borderWidth: 2,
+        borderColor: '#E5E7EB',
+        borderRadius: 10,
+        padding: 12,
+        fontSize: 16,
+        minHeight: 80,
+        textAlignVertical: 'top'
+    },
+    charCount: {
+        fontSize: 12,
+        color: '#9CA3AF',
+        textAlign: 'right',
+        marginTop: 4
+    },
+    actions: {
+        flexDirection: 'row',
+        gap: 12
+    },
+    cancelButton: {
+        flex: 1,
+        padding: 16,
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: '#E5E7EB',
+        alignItems: 'center'
+    },
+    cancelText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#6B7280'
+    },
+    giveButton: {
+        flex: 1,
+        padding: 16,
+        borderRadius: 12,
+        backgroundColor: '#EF4444',
+        alignItems: 'center'
+    },
+    giveButtonDisabled: {
+        backgroundColor: '#FCA5A5'
+    },
+    giveText: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#FFF'
+    }
+});
+```
+
+---
+
+## WORKSTREAM 2.5.3: INTEGRATION & GAMIFICATION
+
+**Agent:** Gamification Agent
+**Duration:** Week 3-4
+**Output:** Coins integrated throughout app
+
+---
+
+### **Task 2.5.3.1: Automatic Coin Awards**
+
+**Award Coins for Meaningful Posts:**
+```typescript
+// backend/src/controllers/PostController.ts (update createPost method)
+
+static async createPost(req: AuthRequest, res: Response) {
+    try {
+        const { caption } = req.body;
+        const userId = req.user!.id;
+        
+        // ... existing post creation logic ...
+        
+        // Check if post is "meaningful" (has caption with >20 chars)
+        if (caption && caption.trim().length >= 20) {
+            // Award coins for meaningful post
+            await CoinsService.awardCoinsForPost(userId, post.id);
+            
+            // Notify user
+            await NotificationService.sendNotification(userId, {
+                type: 'coins_earned',
+                title: 'Coins Earned! 🎉',
+                body: 'You earned 2 coins for your meaningful post!',
+                data: { coinsEarned: 2 }
+            });
+        }
+        
+        res.status(201).json({
+            postId: post.id,
+            status: 'processing',
+            coinsEarned: caption && caption.trim().length >= 20 ? 2 : 0
+        });
+        
+    } catch (error) {
+        // ... error handling ...
+    }
+}
+```
+
+**Award Coins for Positive Comments:**
+```typescript
+// backend/src/services/PositivityDetectionService.ts
+
+import { Configuration, OpenAIApi } from 'openai';
+
+export class PositivityDetectionService {
+    private static openai = new OpenAIApi(new Configuration({
+        apiKey: process.env.OPENAI_API_KEY
+    }));
+    
+    /**
+     * Detect if comment is positive/kind
+     * Returns true if positive, false otherwise
+     */
+    static async isPositiveComment(commentText: string): Promise<boolean> {
+        // Simple rule-based approach (fast, no API cost)
+        const positiveKeywords = [
+            'love', 'great', 'awesome', 'beautiful', 'amazing', 'wonderful',
+            'fantastic', 'excellent', 'nice', 'good', 'cool', 'thank', 'thanks',
+            'appreciate', 'helpful', 'inspiring', 'motivating', '❤️', '😊', '🙌',
+            '👏', '🎉', '💪', '✨', '🌟'
+        ];
+        
+        const lowerComment = commentText.toLowerCase();
+        
+        // At least 10 characters
+        if (commentText.length < 10) return false;
+        
+        // Contains positive keywords
+        const hasPositiveWords = positiveKeywords.some(word => 
+            lowerComment.includes(word)
+        );
+        
+        // Doesn't contain negative keywords
+        const negativeKeywords = ['hate', 'ugly', 'stupid', 'bad', 'terrible', 'awful'];
+        const hasNegativeWords = negativeKeywords.some(word =>
+            lowerComment.includes(word)
+        );
+        
+        return hasPositiveWords && !hasNegativeWords;
+    }
+}
+
+// backend/src/controllers/CommentController.ts (update createComment)
+
+static async createComment(req: AuthRequest, res: Response) {
+    const transaction = await sequelize.transaction();
+    
+    try {
+        const { postId } = req.params;
+        const { content } = req.body;
+        const userId = req.user!.id;
+        
+        // ... existing comment creation logic ...
+        
+        // Check if comment is positive
+        const isPositive = await PositivityDetectionService.isPositiveComment(content);
+        
+        if (isPositive) {
+            // Award coin for positive comment
+            await CoinsService.awardCoinsForComment(userId, comment.id);
+            
+            // Notify user
+            await NotificationService.sendNotification(userId, {
+                type: 'coins_earned',
+                title: 'Kindness Rewarded! 💙',
+                body: 'You earned 1 coin for spreading positivity!',
+                data: { coinsEarned: 1 }
+            });
+        }
+        
+        await transaction.commit();
+        
+        res.status(201).json({
+            message: 'Comment created',
+            comment: commentWithUser,
+            coinsEarned: isPositive ? 1 : 0
+        });
+        
+    } catch (error) {
+        await transaction.rollback();
+        // ... error handling ...
+    }
+}
+```
+
+---
+
+### **Task 2.5.3.2: Give Coins Integration**
+
+**Add "Give Coins" Button to Posts:**
+```typescript
+// mobile/src/components/PostCard.tsx (update)
+
+export default function PostCard({ post }: PostCardProps) {
+    const [giveModalVisible, setGiveModalVisible] = useState(false);
+    const { liked, likesCount, toggleLike } = useLike(post.likedByMe, post.likesCount);
+    
+    return (
+        <View style={styles.container}>
+            {/* ... existing post content ... */}
+            
+            {/* Actions */}
+            <View style={styles.actions}>
+                <View style={styles.leftActions}>
+                    <TouchableOpacity onPress={() => toggleLike(post.id)} style={styles.actionButton}>
+                        <Ionicons
+                            name={liked ? "heart" : "heart-outline"}
+                            size={28}
+                            color={liked ? "#FF3B30" : "#000"}
+                        />
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity onPress={() => handleComment()} style={styles.actionButton}>
+                        <Ionicons name="chatbubble-outline" size={26} color="#000" />
+                    </TouchableOpacity>
+                    
+                    {/* NEW: Give Coins Button */}
+                    <TouchableOpacity
+                        onPress={() => setGiveModalVisible(true)}
+                        style={styles.actionButton}
+                    >
+                        <Ionicons name="gift" size={26} color="#FBBF24" />
+                    </TouchableOpacity>
+                </View>
+            </View>
+            
+            {/* Give Coins Modal */}
+            <GiveCoinsModal
+                visible={giveModalVisible}
+                recipientId={post.user.id}
+                recipientUsername={post.user.username}
+                contextType="post"
+                contextId={post.id}
+                onClose={() => setGiveModalVisible(false)}
+                onSuccess={() => {
+                    // Optionally reload post or show animation
+                }}
+            />
+        </View>
+    );
+}
+```
+
+**Add "Give Coins" to User Profiles:**
+```typescript
+// mobile/src/screens/profile/ProfileScreen.tsx (update)
+
+export default function ProfileScreen({ route }: any) {
+    const { username } = route.params;
+    const [user, setUser] = useState(null);
+    const [giveModalVisible, setGiveModalVisible] = useState(false);
+    
+    // ... existing profile loading ...
+    
+    return (
+        <ScrollView style={styles.container}>
+            {/* Header */}
+            <View style={styles.header}>
+                <View style={styles.userInfo}>
+                    <Text style={styles.username}>@{user.username}</Text>
+                    
+                    {/* Give Counter Badge */}
+                    <GiveCounterBadge
+                        giveCounter={user.positivityGiveCounter}
+                        rank={user.positivityRank}
+                    />
+                </View>
+                
+                {/* NEW: Give Coins Button */}
+                {!isOwnProfile && (
+                    <TouchableOpacity
+                        style={styles.giveButton}
+                        onPress={() => setGiveModalVisible(true)}
+                    >
+                        <Ionicons name="gift" size={20} color="#FFF" />
+                        <Text style={styles.giveButtonText}>Give Coins</Text>
+                    </TouchableOpacity>
+                )}
+            </View>
+            
+            {/* ... rest of profile ... */}
+            
+            <GiveCoinsModal
+                visible={giveModalVisible}
+                recipientId={user.id}
+                recipientUsername={user.username}
+                contextType="profile"
+                onClose={() => setGiveModalVisible(false)}
+                onSuccess={() => loadProfile()}
+            />
+        </ScrollView>
+    );
+}
+
+const styles = StyleSheet.create({
+    // ... existing styles ...
+    giveButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FBBF24',
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3
+    },
+    giveButtonText: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: '#FFF',
+        marginLeft: 6
+    }
+});
+```
+
+---
+
+### **Task 2.5.3.3: Kindness Leaderboard**
+
+**Leaderboard Screen:**
+```typescript
+// mobile/src/screens/coins/GiveLeaderboardScreen.tsx
+
+import React, { useState, useEffect } from 'react';
+import { View, FlatList, Text, Image, StyleSheet } from 'react-native';
+import { api } from '../../services/api';
+import GiveCounterBadge from '../../components/coins/GiveCounterBadge';
+
+export default function GiveLeaderboardScreen() {
+    const [leaderboard, setLeaderboard] = useState([]);
+    const [loading, setLoading] = useState(true);
+    
+    useEffect(() => {
+        loadLeaderboard();
+    }, []);
+    
+    const loadLeaderboard = async () => {
+        try {
+            const response = await api.getGiveLeaderboard();
+            setLeaderboard(response.leaderboard);
+        } catch (error) {
+            console.error('Error loading leaderboard:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    const renderItem = ({ item, index }: any) => (
+        <View style={styles.item}>
+            {/* Rank */}
+            <View style={[styles.rankBadge, index < 3 && styles.rankBadgeTop]}>
+                {index < 3 ? (
+                    <Text style={styles.medal}>
+                        {index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
+                    </Text>
+                ) : (
+                    <Text style={styles.rankNumber}>{index + 1}</Text>
+                )}
+            </View>
+            
+            {/* User Info */}
+            <View style={styles.userInfo}>
+                <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>👤</Text>
+                </View>
+                <View style={styles.details}>
+                    <Text style={styles.username}>@{item.user.username}</Text>
+                    <Text style={styles.rankLabel}>{item.rank}</Text>
+                </View>
+            </View>
+            
+            {/* Give Counter */}
+            <View style={styles.counter}>
+                <Text style={styles.counterNumber}>{item.giveCounter}</Text>
+                <Text style={styles.counterLabel}>given</Text>
+            </View>
+        </View>
+    );
+    
+    return (
+        <View style={styles.container}>
+            <View style={styles.header}>
+                <Text style={styles.title}>Kindness Leaderboard</Text>
+                <Text style={styles.subtitle}>
+                    Top spreaders of positivity 🌟
+                </Text>
+            </View>
+            
+            <FlatList
+                data={leaderboard}
+                keyExtractor={(item) => item.user.id}
+                renderItem={renderItem}
+                contentContainerStyle={styles.list}
+            />
+        </View>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#F9FAFB'
+    },
+    header: {
+        backgroundColor: '#FFF',
+        padding: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB'
+    },
+    title: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#111827',
+        marginBottom: 4
+    },
+    subtitle: {
+        fontSize: 15,
+        color: '#6B7280'
+    },
+    list: {
+        padding: 16
+    },
+    item: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFF',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 2
+    },
+    rankBadge: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#F3F4F6',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 12
+    },
+    rankBadgeTop: {
+        backgroundColor: '#FEF3C7'
+    },
+    medal: {
+        fontSize: 24
+    },
+    rankNumber: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#6B7280'
+    },
+    userInfo: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center'
+    },
+    avatar: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: '#E5E7EB',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 12
+    },
+    avatarText: {
+        fontSize: 24
+    },
+    details: {
+        flex: 1
+    },
+    username: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#111827',
+        marginBottom: 2
+    },
+    rankLabel: {
+        fontSize: 13,
+        color: '#6B7280',
+        textTransform: 'capitalize'
+    },
+    counter: {
+        alignItems: 'flex-end'
+    },
+    counterNumber: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#FBBF24'
+    },
+    counterLabel: {
+        fontSize: 12,
+        color: '#9CA3AF'
+    }
+});
+```
+
+---
+
+## PHASE 2.5 COMPLETION CRITERIA
+
+**Required Features:**
+- [ ] Cooldown coins system working (3 hours, max 3)
+- [ ] Users can claim cooldown coins
+- [ ] Coins awarded for meaningful posts (>20 chars caption)
+- [ ] Coins awarded for positive comments
+- [ ] Coins awarded for watching ads (max 3/day)
+- [ ] Users can give coins to others
+- [ ] Give Counter displayed on profiles
+- [ ] Ranks calculated and displayed
+- [ ] Transaction history accessible
+- [ ] Leaderboard showing top givers
+- [ ] Give activity feed visible
+
+**UI/UX Quality:**
+- [ ] Cooldown widget shows 3-coin stack
+- [ ] Coin balance displayed as integer
+- [ ] Give Counter badge beautiful and prominent
+- [ ] Animations smooth (pulse on available cooldown)
+- [ ] Modal for giving coins intuitive
+- [ ] Clear feedback on all actions
+
+**Integration:**
+- [ ] Give coins button on posts
+- [ ] Give coins button on profiles
+- [ ] Coins screen in main navigation
+- [ ] Notifications for coins earned/received
+- [ ] Automatic coin awards working
+
+**Metrics Targets (Week 1 post-launch):**
+- [ ] 60%+ users claim cooldown coins daily
+- [ ] 3+ coins given per active user per week
+- [ ] 40%+ of posts earn coins (meaningful)
+- [ ] 20%+ of comments earn coins (positive)
+- [ ] 10+ users on leaderboard with 20+ given
+
+**Exit Criteria:** Positivity Coins fully functional, users actively giving and earning
+
+---
+
+This completes Phase 2.5! The Positivity Coins system adds a unique gamification layer that encourages kindness and positive behavior while driving daily engagement through the cooldown mechanic. 🎉💝
 ---
 
 # PHASE 3: MVP LAUNCH - FRIENDS TESTING

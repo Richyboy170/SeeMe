@@ -10,7 +10,12 @@ import numpy as np
 from typing import Dict
 import os
 
-from .models.bisenet import BiSeNet
+try:
+    # Try to use pretrained-compatible architecture first
+    from .models.bisenet_pretrained import BiSeNet
+except ImportError:
+    # Fallback to original architecture
+    from .models.bisenet import BiSeNet
 
 
 # Face parsing classes (BiSeNet 19 classes)
@@ -59,7 +64,8 @@ class FaceParser:
         # Load pretrained weights if provided
         if model_path and os.path.exists(model_path):
             state_dict = torch.load(model_path, map_location=self.device)
-            self.model.load_state_dict(state_dict)
+            # Use strict=False to ignore missing keys (like fc layer from ResNet)
+            self.model.load_state_dict(state_dict, strict=False)
             print(f"Loaded BiSeNet weights from {model_path}")
         else:
             print("WARNING: No pretrained weights loaded. Model initialized with random weights.")

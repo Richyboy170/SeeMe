@@ -48,7 +48,21 @@
       "Bash(python -m json.tool:*)",
       "Bash(mkdir:*)",
       "Bash(python:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(git ls-files:*)",
+      "Bash(timeout 120 python:*)",
+      "Bash(timeout 180 python:*)",
+      "Bash(echo:*)",
+      "Bash(node:*)",
+      "Bash(ls:*)",
+      "Bash(tree:*)",
+      "Bash(if [ -d \"mobile/src\" ])",
+      "Bash(then echo \"mobile/src exists\")",
+      "Bash(elif [ -d \"mobile\" ])",
+      "Bash(then ls -la mobile)",
+      "Bash(else echo \"No mobile directory found\")",
+      "Bash(fi)",
+      "Bash(npx expo start -c)"
     ]
   }
 }

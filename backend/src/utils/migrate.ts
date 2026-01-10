@@ -4,6 +4,13 @@ import { logger } from './logger';
 // Import models to register them with Sequelize
 import User from '../models/User';
 import Post from '../models/Post';
+import Follow from '../models/Follow';
+import Like from '../models/Like';
+import Comment from '../models/Comment';
+import PositivityCoins from '../models/PositivityCoins';
+import CoinTransaction from '../models/CoinTransaction';
+import CoinGivingActivity from '../models/CoinGivingActivity';
+import { setupAssociations } from '../models/associations';
 
 // Load environment variables
 dotenv.config();
@@ -15,12 +22,16 @@ dotenv.config();
 async function migrate(): Promise<void> {
   try {
     // Reference models to ensure they're registered with Sequelize
-    const models = [User, Post];
+    const models = [User, Post, Follow, Like, Comment, PositivityCoins, CoinTransaction, CoinGivingActivity];
     logger.info(`Starting database migration for ${models.length} models...`);
 
     // Test database connection
     await sequelize.authenticate();
     logger.info('Database connection established');
+
+    // Set up model associations before syncing
+    setupAssociations();
+    logger.info('Model associations configured');
 
     // Sync all models with database
     // In production, use proper migrations with sequelize-cli
@@ -28,7 +39,7 @@ async function migrate(): Promise<void> {
     await sequelize.sync({ alter: process.env.NODE_ENV === 'development' });
 
     logger.info('Database migration completed successfully');
-    logger.info('Tables created/updated: users, posts');
+    logger.info('Tables created/updated: users, posts, follows, likes, comments, positivity_coins, coin_transactions, coin_giving_activity');
 
     // Close connection
     await sequelize.close();
