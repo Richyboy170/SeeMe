@@ -109,19 +109,19 @@ Comment.init(
     indexes: [
       {
         name: 'idx_comments_post_created',
-        fields: ['postId', 'createdAt']
+        fields: ['post_id', 'created_at']
       },
       {
         name: 'idx_comments_user',
-        fields: ['userId']
+        fields: ['user_id']
       },
       {
         name: 'idx_comments_parent',
-        fields: ['parentCommentId']
+        fields: ['parent_comment_id']
       },
       {
         name: 'idx_comments_created',
-        fields: ['createdAt']
+        fields: ['created_at']
       }
     ]
   }

@@ -1,18 +1,43 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 
 interface CooldownCoinsWidgetProps {
     cooldownCoinsAvailable: number;
     minutesUntilNext: number | null;
+    secondsUntilNext: number | null;
     onPress: () => void;
 }
 
 export default function CooldownCoinsWidget({
     cooldownCoinsAvailable,
     minutesUntilNext,
+    secondsUntilNext,
     onPress
 }: CooldownCoinsWidgetProps) {
     const scaleAnim = useRef(new Animated.Value(1)).current;
+    const [localSecondsRemaining, setLocalSecondsRemaining] = useState<number | null>(secondsUntilNext);
+
+    // Update local countdown every second
+    useEffect(() => {
+        setLocalSecondsRemaining(secondsUntilNext);
+    }, [secondsUntilNext]);
+
+    useEffect(() => {
+        if (localSecondsRemaining === null || localSecondsRemaining <= 0) {
+            return;
+        }
+
+        const interval = setInterval(() => {
+            setLocalSecondsRemaining(prev => {
+                if (prev === null || prev <= 1) {
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [localSecondsRemaining]);
 
     // Pulse animation when coins available
     useEffect(() => {
@@ -34,17 +59,20 @@ export default function CooldownCoinsWidget({
         }
     }, [cooldownCoinsAvailable]);
 
-    const formatTimeUntilNext = (minutes: number | null): string => {
-        if (minutes === null) return '';
-        if (minutes === 0) return 'Ready!';
+    const formatTimeUntilNext = (seconds: number | null): string => {
+        if (seconds === null || seconds === undefined || isNaN(seconds)) return '';
+        if (seconds <= 0) return 'Ready!';
 
-        const hours = Math.floor(minutes / 60);
-        const mins = minutes % 60;
+        const hours = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
 
         if (hours > 0) {
-            return `${hours}h ${mins}m`;
+            return `${hours}h ${mins}m ${secs}s`;
+        } else if (mins > 0) {
+            return `${mins}m ${secs}s`;
         }
-        return `${mins}m`;
+        return `${secs}s`;
     };
 
     return (
@@ -79,7 +107,7 @@ export default function CooldownCoinsWidget({
                 {cooldownCoinsAvailable > 0 ? (
                     <Text style={styles.ready}>Tap to claim!</Text>
                 ) : (
-                    <Text style={styles.timer}>{formatTimeUntilNext(minutesUntilNext)}</Text>
+                    <Text style={styles.timer}>{formatTimeUntilNext(localSecondsRemaining)}</Text>
                 )}
             </View>
         </TouchableOpacity>

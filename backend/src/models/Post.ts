@@ -204,7 +204,7 @@ Post.init(
     indexes: [
       {
         name: 'idx_posts_user_created',
-        fields: ['userId', 'createdAt']
+        fields: ['user_id', 'created_at']
       },
       {
         name: 'idx_posts_status',
@@ -212,7 +212,7 @@ Post.init(
       },
       {
         name: 'idx_posts_created',
-        fields: ['createdAt']
+        fields: ['created_at']
       }
     ]
   }

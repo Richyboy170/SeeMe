@@ -146,15 +146,15 @@ CoinTransaction.init(
     indexes: [
       {
         name: 'idx_coin_transactions_from_user',
-        fields: ['fromUserId', { name: 'createdAt', order: 'DESC' }]
+        fields: ['from_user_id', { name: 'created_at', order: 'DESC' }]
       },
       {
         name: 'idx_coin_transactions_to_user',
-        fields: ['toUserId', { name: 'createdAt', order: 'DESC' }]
+        fields: ['to_user_id', { name: 'created_at', order: 'DESC' }]
       },
       {
         name: 'idx_coin_transactions_type',
-        fields: ['transactionType']
+        fields: ['transaction_type']
       }
     ]
   }

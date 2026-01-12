@@ -69,19 +69,19 @@ Like.init(
       {
         unique: true,
         name: 'unique_user_post_like',
-        fields: ['userId', 'postId']
+        fields: ['user_id', 'post_id']
       },
       {
         name: 'idx_likes_post',
-        fields: ['postId']
+        fields: ['post_id']
       },
       {
         name: 'idx_likes_user',
-        fields: ['userId']
+        fields: ['user_id']
       },
       {
         name: 'idx_likes_created',
-        fields: ['createdAt']
+        fields: ['created_at']
       }
     ]
   }

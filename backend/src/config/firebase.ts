@@ -57,4 +57,11 @@ export const getFirebaseStorage = () => {
   return admin.storage();
 };
 
+/**
+ * Returns the Firebase Admin Messaging instance
+ */
+export const getFirebaseMessaging = () => {
+  return admin.messaging();
+};
+
 export default admin;

@@ -8,11 +8,17 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  FlatList,
+  Dimensions,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../services/api';
 import GiveCounterBadge from '../../components/coins/GiveCounterBadge';
 import GiveCoinsModal from '../../components/coins/GiveCoinsModal';
+
+const { width } = Dimensions.get('window');
+const IMAGE_SIZE = width / 3;
 
 interface ProfileScreenProps {
   route?: {
@@ -26,14 +32,20 @@ interface ProfileScreenProps {
 export default function ProfileScreen({ route }: ProfileScreenProps) {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
+  const [posts, setPosts] = useState<any[]>([]);
+  const [loadingPosts, setLoadingPosts] = useState(false);
   const [isOwnProfile, setIsOwnProfile] = useState(true);
   const [giveModalVisible, setGiveModalVisible] = useState(false);
 
   const userId = route?.params?.userId;
+  const username = route?.params?.username;
 
-  useEffect(() => {
-    loadProfile();
-  }, [userId]);
+  useFocusEffect(
+    React.useCallback(() => {
+      loadProfile();
+      loadPosts();
+    }, [userId, username])
+  );
 
   const loadProfile = async () => {
     setLoading(true);
@@ -46,6 +58,18 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
       Alert.alert('Error', 'Failed to load profile');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadPosts = async () => {
+    setLoadingPosts(true);
+    try {
+      const data = await api.getUserPosts(username);
+      setPosts(data.posts || []);
+    } catch (error) {
+      console.error('Error loading posts:', error);
+    } finally {
+      setLoadingPosts(false);
     }
   };
 
@@ -176,14 +200,34 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
         <Text style={styles.sectionTitle}>
           {isOwnProfile ? 'My Posts' : 'Posts'}
         </Text>
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>No posts yet</Text>
-          <Text style={styles.emptySubtext}>
-            {isOwnProfile
-              ? 'Start creating posts to see them here'
-              : 'This user hasn\'t posted anything yet'}
-          </Text>
-        </View>
+        {loadingPosts ? (
+          <ActivityIndicator size="small" color="#FBBF24" style={{ marginTop: 20 }} />
+        ) : posts.length > 0 ? (
+          <FlatList
+            data={posts}
+            keyExtractor={(item) => item.id}
+            numColumns={3}
+            scrollEnabled={false}
+            renderItem={({ item }) => (
+              <TouchableOpacity style={styles.gridItem}>
+                <Image
+                  source={{ uri: item.imageUrl }}
+                  style={styles.gridImage}
+                  resizeMode="cover"
+                />
+              </TouchableOpacity>
+            )}
+          />
+        ) : (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyText}>No posts yet</Text>
+            <Text style={styles.emptySubtext}>
+              {isOwnProfile
+                ? 'Start creating posts to see them here'
+                : 'This user hasn\'t posted anything yet'}
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Give Coins Modal */}
@@ -309,6 +353,16 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 15,
+  },
+  gridItem: {
+    width: IMAGE_SIZE,
+    height: IMAGE_SIZE,
+    padding: 1,
+  },
+  gridImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#f0f0f0',
   },
   emptyState: {
     alignItems: 'center',

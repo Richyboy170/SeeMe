@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import http from 'http';
 import helmet from 'helmet';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -8,14 +9,18 @@ import { connectPostgreSQL, disconnectPostgreSQL } from './config/database';
 import { connectMongoDB, disconnectMongoDB } from './config/mongodb';
 import { connectRedis, disconnectRedis } from './config/redis';
 import { initializeFirebase } from './config/firebase';
+import { initializeSocket } from './socket';
 import authRoutes from './routes/auth';
 import postRoutes from './routes/posts';
 import feedRoutes from './routes/feed';
 import internalRoutes from './routes/internal';
+import userRoutes from './routes/users';
 import followRoutes from './routes/follows';
 import likeRoutes from './routes/likes';
 import commentRoutes from './routes/comments';
 import coinsRoutes from './routes/coins';
+import uploadRoutes from './routes/upload';
+import chatRoutes from './routes/messages';
 import { celeryClient } from './config/celery';
 
 // Load environment variables
@@ -27,8 +32,12 @@ const app = express();
 app.use(helmet());
 
 // CORS Configuration
+// In development, allow all origins for mobile testing
+// In production, restrict to specific origins
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3001',
+  origin: process.env.NODE_ENV === 'production'
+    ? process.env.CORS_ORIGIN || 'http://localhost:3001'
+    : true,  // Allow all origins in development
   credentials: true
 }));
 
@@ -58,6 +67,7 @@ app.get('/health', (_req: Request, res: Response) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
 app.use('/api/users', followRoutes);
 // app.use('/api/avatars', avatarRoutes);
 app.use('/api/posts', postRoutes);
@@ -66,6 +76,8 @@ app.use('/api/internal', internalRoutes);
 app.use('/api', likeRoutes);
 app.use('/api', commentRoutes);
 app.use('/api/coins', coinsRoutes);
+app.use('/api/upload', uploadRoutes);
+app.use('/api/chat', chatRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response) => {
@@ -83,11 +95,24 @@ app.use(errorHandler);
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 
+// Create HTTP server
+const httpServer = http.createServer(app);
+
+// Initialize Socket.io
+let io: ReturnType<typeof initializeSocket>;
+
 // Graceful Shutdown Handler
 const gracefulShutdown = async (signal: string) => {
   logger.info(`${signal} received, starting graceful shutdown`);
 
   try {
+    // Close Socket.io server
+    if (io) {
+      io.close(() => {
+        logger.info('Socket.io server closed');
+      });
+    }
+
     // Close database connections
     await disconnectPostgreSQL();
     await disconnectMongoDB();
@@ -115,27 +140,23 @@ const startServer = async () => {
     // Connect to databases
     logger.info('Connecting to databases...');
 
-    // Try to connect to PostgreSQL (non-blocking in development)
-    try {
-      await connectPostgreSQL();
-    } catch (error) {
-      if (process.env.NODE_ENV === 'development') {
-        logger.warn('PostgreSQL connection failed - continuing in degraded mode', { error });
-      } else {
-        throw error;
-      }
-    }
-
+    // Connect to database (PostgreSQL or SQLite fallback)
+    await connectPostgreSQL();
     await connectMongoDB();
     await connectRedis();
     logger.info('Database connections established');
 
-    // Start Express server
-    app.listen(PORT, HOST, () => {
+    // Initialize Socket.io
+    io = initializeSocket(httpServer);
+    logger.info('Socket.io initialized');
+
+    // Start HTTP server with Socket.io
+    httpServer.listen(PORT, HOST, () => {
       logger.info(`Server running on ${HOST}:${PORT}`);
       logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
       logger.info(`Health check available at http://${HOST}:${PORT}/health`);
       logger.info(`Auth API available at http://${HOST}:${PORT}/api/auth`);
+      logger.info(`Socket.io available at ws://${HOST}:${PORT}`);
     });
   } catch (error) {
     logger.error('Failed to start server', { error });

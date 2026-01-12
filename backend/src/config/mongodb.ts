@@ -36,7 +36,8 @@ export const connectMongoDB = async (): Promise<void> => {
 
   } catch (error) {
     logger.error('MongoDB connection failed', { error });
-    process.exit(1);
+    logger.warn('Continuing without MongoDB - some features may be unavailable');
+    // Don't exit - allow server to run without MongoDB
   }
 };
 

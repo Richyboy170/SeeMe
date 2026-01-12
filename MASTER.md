@@ -9012,6 +9012,1665 @@ const styles = StyleSheet.create({
 This completes Phase 2.5! The Positivity Coins system adds a unique gamification layer that encourages kindness and positive behavior while driving daily engagement through the cooldown mechanic. 🎉💝
 ---
 
+# PHASE 2.6: REAL-TIME CHAT & MESSAGING SYSTEM
+
+**Duration:** 3 weeks (Weeks 22.5-25.5)
+**Goal:** Enable private direct messaging between users with real-time delivery
+**Dependencies:** Phase 2 complete (social features), Phase 2.5 (user relationships)
+**Parallel with:** Phase 3 planning and early Phase 4 prep
+
+---
+
+## OVERVIEW
+
+**Chat System Philosophy:**
+> "Meaningful connections happen through conversations. Let's make chatting feel natural, fast, and safe - just like talking to a friend."
+
+**Core Concept:**
+- One-on-one direct messaging between users
+- Real-time message delivery using WebSocket/Socket.io
+- Read receipts and typing indicators
+- Media sharing (images, SeeMe posts)
+- Message search and conversation history
+- Privacy controls (block users, report abuse)
+
+**Key Metrics:**
+- Messages sent per active user per day (target: 8+)
+- Message delivery time (target: <500ms)
+- Conversation start rate (target: 30%+ of users)
+- Daily active chatters (target: 40%+ of DAU)
+- Average conversation length (target: 10+ messages)
+
+---
+
+## WORKSTREAM 2.6.1: CHAT BACKEND INFRASTRUCTURE
+
+**Agent:** Chat System Agent
+**Duration:** Week 1-1.5
+**Output:** Complete messaging backend with real-time capabilities
+
+---
+
+### **Task 2.6.1.1: Database Schema & Models**
+
+**Database Schema:**
+```sql
+-- Conversations table (represents a chat between two users)
+CREATE TABLE conversations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    -- Participants (always exactly 2 users for DM)
+    user1_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user2_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+    -- Conversation state
+    last_message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
+    last_message_at TIMESTAMP,
+
+    -- Metadata
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+
+    -- Constraints
+    CONSTRAINT conversation_users_unique UNIQUE (user1_id, user2_id),
+    CONSTRAINT conversation_different_users CHECK (user1_id != user2_id),
+
+    INDEX idx_conversations_user1 (user1_id, updated_at DESC),
+    INDEX idx_conversations_user2 (user2_id, updated_at DESC),
+    INDEX idx_conversations_last_message (last_message_at DESC)
+);
+
+-- Messages table
+CREATE TABLE messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    receiver_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+    -- Message content
+    message_type VARCHAR(20) NOT NULL DEFAULT 'text',
+        -- Values: 'text', 'image', 'post_share', 'system'
+    content TEXT,  -- Text message content
+    media_url TEXT,  -- URL for images
+    shared_post_id UUID REFERENCES posts(id) ON DELETE SET NULL,
+
+    -- Message status
+    is_read BOOLEAN DEFAULT FALSE,
+    read_at TIMESTAMP,
+    is_deleted_by_sender BOOLEAN DEFAULT FALSE,
+    is_deleted_by_receiver BOOLEAN DEFAULT FALSE,
+
+    -- Metadata
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+
+    INDEX idx_messages_conversation (conversation_id, created_at DESC),
+    INDEX idx_messages_sender (sender_id, created_at DESC),
+    INDEX idx_messages_receiver (receiver_id, created_at DESC),
+    INDEX idx_messages_unread (receiver_id, is_read) WHERE is_read = FALSE
+);
+
+-- Typing indicators (ephemeral, can use Redis instead)
+CREATE TABLE typing_indicators (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+    started_at TIMESTAMP DEFAULT NOW(),
+    expires_at TIMESTAMP NOT NULL,  -- Auto-expire after 5 seconds
+
+    UNIQUE (conversation_id, user_id),
+    INDEX idx_typing_conversation (conversation_id),
+    INDEX idx_typing_expires (expires_at)
+);
+
+-- Message read receipts tracking
+CREATE TABLE message_reads (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+    read_at TIMESTAMP DEFAULT NOW(),
+
+    UNIQUE (message_id, user_id),
+    INDEX idx_message_reads_message (message_id),
+    INDEX idx_message_reads_user (user_id, read_at DESC)
+);
+
+-- Blocked users (for chat privacy)
+CREATE TABLE blocked_users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    blocker_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    blocked_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+    reason TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+
+    UNIQUE (blocker_id, blocked_id),
+    INDEX idx_blocked_users_blocker (blocker_id),
+    INDEX idx_blocked_users_blocked (blocked_id)
+);
+
+-- Update users table for chat preferences
+ALTER TABLE users ADD COLUMN chat_notifications_enabled BOOLEAN DEFAULT TRUE;
+ALTER TABLE users ADD COLUMN allow_messages_from VARCHAR(20) DEFAULT 'everyone';
+    -- Values: 'everyone', 'following', 'followers', 'mutual', 'none'
+```
+
+**Sequelize Models:**
+```typescript
+// backend/src/models/Conversation.ts
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database';
+
+export class Conversation extends Model {
+    public id!: string;
+    public user1Id!: string;
+    public user2Id!: string;
+    public lastMessageId!: string | null;
+    public lastMessageAt!: Date | null;
+    public createdAt!: Date;
+    public updatedAt!: Date;
+}
+
+Conversation.init({
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    user1Id: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: { model: 'users', key: 'id' }
+    },
+    user2Id: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: { model: 'users', key: 'id' }
+    },
+    lastMessageId: {
+        type: DataTypes.UUID,
+        allowNull: true
+    },
+    lastMessageAt: {
+        type: DataTypes.DATE,
+        allowNull: true
+    }
+}, {
+    sequelize,
+    tableName: 'conversations',
+    timestamps: true
+});
+
+// backend/src/models/Message.ts
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database';
+
+export class Message extends Model {
+    public id!: string;
+    public conversationId!: string;
+    public senderId!: string;
+    public receiverId!: string;
+    public messageType!: 'text' | 'image' | 'post_share' | 'system';
+    public content!: string | null;
+    public mediaUrl!: string | null;
+    public sharedPostId!: string | null;
+    public isRead!: boolean;
+    public readAt!: Date | null;
+    public isDeletedBySender!: boolean;
+    public isDeletedByReceiver!: boolean;
+    public createdAt!: Date;
+    public updatedAt!: Date;
+}
+
+Message.init({
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    conversationId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: { model: 'conversations', key: 'id' }
+    },
+    senderId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: { model: 'users', key: 'id' }
+    },
+    receiverId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: { model: 'users', key: 'id' }
+    },
+    messageType: {
+        type: DataTypes.STRING(20),
+        allowNull: false,
+        defaultValue: 'text'
+    },
+    content: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    mediaUrl: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    sharedPostId: {
+        type: DataTypes.UUID,
+        allowNull: true
+    },
+    isRead: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
+    },
+    readAt: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
+    isDeletedBySender: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
+    },
+    isDeletedByReceiver: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
+    }
+}, {
+    sequelize,
+    tableName: 'messages',
+    timestamps: true
+});
+
+// backend/src/models/BlockedUser.ts
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database';
+
+export class BlockedUser extends Model {
+    public id!: string;
+    public blockerId!: string;
+    public blockedId!: string;
+    public reason!: string | null;
+    public createdAt!: Date;
+}
+
+BlockedUser.init({
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    blockerId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: { model: 'users', key: 'id' }
+    },
+    blockedId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: { model: 'users', key: 'id' }
+    },
+    reason: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    }
+}, {
+    sequelize,
+    tableName: 'blocked_users',
+    timestamps: true,
+    updatedAt: false
+});
+```
+
+---
+
+### **Task 2.6.1.2: Real-Time Infrastructure (Socket.io)**
+
+**Socket.io Server Setup:**
+```typescript
+// backend/src/socket/index.ts
+import { Server } from 'socket.io';
+import { Server as HTTPServer } from 'http';
+import { verifySocketToken } from '../middleware/socketAuth';
+import { handleChatEvents } from './chatHandler';
+import { redisClient } from '../config/redis';
+
+export const initializeSocket = (httpServer: HTTPServer) => {
+    const io = new Server(httpServer, {
+        cors: {
+            origin: process.env.CLIENT_URL,
+            credentials: true
+        },
+        transports: ['websocket', 'polling']
+    });
+
+    // Authentication middleware
+    io.use(verifySocketToken);
+
+    io.on('connection', (socket) => {
+        const userId = socket.data.userId;
+        console.log(`User connected: ${userId}`);
+
+        // Join user's personal room for receiving messages
+        socket.join(`user:${userId}`);
+
+        // Mark user as online
+        redisClient.setEx(`user:${userId}:online`, 300, 'true');
+
+        // Handle chat events
+        handleChatEvents(io, socket);
+
+        // Handle disconnect
+        socket.on('disconnect', () => {
+            console.log(`User disconnected: ${userId}`);
+            redisClient.del(`user:${userId}:online`);
+        });
+    });
+
+    // Heartbeat to keep connections alive
+    setInterval(() => {
+        io.emit('ping');
+    }, 25000);
+
+    return io;
+};
+
+// backend/src/socket/chatHandler.ts
+import { Server, Socket } from 'socket.io';
+import { Message, Conversation } from '../models';
+import { redisClient } from '../config/redis';
+
+export const handleChatEvents = (io: Server, socket: Socket) => {
+    const userId = socket.data.userId;
+
+    // Send message
+    socket.on('chat:send_message', async (data) => {
+        try {
+            const { conversationId, receiverId, messageType, content, mediaUrl, sharedPostId } = data;
+
+            // Create message
+            const message = await Message.create({
+                conversationId,
+                senderId: userId,
+                receiverId,
+                messageType,
+                content,
+                mediaUrl,
+                sharedPostId
+            });
+
+            // Update conversation last message
+            await Conversation.update({
+                lastMessageId: message.id,
+                lastMessageAt: message.createdAt
+            }, {
+                where: { id: conversationId }
+            });
+
+            // Emit to receiver
+            io.to(`user:${receiverId}`).emit('chat:new_message', {
+                conversationId,
+                message: message.toJSON()
+            });
+
+            // Acknowledge sender
+            socket.emit('chat:message_sent', {
+                tempId: data.tempId,
+                message: message.toJSON()
+            });
+
+        } catch (error) {
+            socket.emit('chat:error', { message: 'Failed to send message' });
+        }
+    });
+
+    // Mark messages as read
+    socket.on('chat:mark_read', async (data) => {
+        try {
+            const { conversationId, messageIds } = data;
+
+            await Message.update({
+                isRead: true,
+                readAt: new Date()
+            }, {
+                where: {
+                    id: messageIds,
+                    receiverId: userId
+                }
+            });
+
+            // Get the other user in conversation
+            const conversation = await Conversation.findByPk(conversationId);
+            const otherUserId = conversation.user1Id === userId
+                ? conversation.user2Id
+                : conversation.user1Id;
+
+            // Notify sender that messages were read
+            io.to(`user:${otherUserId}`).emit('chat:messages_read', {
+                conversationId,
+                messageIds,
+                readBy: userId,
+                readAt: new Date()
+            });
+
+        } catch (error) {
+            console.error('Mark read error:', error);
+        }
+    });
+
+    // Typing indicator
+    socket.on('chat:typing_start', async (data) => {
+        const { conversationId, receiverId } = data;
+
+        // Set typing indicator in Redis (expires in 5 seconds)
+        await redisClient.setEx(
+            `typing:${conversationId}:${userId}`,
+            5,
+            'true'
+        );
+
+        // Notify receiver
+        io.to(`user:${receiverId}`).emit('chat:user_typing', {
+            conversationId,
+            userId
+        });
+    });
+
+    socket.on('chat:typing_stop', async (data) => {
+        const { conversationId, receiverId } = data;
+
+        // Remove typing indicator
+        await redisClient.del(`typing:${conversationId}:${userId}`);
+
+        // Notify receiver
+        io.to(`user:${receiverId}`).emit('chat:user_stopped_typing', {
+            conversationId,
+            userId
+        });
+    });
+
+    // Join conversation room (for real-time updates)
+    socket.on('chat:join_conversation', (conversationId) => {
+        socket.join(`conversation:${conversationId}`);
+    });
+
+    socket.on('chat:leave_conversation', (conversationId) => {
+        socket.leave(`conversation:${conversationId}`);
+    });
+};
+```
+
+---
+
+### **Task 2.6.1.3: Chat API Endpoints**
+
+**REST API Routes:**
+```typescript
+// backend/src/routes/chat.ts
+import express from 'express';
+import { authMiddleware } from '../middleware/auth';
+import { ChatController } from '../controllers/ChatController';
+
+const router = express.Router();
+
+// Get all conversations for current user
+router.get('/conversations', authMiddleware, ChatController.getConversations);
+
+// Get or create conversation with specific user
+router.post('/conversations', authMiddleware, ChatController.createConversation);
+
+// Get messages in a conversation
+router.get('/conversations/:conversationId/messages', authMiddleware, ChatController.getMessages);
+
+// Send a message (REST fallback if socket fails)
+router.post('/conversations/:conversationId/messages', authMiddleware, ChatController.sendMessage);
+
+// Delete a message
+router.delete('/messages/:messageId', authMiddleware, ChatController.deleteMessage);
+
+// Search messages
+router.get('/messages/search', authMiddleware, ChatController.searchMessages);
+
+// Block/unblock user
+router.post('/users/:userId/block', authMiddleware, ChatController.blockUser);
+router.delete('/users/:userId/block', authMiddleware, ChatController.unblockUser);
+router.get('/blocked-users', authMiddleware, ChatController.getBlockedUsers);
+
+// Check if user is online
+router.get('/users/:userId/online-status', authMiddleware, ChatController.getOnlineStatus);
+
+export default router;
+
+// backend/src/controllers/ChatController.ts
+import { Request, Response } from 'express';
+import { Conversation, Message, User, BlockedUser } from '../models';
+import { Op } from 'sequelize';
+import { redisClient } from '../config/redis';
+
+export class ChatController {
+    // Get all conversations
+    static async getConversations(req: Request, res: Response) {
+        try {
+            const userId = req.user!.id;
+
+            const conversations = await Conversation.findAll({
+                where: {
+                    [Op.or]: [
+                        { user1Id: userId },
+                        { user2Id: userId }
+                    ]
+                },
+                include: [
+                    {
+                        model: User,
+                        as: 'user1',
+                        attributes: ['id', 'username', 'avatarUrl']
+                    },
+                    {
+                        model: User,
+                        as: 'user2',
+                        attributes: ['id', 'username', 'avatarUrl']
+                    },
+                    {
+                        model: Message,
+                        as: 'lastMessage',
+                        attributes: ['id', 'content', 'messageType', 'createdAt', 'isRead']
+                    }
+                ],
+                order: [['lastMessageAt', 'DESC']],
+                limit: 50
+            });
+
+            // Get unread counts
+            const conversationsWithUnread = await Promise.all(
+                conversations.map(async (conv) => {
+                    const unreadCount = await Message.count({
+                        where: {
+                            conversationId: conv.id,
+                            receiverId: userId,
+                            isRead: false
+                        }
+                    });
+
+                    return {
+                        ...conv.toJSON(),
+                        unreadCount
+                    };
+                })
+            );
+
+            res.json({
+                success: true,
+                conversations: conversationsWithUnread
+            });
+
+        } catch (error) {
+            console.error('Get conversations error:', error);
+            res.status(500).json({ success: false, message: 'Failed to load conversations' });
+        }
+    }
+
+    // Create or get existing conversation
+    static async createConversation(req: Request, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const { otherUserId } = req.body;
+
+            if (userId === otherUserId) {
+                return res.status(400).json({ success: false, message: 'Cannot chat with yourself' });
+            }
+
+            // Check if conversation exists
+            let conversation = await Conversation.findOne({
+                where: {
+                    [Op.or]: [
+                        { user1Id: userId, user2Id: otherUserId },
+                        { user1Id: otherUserId, user2Id: userId }
+                    ]
+                }
+            });
+
+            // Create if doesn't exist
+            if (!conversation) {
+                conversation = await Conversation.create({
+                    user1Id: userId < otherUserId ? userId : otherUserId,
+                    user2Id: userId < otherUserId ? otherUserId : userId
+                });
+            }
+
+            res.json({
+                success: true,
+                conversation
+            });
+
+        } catch (error) {
+            console.error('Create conversation error:', error);
+            res.status(500).json({ success: false, message: 'Failed to create conversation' });
+        }
+    }
+
+    // Get messages in conversation
+    static async getMessages(req: Request, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const { conversationId } = req.params;
+            const { limit = 50, before } = req.query;
+
+            // Verify user is part of conversation
+            const conversation = await Conversation.findOne({
+                where: {
+                    id: conversationId,
+                    [Op.or]: [
+                        { user1Id: userId },
+                        { user2Id: userId }
+                    ]
+                }
+            });
+
+            if (!conversation) {
+                return res.status(404).json({ success: false, message: 'Conversation not found' });
+            }
+
+            // Get messages
+            const whereClause: any = {
+                conversationId,
+                [Op.or]: [
+                    { isDeletedBySender: false },
+                    { isDeletedByReceiver: false }
+                ]
+            };
+
+            if (before) {
+                whereClause.createdAt = { [Op.lt]: before };
+            }
+
+            const messages = await Message.findAll({
+                where: whereClause,
+                include: [
+                    {
+                        model: User,
+                        as: 'sender',
+                        attributes: ['id', 'username', 'avatarUrl']
+                    }
+                ],
+                order: [['createdAt', 'DESC']],
+                limit: Number(limit)
+            });
+
+            res.json({
+                success: true,
+                messages: messages.reverse() // Oldest first
+            });
+
+        } catch (error) {
+            console.error('Get messages error:', error);
+            res.status(500).json({ success: false, message: 'Failed to load messages' });
+        }
+    }
+
+    // Send message (REST fallback)
+    static async sendMessage(req: Request, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const { conversationId } = req.params;
+            const { messageType, content, mediaUrl, sharedPostId } = req.body;
+
+            // Verify conversation
+            const conversation = await Conversation.findByPk(conversationId);
+            if (!conversation) {
+                return res.status(404).json({ success: false, message: 'Conversation not found' });
+            }
+
+            const receiverId = conversation.user1Id === userId
+                ? conversation.user2Id
+                : conversation.user1Id;
+
+            // Create message
+            const message = await Message.create({
+                conversationId,
+                senderId: userId,
+                receiverId,
+                messageType,
+                content,
+                mediaUrl,
+                sharedPostId
+            });
+
+            // Update conversation
+            await conversation.update({
+                lastMessageId: message.id,
+                lastMessageAt: message.createdAt
+            });
+
+            res.json({
+                success: true,
+                message
+            });
+
+        } catch (error) {
+            console.error('Send message error:', error);
+            res.status(500).json({ success: false, message: 'Failed to send message' });
+        }
+    }
+
+    // Block user
+    static async blockUser(req: Request, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const { userId: blockedId } = req.params;
+            const { reason } = req.body;
+
+            await BlockedUser.create({
+                blockerId: userId,
+                blockedId,
+                reason
+            });
+
+            res.json({ success: true });
+
+        } catch (error) {
+            console.error('Block user error:', error);
+            res.status(500).json({ success: false, message: 'Failed to block user' });
+        }
+    }
+
+    // Get online status
+    static async getOnlineStatus(req: Request, res: Response) {
+        try {
+            const { userId } = req.params;
+
+            const isOnline = await redisClient.exists(`user:${userId}:online`);
+
+            res.json({
+                success: true,
+                userId,
+                isOnline: isOnline === 1
+            });
+
+        } catch (error) {
+            res.status(500).json({ success: false });
+        }
+    }
+}
+```
+
+---
+
+## WORKSTREAM 2.6.2: CHAT MOBILE UI
+
+**Agent:** Mobile UI Agent
+**Duration:** Week 1.5-2.5
+**Output:** Complete chat interface for React Native
+
+---
+
+### **Task 2.6.2.1: Conversations List Screen**
+
+```typescript
+// mobile/src/screens/chat/ConversationsScreen.tsx
+import React, { useState, useEffect } from 'react';
+import {
+    View,
+    FlatList,
+    TouchableOpacity,
+    Text,
+    StyleSheet,
+    Image,
+    RefreshControl
+} from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { api } from '../../services/api';
+import { formatDistanceToNow } from 'date-fns';
+
+interface Conversation {
+    id: string;
+    user1: User;
+    user2: User;
+    lastMessage: Message | null;
+    lastMessageAt: string;
+    unreadCount: number;
+}
+
+export const ConversationsScreen: React.FC = () => {
+    const [conversations, setConversations] = useState<Conversation[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const navigation = useNavigation();
+
+    useEffect(() => {
+        loadConversations();
+    }, []);
+
+    const loadConversations = async () => {
+        try {
+            const response = await api.get('/chat/conversations');
+            setConversations(response.data.conversations);
+        } catch (error) {
+            console.error('Load conversations error:', error);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    };
+
+    const handleRefresh = () => {
+        setRefreshing(true);
+        loadConversations();
+    };
+
+    const renderConversation = ({ item }: { item: Conversation }) => {
+        // Determine the other user
+        const otherUser = item.user1.id === currentUserId ? item.user2 : item.user1;
+
+        return (
+            <TouchableOpacity
+                style={styles.conversationItem}
+                onPress={() => navigation.navigate('Chat', {
+                    conversationId: item.id,
+                    otherUser
+                })}
+            >
+                <Image
+                    source={{ uri: otherUser.avatarUrl }}
+                    style={styles.avatar}
+                />
+
+                <View style={styles.conversationContent}>
+                    <View style={styles.conversationHeader}>
+                        <Text style={styles.username}>{otherUser.username}</Text>
+                        {item.lastMessageAt && (
+                            <Text style={styles.timestamp}>
+                                {formatDistanceToNow(new Date(item.lastMessageAt), { addSuffix: true })}
+                            </Text>
+                        )}
+                    </View>
+
+                    <View style={styles.lastMessageRow}>
+                        {item.lastMessage && (
+                            <Text
+                                style={[
+                                    styles.lastMessage,
+                                    item.unreadCount > 0 && styles.unreadMessage
+                                ]}
+                                numberOfLines={1}
+                            >
+                                {item.lastMessage.content || '📷 Image'}
+                            </Text>
+                        )}
+
+                        {item.unreadCount > 0 && (
+                            <View style={styles.unreadBadge}>
+                                <Text style={styles.unreadCount}>
+                                    {item.unreadCount > 99 ? '99+' : item.unreadCount}
+                                </Text>
+                            </View>
+                        )}
+                    </View>
+                </View>
+            </TouchableOpacity>
+        );
+    };
+
+    return (
+        <View style={styles.container}>
+            <FlatList
+                data={conversations}
+                renderItem={renderConversation}
+                keyExtractor={(item) => item.id}
+                refreshControl={
+                    <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+                }
+                ListEmptyComponent={
+                    !loading ? (
+                        <View style={styles.emptyState}>
+                            <Text style={styles.emptyText}>No conversations yet</Text>
+                            <Text style={styles.emptySubtext}>
+                                Start chatting with your friends!
+                            </Text>
+                        </View>
+                    ) : null
+                }
+            />
+        </View>
+    );
+};
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#FFFFFF'
+    },
+    conversationItem: {
+        flexDirection: 'row',
+        padding: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F3F4F6'
+    },
+    avatar: {
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        marginRight: 12
+    },
+    conversationContent: {
+        flex: 1,
+        justifyContent: 'center'
+    },
+    conversationHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginBottom: 4
+    },
+    username: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#111827'
+    },
+    timestamp: {
+        fontSize: 12,
+        color: '#9CA3AF'
+    },
+    lastMessageRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+    },
+    lastMessage: {
+        flex: 1,
+        fontSize: 14,
+        color: '#6B7280'
+    },
+    unreadMessage: {
+        fontWeight: '600',
+        color: '#111827'
+    },
+    unreadBadge: {
+        backgroundColor: '#3B82F6',
+        borderRadius: 12,
+        minWidth: 24,
+        height: 24,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 6,
+        marginLeft: 8
+    },
+    unreadCount: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontWeight: 'bold'
+    },
+    emptyState: {
+        padding: 48,
+        alignItems: 'center'
+    },
+    emptyText: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#111827',
+        marginBottom: 8
+    },
+    emptySubtext: {
+        fontSize: 14,
+        color: '#6B7280',
+        textAlign: 'center'
+    }
+});
+```
+
+---
+
+### **Task 2.6.2.2: Chat Screen with Real-Time Messages**
+
+```typescript
+// mobile/src/screens/chat/ChatScreen.tsx
+import React, { useState, useEffect, useRef } from 'react';
+import {
+    View,
+    FlatList,
+    TextInput,
+    TouchableOpacity,
+    Text,
+    StyleSheet,
+    KeyboardAvoidingView,
+    Platform,
+    Image
+} from 'react-native';
+import { socket } from '../../services/socket';
+import { api } from '../../services/api';
+import { format } from 'date-fns';
+
+interface Message {
+    id: string;
+    senderId: string;
+    content: string;
+    messageType: string;
+    createdAt: string;
+    isRead: boolean;
+    tempId?: string; // For optimistic updates
+}
+
+export const ChatScreen: React.FC = ({ route }) => {
+    const { conversationId, otherUser } = route.params;
+    const [messages, setMessages] = useState<Message[]>([]);
+    const [inputText, setInputText] = useState('');
+    const [isTyping, setIsTyping] = useState(false);
+    const [isOtherUserTyping, setIsOtherUserTyping] = useState(false);
+    const flatListRef = useRef<FlatList>(null);
+    const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    useEffect(() => {
+        loadMessages();
+        joinConversation();
+
+        // Socket listeners
+        socket.on('chat:new_message', handleNewMessage);
+        socket.on('chat:message_sent', handleMessageSent);
+        socket.on('chat:messages_read', handleMessagesRead);
+        socket.on('chat:user_typing', handleUserTyping);
+        socket.on('chat:user_stopped_typing', handleUserStoppedTyping);
+
+        return () => {
+            leaveConversation();
+            socket.off('chat:new_message', handleNewMessage);
+            socket.off('chat:message_sent', handleMessageSent);
+            socket.off('chat:messages_read', handleMessagesRead);
+            socket.off('chat:user_typing', handleUserTyping);
+            socket.off('chat:user_stopped_typing', handleUserStoppedTyping);
+        };
+    }, [conversationId]);
+
+    const loadMessages = async () => {
+        try {
+            const response = await api.get(`/chat/conversations/${conversationId}/messages`);
+            setMessages(response.data.messages);
+            markMessagesAsRead();
+        } catch (error) {
+            console.error('Load messages error:', error);
+        }
+    };
+
+    const joinConversation = () => {
+        socket.emit('chat:join_conversation', conversationId);
+    };
+
+    const leaveConversation = () => {
+        socket.emit('chat:leave_conversation', conversationId);
+    };
+
+    const markMessagesAsRead = () => {
+        const unreadMessageIds = messages
+            .filter(m => !m.isRead && m.senderId === otherUser.id)
+            .map(m => m.id);
+
+        if (unreadMessageIds.length > 0) {
+            socket.emit('chat:mark_read', {
+                conversationId,
+                messageIds: unreadMessageIds
+            });
+        }
+    };
+
+    const handleNewMessage = (data: any) => {
+        if (data.conversationId === conversationId) {
+            setMessages(prev => [...prev, data.message]);
+            markMessagesAsRead();
+            scrollToBottom();
+        }
+    };
+
+    const handleMessageSent = (data: any) => {
+        // Replace temp message with real one
+        setMessages(prev =>
+            prev.map(msg =>
+                msg.tempId === data.tempId ? data.message : msg
+            )
+        );
+    };
+
+    const handleMessagesRead = (data: any) => {
+        if (data.conversationId === conversationId) {
+            setMessages(prev =>
+                prev.map(msg =>
+                    data.messageIds.includes(msg.id)
+                        ? { ...msg, isRead: true, readAt: data.readAt }
+                        : msg
+                )
+            );
+        }
+    };
+
+    const handleUserTyping = (data: any) => {
+        if (data.conversationId === conversationId && data.userId === otherUser.id) {
+            setIsOtherUserTyping(true);
+        }
+    };
+
+    const handleUserStoppedTyping = (data: any) => {
+        if (data.conversationId === conversationId && data.userId === otherUser.id) {
+            setIsOtherUserTyping(false);
+        }
+    };
+
+    const sendMessage = () => {
+        if (!inputText.trim()) return;
+
+        const tempId = `temp_${Date.now()}`;
+        const optimisticMessage: Message = {
+            id: tempId,
+            tempId,
+            senderId: currentUserId,
+            content: inputText.trim(),
+            messageType: 'text',
+            createdAt: new Date().toISOString(),
+            isRead: false
+        };
+
+        // Optimistic update
+        setMessages(prev => [...prev, optimisticMessage]);
+        setInputText('');
+        scrollToBottom();
+
+        // Send via socket
+        socket.emit('chat:send_message', {
+            conversationId,
+            receiverId: otherUser.id,
+            messageType: 'text',
+            content: inputText.trim(),
+            tempId
+        });
+
+        // Stop typing
+        stopTyping();
+    };
+
+    const handleInputChange = (text: string) => {
+        setInputText(text);
+
+        // Typing indicators
+        if (!isTyping && text.length > 0) {
+            setIsTyping(true);
+            socket.emit('chat:typing_start', {
+                conversationId,
+                receiverId: otherUser.id
+            });
+        }
+
+        // Reset typing timeout
+        if (typingTimeoutRef.current) {
+            clearTimeout(typingTimeoutRef.current);
+        }
+
+        typingTimeoutRef.current = setTimeout(() => {
+            stopTyping();
+        }, 3000);
+    };
+
+    const stopTyping = () => {
+        if (isTyping) {
+            setIsTyping(false);
+            socket.emit('chat:typing_stop', {
+                conversationId,
+                receiverId: otherUser.id
+            });
+        }
+    };
+
+    const scrollToBottom = () => {
+        setTimeout(() => {
+            flatListRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+    };
+
+    const renderMessage = ({ item }: { item: Message }) => {
+        const isOwnMessage = item.senderId === currentUserId;
+
+        return (
+            <View
+                style={[
+                    styles.messageContainer,
+                    isOwnMessage ? styles.ownMessage : styles.otherMessage
+                ]}
+            >
+                <View
+                    style={[
+                        styles.messageBubble,
+                        isOwnMessage ? styles.ownBubble : styles.otherBubble
+                    ]}
+                >
+                    <Text
+                        style={[
+                            styles.messageText,
+                            isOwnMessage ? styles.ownText : styles.otherText
+                        ]}
+                    >
+                        {item.content}
+                    </Text>
+                    <View style={styles.messageFooter}>
+                        <Text style={styles.timestamp}>
+                            {format(new Date(item.createdAt), 'HH:mm')}
+                        </Text>
+                        {isOwnMessage && (
+                            <Text style={styles.readReceipt}>
+                                {item.isRead ? '✓✓' : '✓'}
+                            </Text>
+                        )}
+                    </View>
+                </View>
+            </View>
+        );
+    };
+
+    return (
+        <KeyboardAvoidingView
+            style={styles.container}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={90}
+        >
+            <FlatList
+                ref={flatListRef}
+                data={messages}
+                renderItem={renderMessage}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={styles.messagesList}
+                onContentSizeChange={scrollToBottom}
+            />
+
+            {isOtherUserTyping && (
+                <View style={styles.typingIndicator}>
+                    <Text style={styles.typingText}>{otherUser.username} is typing...</Text>
+                </View>
+            )}
+
+            <View style={styles.inputContainer}>
+                <TextInput
+                    style={styles.input}
+                    value={inputText}
+                    onChangeText={handleInputChange}
+                    placeholder="Type a message..."
+                    multiline
+                    maxLength={1000}
+                />
+                <TouchableOpacity
+                    style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
+                    onPress={sendMessage}
+                    disabled={!inputText.trim()}
+                >
+                    <Text style={styles.sendButtonText}>Send</Text>
+                </TouchableOpacity>
+            </View>
+        </KeyboardAvoidingView>
+    );
+};
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#F9FAFB'
+    },
+    messagesList: {
+        padding: 16
+    },
+    messageContainer: {
+        marginVertical: 4,
+        maxWidth: '80%'
+    },
+    ownMessage: {
+        alignSelf: 'flex-end'
+    },
+    otherMessage: {
+        alignSelf: 'flex-start'
+    },
+    messageBubble: {
+        borderRadius: 16,
+        padding: 12,
+        maxWidth: '100%'
+    },
+    ownBubble: {
+        backgroundColor: '#3B82F6',
+        borderBottomRightRadius: 4
+    },
+    otherBubble: {
+        backgroundColor: '#FFFFFF',
+        borderBottomLeftRadius: 4,
+        borderWidth: 1,
+        borderColor: '#E5E7EB'
+    },
+    messageText: {
+        fontSize: 15,
+        lineHeight: 20
+    },
+    ownText: {
+        color: '#FFFFFF'
+    },
+    otherText: {
+        color: '#111827'
+    },
+    messageFooter: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 4,
+        gap: 4
+    },
+    timestamp: {
+        fontSize: 11,
+        color: 'rgba(255,255,255,0.7)'
+    },
+    readReceipt: {
+        fontSize: 12,
+        color: '#60A5FA'
+    },
+    typingIndicator: {
+        padding: 8,
+        paddingLeft: 16
+    },
+    typingText: {
+        fontSize: 13,
+        fontStyle: 'italic',
+        color: '#6B7280'
+    },
+    inputContainer: {
+        flexDirection: 'row',
+        padding: 12,
+        backgroundColor: '#FFFFFF',
+        borderTopWidth: 1,
+        borderTopColor: '#E5E7EB',
+        alignItems: 'flex-end'
+    },
+    input: {
+        flex: 1,
+        backgroundColor: '#F3F4F6',
+        borderRadius: 20,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        marginRight: 8,
+        maxHeight: 100,
+        fontSize: 15
+    },
+    sendButton: {
+        backgroundColor: '#3B82F6',
+        borderRadius: 20,
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        justifyContent: 'center'
+    },
+    sendButtonDisabled: {
+        backgroundColor: '#9CA3AF'
+    },
+    sendButtonText: {
+        color: '#FFFFFF',
+        fontWeight: '600',
+        fontSize: 15
+    }
+});
+```
+
+---
+
+### **Task 2.6.2.3: Socket Service Integration**
+
+```typescript
+// mobile/src/services/socket.ts
+import { io, Socket } from 'socket.io-client';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_URL } from './api';
+
+class SocketService {
+    private socket: Socket | null = null;
+    private reconnectAttempts = 0;
+    private maxReconnectAttempts = 5;
+
+    async connect() {
+        const token = await AsyncStorage.getItem('authToken');
+
+        if (!token) {
+            console.error('No auth token found');
+            return;
+        }
+
+        this.socket = io(API_URL, {
+            auth: { token },
+            transports: ['websocket', 'polling'],
+            reconnection: true,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000
+        });
+
+        this.socket.on('connect', () => {
+            console.log('Socket connected');
+            this.reconnectAttempts = 0;
+        });
+
+        this.socket.on('disconnect', (reason) => {
+            console.log('Socket disconnected:', reason);
+        });
+
+        this.socket.on('connect_error', (error) => {
+            console.error('Socket connection error:', error);
+            this.reconnectAttempts++;
+
+            if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+                console.error('Max reconnect attempts reached');
+                this.disconnect();
+            }
+        });
+
+        this.socket.on('ping', () => {
+            this.socket?.emit('pong');
+        });
+    }
+
+    disconnect() {
+        if (this.socket) {
+            this.socket.disconnect();
+            this.socket = null;
+        }
+    }
+
+    getSocket(): Socket | null {
+        return this.socket;
+    }
+
+    emit(event: string, data: any) {
+        if (this.socket && this.socket.connected) {
+            this.socket.emit(event, data);
+        } else {
+            console.warn('Socket not connected, cannot emit:', event);
+        }
+    }
+
+    on(event: string, callback: (...args: any[]) => void) {
+        this.socket?.on(event, callback);
+    }
+
+    off(event: string, callback?: (...args: any[]) => void) {
+        this.socket?.off(event, callback);
+    }
+}
+
+export const socketService = new SocketService();
+export const socket = socketService.getSocket();
+```
+
+---
+
+## WORKSTREAM 2.6.3: NOTIFICATIONS & UX POLISH
+
+**Agent:** UX Polish Agent
+**Duration:** Week 2.5-3
+**Output:** Notifications, media sharing, and final polish
+
+---
+
+### **Task 2.6.3.1: Push Notifications for Messages**
+
+```typescript
+// backend/src/services/PushNotificationService.ts
+import { messaging } from '../config/firebase';
+import { User } from '../models';
+
+export class PushNotificationService {
+    static async sendMessageNotification(
+        receiverId: string,
+        senderUsername: string,
+        messageContent: string
+    ) {
+        try {
+            const receiver = await User.findByPk(receiverId);
+
+            if (!receiver || !receiver.fcmToken || !receiver.chatNotificationsEnabled) {
+                return;
+            }
+
+            await messaging.send({
+                token: receiver.fcmToken,
+                notification: {
+                    title: senderUsername,
+                    body: messageContent.length > 100
+                        ? `${messageContent.substring(0, 100)}...`
+                        : messageContent
+                },
+                data: {
+                    type: 'new_message',
+                    senderId: senderUsername,
+                    conversationId: conversationId
+                },
+                android: {
+                    priority: 'high',
+                    notification: {
+                        sound: 'default',
+                        channelId: 'chat_messages'
+                    }
+                },
+                apns: {
+                    payload: {
+                        aps: {
+                            sound: 'default',
+                            badge: 1
+                        }
+                    }
+                }
+            });
+
+        } catch (error) {
+            console.error('Send notification error:', error);
+        }
+    }
+}
+```
+
+---
+
+### **Task 2.6.3.2: Image Sharing in Chat**
+
+```typescript
+// Add to ChatScreen.tsx
+const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.8,
+        base64: false
+    });
+
+    if (!result.canceled && result.assets[0]) {
+        uploadAndSendImage(result.assets[0].uri);
+    }
+};
+
+const uploadAndSendImage = async (imageUri: string) => {
+    try {
+        const formData = new FormData();
+        formData.append('image', {
+            uri: imageUri,
+            type: 'image/jpeg',
+            name: 'chat-image.jpg'
+        } as any);
+
+        const uploadResponse = await api.post('/upload/chat-image', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+
+        const mediaUrl = uploadResponse.data.url;
+
+        // Send image message
+        socket.emit('chat:send_message', {
+            conversationId,
+            receiverId: otherUser.id,
+            messageType: 'image',
+            mediaUrl,
+            tempId: `temp_${Date.now()}`
+        });
+
+    } catch (error) {
+        console.error('Upload image error:', error);
+        Alert.alert('Error', 'Failed to send image');
+    }
+};
+```
+
+---
+
+## PHASE 2.6 COMPLETION CRITERIA
+
+**Required Features:**
+- [ ] Users can start conversations with any user
+- [ ] Real-time message delivery (<500ms)
+- [ ] Messages display with read receipts
+- [ ] Typing indicators working
+- [ ] Image sharing in chat
+- [ ] Share posts in chat
+- [ ] Conversation list with unread counts
+- [ ] Message search functionality
+- [ ] Block/unblock users
+- [ ] Online status indicators
+- [ ] Push notifications for messages
+
+**UI/UX Quality:**
+- [ ] Chat bubbles clean and readable
+- [ ] Smooth scrolling in long conversations
+- [ ] Keyboard handling perfect (iOS/Android)
+- [ ] Optimistic updates feel instant
+- [ ] Loading states polished
+- [ ] Empty states helpful
+- [ ] Error handling graceful
+
+**Real-Time Performance:**
+- [ ] WebSocket connections stable
+- [ ] Reconnection handling robust
+- [ ] Message delivery reliable
+- [ ] Typing indicators responsive
+- [ ] Read receipts accurate
+- [ ] No message duplication
+- [ ] Offline message queue working
+
+**Integration:**
+- [ ] Chat accessible from profile screens
+- [ ] Message notifications in notification center
+- [ ] Unread badge on chat tab
+- [ ] Deep linking to conversations
+- [ ] Share button on posts opens chat
+
+**Metrics Targets (Week 1 post-launch):**
+- [ ] 30%+ of users send a message
+- [ ] 8+ messages per active chatter per day
+- [ ] <500ms message delivery time (p95)
+- [ ] 95%+ message delivery success rate
+- [ ] 40%+ of users enable chat notifications
+
+**Exit Criteria:** Chat system fully functional with real-time delivery, users actively messaging
+
+---
+
+This completes Phase 2.6! The real-time chat system enables private conversations between users, enhancing engagement and building stronger connections within the SeeMe community. 💬✨
+
+---
+
 # PHASE 3: MVP LAUNCH - FRIENDS TESTING
 
 **Duration:** 2 weeks (Weeks 20-21)

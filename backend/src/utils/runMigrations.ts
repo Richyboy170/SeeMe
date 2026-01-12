@@ -1,0 +1,97 @@
+import { sequelize } from '../config/database';
+import { logger } from './logger';
+import * as addFcmFields from '../migrations/add-fcm-fields';
+
+/**
+ * Run database migrations
+ * This script runs all pending migrations in order
+ */
+
+const migrations = [
+  {
+    name: 'add-fcm-fields',
+    up: addFcmFields.up,
+    down: addFcmFields.down
+  }
+  // Add more migrations here as needed
+];
+
+export const runMigrations = async (): Promise<void> => {
+  try {
+    logger.info('Starting database migrations');
+
+    const queryInterface = sequelize.getQueryInterface();
+
+    // Run each migration
+    for (const migration of migrations) {
+      try {
+        logger.info(`Running migration: ${migration.name}`);
+        await migration.up(queryInterface);
+        logger.info(`Migration completed: ${migration.name}`);
+      } catch (error) {
+        logger.error(`Migration failed: ${migration.name}`, { error });
+        throw error;
+      }
+    }
+
+    logger.info('All migrations completed successfully');
+  } catch (error) {
+    logger.error('Migration process failed', { error });
+    throw error;
+  }
+};
+
+export const rollbackMigrations = async (): Promise<void> => {
+  try {
+    logger.info('Starting migration rollback');
+
+    const queryInterface = sequelize.getQueryInterface();
+
+    // Rollback migrations in reverse order
+    for (let i = migrations.length - 1; i >= 0; i--) {
+      const migration = migrations[i];
+      try {
+        logger.info(`Rolling back migration: ${migration.name}`);
+        await migration.down(queryInterface);
+        logger.info(`Rollback completed: ${migration.name}`);
+      } catch (error) {
+        logger.error(`Rollback failed: ${migration.name}`, { error });
+        throw error;
+      }
+    }
+
+    logger.info('All migrations rolled back successfully');
+  } catch (error) {
+    logger.error('Rollback process failed', { error });
+    throw error;
+  }
+};
+
+// Allow running from command line
+if (require.main === module) {
+  const command = process.argv[2];
+
+  (async () => {
+    try {
+      await sequelize.authenticate();
+      logger.info('Database connection established');
+
+      if (command === 'up') {
+        await runMigrations();
+      } else if (command === 'down') {
+        await rollbackMigrations();
+      } else {
+        logger.info('Usage: ts-node runMigrations.ts [up|down]');
+        logger.info('  up   - Run all pending migrations');
+        logger.info('  down - Rollback all migrations');
+      }
+
+      await sequelize.close();
+      process.exit(0);
+    } catch (error) {
+      logger.error('Migration script error', { error });
+      await sequelize.close();
+      process.exit(1);
+    }
+  })();
+}

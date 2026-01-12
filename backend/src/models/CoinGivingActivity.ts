@@ -118,11 +118,11 @@ CoinGivingActivity.init(
     indexes: [
       {
         name: 'idx_coin_giving_giver',
-        fields: ['giverId', { name: 'createdAt', order: 'DESC' }]
+        fields: ['giver_id', { name: 'created_at', order: 'DESC' }]
       },
       {
         name: 'idx_coin_giving_receiver',
-        fields: ['receiverId', { name: 'createdAt', order: 'DESC' }]
+        fields: ['receiver_id', { name: 'created_at', order: 'DESC' }]
       }
     ]
   }

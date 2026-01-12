@@ -75,19 +75,19 @@ Follow.init(
       {
         unique: true,
         name: 'unique_follow_relationship',
-        fields: ['followerId', 'followingId']
+        fields: ['follower_id', 'following_id']
       },
       {
         name: 'idx_follows_follower',
-        fields: ['followerId']
+        fields: ['follower_id']
       },
       {
         name: 'idx_follows_following',
-        fields: ['followingId']
+        fields: ['following_id']
       },
       {
         name: 'idx_follows_created',
-        fields: ['createdAt']
+        fields: ['created_at']
       }
     ],
     validate: {

@@ -18,6 +18,13 @@ import GiveLeaderboardScreen from '../screens/coins/GiveLeaderboardScreen';
 import CoinHistoryScreen from '../screens/coins/CoinHistoryScreen';
 import GivingActivityScreen from '../screens/coins/GivingActivityScreen';
 
+// Chat screens
+import ConversationsScreen from '../screens/chat/ConversationsScreen';
+import ChatScreen from '../screens/chat/ChatScreen';
+
+// Socket service
+import { socketService } from '../services/socket';
+
 // Types
 export type AuthStackParamList = {
   Login: undefined;
@@ -31,15 +38,29 @@ export type CoinsStackParamList = {
   GivingActivity: undefined;
 };
 
+export type ChatStackParamList = {
+  Conversations: undefined;
+  Chat: {
+    conversationId: string;
+    otherUser: {
+      id: string;
+      username: string;
+      avatarUrl?: string;
+    };
+  };
+};
+
 export type MainTabParamList = {
   Feed: undefined;
   CreatePost: undefined;
+  Messages: undefined;
   Coins: undefined;
   Profile: undefined;
 };
 
 const AuthStack = createStackNavigator<AuthStackParamList>();
 const CoinsStack = createStackNavigator<CoinsStackParamList>();
+const ChatStack = createStackNavigator<ChatStackParamList>();
 const MainTab = createBottomTabNavigator<MainTabParamList>();
 
 function AuthNavigator() {
@@ -87,6 +108,29 @@ function CoinsNavigator() {
   );
 }
 
+function ChatNavigator() {
+  return (
+    <ChatStack.Navigator>
+      <ChatStack.Screen
+        name="Conversations"
+        component={ConversationsScreen}
+        options={{
+          title: 'Messages',
+          headerShown: true
+        }}
+      />
+      <ChatStack.Screen
+        name="Chat"
+        component={ChatScreen}
+        options={({ route }) => ({
+          title: route.params.otherUser.username,
+          headerBackTitle: 'Back'
+        })}
+      />
+    </ChatStack.Navigator>
+  );
+}
+
 function MainNavigator() {
   return (
     <MainTab.Navigator
@@ -98,6 +142,8 @@ function MainNavigator() {
             iconName = focused ? 'home' : 'home-outline';
           } else if (route.name === 'CreatePost') {
             iconName = focused ? 'add-circle' : 'add-circle-outline';
+          } else if (route.name === 'Messages') {
+            iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
           } else if (route.name === 'Coins') {
             iconName = focused ? 'heart' : 'heart-outline';
           } else if (route.name === 'Profile') {
@@ -112,6 +158,11 @@ function MainNavigator() {
     >
       <MainTab.Screen name="Feed" component={FeedScreen} />
       <MainTab.Screen name="CreatePost" component={CreatePostScreen} />
+      <MainTab.Screen
+        name="Messages"
+        component={ChatNavigator}
+        options={{ headerShown: false }}
+      />
       <MainTab.Screen
         name="Coins"
         component={CoinsNavigator}
@@ -129,7 +180,25 @@ export function RootNavigator() {
   // Check authentication status
   React.useEffect(() => {
     checkAuth();
+
+    // Poll for auth changes every 500ms
+    const interval = setInterval(checkAuth, 500);
+
+    return () => clearInterval(interval);
   }, []);
+
+  // Initialize socket connection when authenticated
+  React.useEffect(() => {
+    if (isAuthenticated) {
+      socketService.connect();
+    } else {
+      socketService.disconnect();
+    }
+
+    return () => {
+      socketService.disconnect();
+    };
+  }, [isAuthenticated]);
 
   async function checkAuth() {
     try {

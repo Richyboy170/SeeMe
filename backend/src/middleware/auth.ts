@@ -52,6 +52,12 @@ export const authenticateToken = async (
     // Verify JWT token
     const decoded = jwt.verify(token, process.env.JWT_SECRET) as JWTPayload;
 
+    // Verify user exists in database
+    const user = await User.findByPk(decoded.userId);
+    if (!user) {
+      throw new APIError('User not found - please log in again', 403);
+    }
+
     // Attach user info to request
     req.user = {
       id: decoded.userId,

@@ -5,13 +5,33 @@ import {
   FlatList,
   StyleSheet,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import PostCard from '../../components/PostCard';
 import { api } from '../../services/api';
 
 export default function FeedScreen() {
   const [refreshing, setRefreshing] = React.useState(false);
   const [posts, setPosts] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadFeed();
+    }, [])
+  );
+
+  const loadFeed = async () => {
+    try {
+      const data = await api.getFeed(1);
+      setPosts(data.posts || []);
+    } catch (error) {
+      console.error('Error fetching feed:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -39,6 +59,14 @@ export default function FeedScreen() {
     // TODO: Navigate to user profile
     console.log('View user profile:', userId);
   };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <ActivityIndicator size="large" color="#FBBF24" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -73,6 +101,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F9FAFB',
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   empty: {
     flex: 1,

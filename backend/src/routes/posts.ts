@@ -37,11 +37,25 @@ router.post(
 );
 
 /**
- * @route   GET /api/posts/:postId
- * @desc    Get post by ID
+ * @route   GET /api/posts/me/posts
+ * @desc    Get current user's posts (including processing ones)
+ * @access  Private
+ */
+router.get('/me/posts', authenticateToken, PostController.getMyPosts);
+
+/**
+ * @route   GET /api/posts/user/:username
+ * @desc    Get user's posts by username
  * @access  Public
  */
-router.get('/:postId', PostController.getPost);
+router.get('/user/:username', PostController.getUserPosts);
+
+/**
+ * @route   GET /api/posts
+ * @desc    Get all posts (paginated feed)
+ * @access  Public
+ */
+router.get('/', PostController.getAllPosts);
 
 /**
  * @route   GET /api/posts/:postId/status
@@ -49,6 +63,13 @@ router.get('/:postId', PostController.getPost);
  * @access  Public
  */
 router.get('/:postId/status', PostController.getPostStatus);
+
+/**
+ * @route   GET /api/posts/:postId
+ * @desc    Get post by ID
+ * @access  Public
+ */
+router.get('/:postId', PostController.getPost);
 
 /**
  * @route   PUT /api/posts/:postId
@@ -71,26 +92,5 @@ router.delete(
   authenticateToken,
   PostController.deletePost
 );
-
-/**
- * @route   GET /api/posts/user/:username
- * @desc    Get user's posts by username
- * @access  Public
- */
-router.get('/user/:username', PostController.getUserPosts);
-
-/**
- * @route   GET /api/posts
- * @desc    Get all posts (paginated feed)
- * @access  Public
- */
-router.get('/', PostController.getAllPosts);
-
-/**
- * @route   GET /api/posts/me/posts
- * @desc    Get current user's posts (including processing ones)
- * @access  Private
- */
-router.get('/me/posts', authenticateToken, PostController.getMyPosts);
 
 export default router;

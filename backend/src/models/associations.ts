@@ -6,6 +6,9 @@ import { Comment } from './Comment';
 import { PositivityCoins } from './PositivityCoins';
 import { CoinTransaction } from './CoinTransaction';
 import { CoinGivingActivity } from './CoinGivingActivity';
+import { Conversation } from './Conversation';
+import { Message } from './Message';
+import { BlockedUser } from './BlockedUser';
 
 /**
  * Set up model associations
@@ -218,6 +221,111 @@ export const setupAssociations = () => {
   User.hasMany(CoinGivingActivity, {
     foreignKey: 'receiverId',
     as: 'coinsReceived',
+    onDelete: 'CASCADE'
+  });
+
+  // ===== CHAT ASSOCIATIONS =====
+
+  // Conversation -> User (user1): Many-to-One
+  Conversation.belongsTo(User, {
+    foreignKey: 'user1Id',
+    as: 'user1'
+  });
+
+  // Conversation -> User (user2): Many-to-One
+  Conversation.belongsTo(User, {
+    foreignKey: 'user2Id',
+    as: 'user2'
+  });
+
+  // User -> Conversation (as user1): One-to-Many
+  User.hasMany(Conversation, {
+    foreignKey: 'user1Id',
+    as: 'conversationsAsUser1',
+    onDelete: 'CASCADE'
+  });
+
+  // User -> Conversation (as user2): One-to-Many
+  User.hasMany(Conversation, {
+    foreignKey: 'user2Id',
+    as: 'conversationsAsUser2',
+    onDelete: 'CASCADE'
+  });
+
+  // Message -> Conversation: Many-to-One
+  Message.belongsTo(Conversation, {
+    foreignKey: 'conversationId',
+    as: 'conversation'
+  });
+
+  // Conversation -> Message: One-to-Many
+  Conversation.hasMany(Message, {
+    foreignKey: 'conversationId',
+    as: 'messages',
+    onDelete: 'CASCADE'
+  });
+
+  // Conversation -> Message (last message): One-to-One
+  Conversation.belongsTo(Message, {
+    foreignKey: 'lastMessageId',
+    as: 'lastMessage'
+  });
+
+  // Message -> User (sender): Many-to-One
+  Message.belongsTo(User, {
+    foreignKey: 'senderId',
+    as: 'sender'
+  });
+
+  // Message -> User (receiver): Many-to-One
+  Message.belongsTo(User, {
+    foreignKey: 'receiverId',
+    as: 'receiver'
+  });
+
+  // User -> Message (sent): One-to-Many
+  User.hasMany(Message, {
+    foreignKey: 'senderId',
+    as: 'sentMessages',
+    onDelete: 'CASCADE'
+  });
+
+  // User -> Message (received): One-to-Many
+  User.hasMany(Message, {
+    foreignKey: 'receiverId',
+    as: 'receivedMessages',
+    onDelete: 'CASCADE'
+  });
+
+  // Message -> Post (shared post): Many-to-One
+  Message.belongsTo(Post, {
+    foreignKey: 'sharedPostId',
+    as: 'sharedPost'
+  });
+
+  // BlockedUser -> User (blocker): Many-to-One
+  BlockedUser.belongsTo(User, {
+    foreignKey: 'blockerId',
+    as: 'blocker'
+  });
+
+  // BlockedUser -> User (blocked): Many-to-One
+  BlockedUser.belongsTo(User, {
+    foreignKey: 'blockedId',
+    as: 'blocked'
+  });
+
+  // User -> BlockedUser (as blocker): One-to-Many
+  User.hasMany(BlockedUser, {
+    foreignKey: 'blockerId',
+    as: 'blockedUsers',
+    onDelete: 'CASCADE'
+  });
+
+  // User -> BlockedUser (as blocked): One-to-Many
+  User.hasMany(BlockedUser, {
+    foreignKey: 'blockedId',
+    as: 'blockedByUsers',
     onDelete: 'CASCADE'
   });
 };

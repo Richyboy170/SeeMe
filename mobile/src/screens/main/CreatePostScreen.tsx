@@ -8,11 +8,20 @@ import {
   Image,
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  ScrollView,
+  Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { useNavigation } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { MainTabParamList } from '../../navigation';
 import { api } from '../../services/api';
 
+type CreatePostScreenNavigationProp = BottomTabNavigationProp<MainTabParamList, 'CreatePost'>;
+
 export default function CreatePostScreen() {
+  const navigation = useNavigation<CreatePostScreenNavigationProp>();
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
   const [loading, setLoading] = useState(false);
@@ -65,70 +74,89 @@ export default function CreatePostScreen() {
     setLoading(true);
     try {
       await api.createPost(imageUri, caption);
-      Alert.alert('Success', 'Post created successfully!');
       setImageUri(null);
       setCaption('');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to create post. Please try again.');
+      Alert.alert('Success', 'Post created successfully!', [
+        {
+          text: 'OK',
+          onPress: () => navigation.navigate('Feed'),
+        },
+      ]);
+    } catch (error: any) {
+      console.error('Post creation error:', error);
+      const errorMessage = error.response?.data?.error || error.message || 'Failed to create post. Please try again.';
+      Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Create Post</Text>
-
-      {imageUri ? (
-        <View style={styles.imageContainer}>
-          <Image source={{ uri: imageUri }} style={styles.image} />
-          <TouchableOpacity
-            style={styles.changeImageButton}
-            onPress={pickImage}
-          >
-            <Text style={styles.changeImageText}>Change Image</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <View style={styles.imagePlaceholder}>
-          <TouchableOpacity style={styles.button} onPress={pickImage}>
-            <Text style={styles.buttonText}>Choose from Gallery</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.button} onPress={takePhoto}>
-            <Text style={styles.buttonText}>Take Photo</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      <TextInput
-        style={styles.input}
-        placeholder="Write a caption..."
-        value={caption}
-        onChangeText={setCaption}
-        multiline
-        numberOfLines={3}
-      />
-
-      <TouchableOpacity
-        style={[styles.postButton, !imageUri && styles.postButtonDisabled]}
-        onPress={handlePost}
-        disabled={!imageUri || loading}
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+    >
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
       >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
+        <Text style={styles.title}>Create Post</Text>
+
+        {imageUri ? (
+          <View style={styles.imageContainer}>
+            <Image source={{ uri: imageUri }} style={styles.image} />
+            <TouchableOpacity
+              style={styles.changeImageButton}
+              onPress={pickImage}
+            >
+              <Text style={styles.changeImageText}>Change Image</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
-          <Text style={styles.postButtonText}>Post</Text>
+          <View style={styles.imagePlaceholder}>
+            <TouchableOpacity style={styles.button} onPress={pickImage}>
+              <Text style={styles.buttonText}>Choose from Gallery</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.button} onPress={takePhoto}>
+              <Text style={styles.buttonText}>Take Photo</Text>
+            </TouchableOpacity>
+          </View>
         )}
-      </TouchableOpacity>
-    </View>
+
+        <TextInput
+          style={styles.input}
+          placeholder="Write a caption..."
+          value={caption}
+          onChangeText={setCaption}
+          multiline
+          numberOfLines={3}
+        />
+
+        <TouchableOpacity
+          style={[styles.postButton, !imageUri && styles.postButtonDisabled]}
+          onPress={handlePost}
+          disabled={!imageUri || loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.postButtonText}>Post</Text>
+          )}
+        </TouchableOpacity>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
     backgroundColor: '#fff',
+  },
+  scrollContent: {
+    padding: 20,
+    paddingBottom: 40,
   },
   title: {
     fontSize: 24,

@@ -62,7 +62,23 @@
       "Bash(then ls -la mobile)",
       "Bash(else echo \"No mobile directory found\")",
       "Bash(fi)",
-      "Bash(npx expo start -c)"
+      "Bash(npx expo start -c)",
+      "Bash(npx expo start)",
+      "Bash(timeout:*)",
+      "Bash(cmd.exe /c \"taskkill /PID 2520 /F\")",
+      "Bash(npx expo start:*)",
+      "Bash(ipconfig:*)",
+      "Bash(tasklist:*)",
+      "Bash(cmd.exe /c \"taskkill /F /PID 22236\")",
+      "Bash(powershell -Command \"Stop-Process -Id 22236 -Force\")",
+      "Bash(powershell -Command \"Stop-Process -Id 2520 -Force\")",
+      "Bash(dir /b \"C:\\\\Users\\\\HP\\\\Desktop\\\\Richy-coding-hub-2026\\\\SeeMe\\\\backend\\\\src\\\\routes\")",
+      "Bash(psql:*)",
+      "Bash(where:*)",
+      "Bash(docker ps:*)",
+      "Bash(dir:*)",
+      "Bash(del dataseeme.db)",
+      "Bash(npm run test:coverage:*)"
     ]
   }
 }

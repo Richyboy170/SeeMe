@@ -16,19 +16,13 @@ export const connectRedis = async (): Promise<void> => {
     redisClient = createClient({
       url: redisUrl,
       socket: {
-        reconnectStrategy: (retries) => {
-          if (retries > 10) {
-            logger.error('Redis reconnection failed after 10 retries');
-            return new Error('Redis reconnection limit exceeded');
-          }
-          return retries * 500; // Exponential backoff
-        }
+        reconnectStrategy: false // Disable automatic reconnection
       }
     });
 
     // Event handlers
     redisClient.on('error', (error) => {
-      logger.error('Redis error', { error });
+      logger.error('Redis client error', { error });
     });
 
     redisClient.on('connect', () => {
@@ -37,10 +31,6 @@ export const connectRedis = async (): Promise<void> => {
 
     redisClient.on('ready', () => {
       logger.info('Redis connected and ready');
-    });
-
-    redisClient.on('reconnecting', () => {
-      logger.warn('Redis reconnecting...');
     });
 
     redisClient.on('end', () => {
@@ -52,7 +42,12 @@ export const connectRedis = async (): Promise<void> => {
 
   } catch (error) {
     logger.error('Redis connection failed', { error });
-    throw error;
+    logger.warn('Continuing without Redis - caching features will be unavailable');
+    // Close the client to stop reconnection attempts
+    if (redisClient) {
+      await redisClient.disconnect().catch(() => {});
+    }
+    // Don't throw - allow server to run without Redis
   }
 };
 

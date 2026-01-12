@@ -183,11 +183,11 @@ PositivityCoins.init(
     timestamps: true,
     indexes: [
       {
-        fields: ['userId']
+        fields: ['user_id']
       },
       {
         name: 'idx_positivity_coins_give_counter',
-        fields: [{ name: 'lifetimeGiven', order: 'DESC' }]
+        fields: [{ name: 'lifetime_given', order: 'DESC' }]
       }
     ]
   }

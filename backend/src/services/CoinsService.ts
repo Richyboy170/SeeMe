@@ -1,3 +1,4 @@
+import { Op } from 'sequelize';
 import { sequelize } from '../config/database';
 import { PositivityCoins } from '../models/PositivityCoins';
 import { CoinTransaction } from '../models/CoinTransaction';
@@ -71,6 +72,7 @@ export class CoinsService {
     cooldownCoinsAvailable: number;
     nextCooldownAt: Date | null;
     minutesUntilNextCooldown: number | null;
+    secondsUntilNextCooldown: number | null;
     rank: string;
   }> {
     let coins = await PositivityCoins.findByPk(userId);
@@ -96,6 +98,10 @@ export class CoinsService {
       ? Math.max(0, Math.ceil((coins.nextCooldownAvailableAt.getTime() - Date.now()) / (60 * 1000)))
       : null;
 
+    const secondsUntilNext = coins.nextCooldownAvailableAt
+      ? Math.max(0, Math.ceil((coins.nextCooldownAvailableAt.getTime() - Date.now()) / 1000))
+      : null;
+
     return {
       totalCoins: coins.totalCoins,
       lifetimeEarned: coins.lifetimeEarned,
@@ -103,6 +109,7 @@ export class CoinsService {
       cooldownCoinsAvailable: coins.cooldownCoinsAvailable,
       nextCooldownAt: coins.nextCooldownAvailableAt,
       minutesUntilNextCooldown: minutesUntilNext,
+      secondsUntilNextCooldown: secondsUntilNext,
       rank
     };
   }
@@ -597,7 +604,7 @@ export class CoinsService {
     try {
       const transactions = await CoinTransaction.findAll({
         where: {
-          [sequelize.Sequelize.Op.or]: [{ fromUserId: userId }, { toUserId: userId }]
+          [Op.or]: [{ fromUserId: userId }, { toUserId: userId }]
         },
         include: [
           {
@@ -636,7 +643,7 @@ export class CoinsService {
       const topGivers = await PositivityCoins.findAll({
         where: {
           lifetimeGiven: {
-            [sequelize.Sequelize.Op.gt]: 0
+            [Op.gt]: 0
           }
         },
         include: [

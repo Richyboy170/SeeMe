@@ -8,11 +8,15 @@ export interface UserAttributes {
   id: string;
   username: string;
   email: string;
-  passwordHash: string;
+  passwordHash: string | null;
+  googleId: string | null;
+  authProvider: 'email' | 'google' | 'both';
   ageVerified: boolean;
   activeAvatarId: string | null;
   positivityGiveCounter: number;
   positivityRank: string;
+  fcmToken: string | null;
+  chatNotificationsEnabled: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -20,7 +24,7 @@ export interface UserAttributes {
 /**
  * Optional attributes for user creation
  */
-interface UserCreationAttributes extends Optional<UserAttributes, 'id' | 'ageVerified' | 'activeAvatarId' | 'positivityGiveCounter' | 'positivityRank' | 'createdAt' | 'updatedAt'> {}
+interface UserCreationAttributes extends Optional<UserAttributes, 'id' | 'ageVerified' | 'activeAvatarId' | 'positivityGiveCounter' | 'positivityRank' | 'fcmToken' | 'chatNotificationsEnabled' | 'createdAt' | 'updatedAt' | 'passwordHash' | 'googleId' | 'authProvider'> {}
 
 /**
  * User model representing registered users in the platform
@@ -29,13 +33,24 @@ export class User extends Model<UserAttributes, UserCreationAttributes> implemen
   public id!: string;
   public username!: string;
   public email!: string;
-  public passwordHash!: string;
+  public passwordHash!: string | null;
+  public googleId!: string | null;
+  public authProvider!: 'email' | 'google' | 'both';
   public ageVerified!: boolean;
   public activeAvatarId!: string | null;
   public positivityGiveCounter!: number;
   public positivityRank!: string;
+  public fcmToken!: string | null;
+  public chatNotificationsEnabled!: boolean;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
+
+  // Override toJSON to exclude passwordHash
+  toJSON(): any {
+    const values: any = Object.assign({}, this.get());
+    delete values.passwordHash;
+    return values;
+  }
 }
 
 User.init(
@@ -74,8 +89,28 @@ User.init(
     },
     passwordHash: {
       type: DataTypes.STRING(255),
+      allowNull: true,
+      defaultValue: null,
+      comment: 'Bcrypt hashed password (null for Google-only accounts)'
+    },
+    googleId: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      defaultValue: null,
+      unique: true,
+      comment: 'Google user ID for OAuth authentication'
+    },
+    authProvider: {
+      type: DataTypes.STRING(20),
       allowNull: false,
-      comment: 'Bcrypt hashed password'
+      defaultValue: 'email',
+      validate: {
+        isIn: {
+          args: [['email', 'google', 'both']],
+          msg: 'Invalid auth provider'
+        }
+      },
+      comment: 'Authentication provider: email, google, or both'
     },
     ageVerified: {
       type: DataTypes.BOOLEAN,
@@ -107,6 +142,18 @@ User.init(
       },
       comment: 'Positivity rank based on coins given'
     },
+    fcmToken: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+      comment: 'Firebase Cloud Messaging token for push notifications'
+    },
+    chatNotificationsEnabled: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+      allowNull: false,
+      comment: 'Whether user wants to receive chat push notifications'
+    },
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -121,17 +168,7 @@ User.init(
   {
     sequelize,
     tableName: 'users',
-    timestamps: true,
-    indexes: [
-      {
-        unique: true,
-        fields: ['email']
-      },
-      {
-        unique: true,
-        fields: ['username']
-      }
-    ]
+    timestamps: true
   }
 );
 

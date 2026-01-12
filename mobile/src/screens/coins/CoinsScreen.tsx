@@ -22,6 +22,7 @@ export default function CoinsScreen({ navigation }: any) {
         lifetimeGiven: 0,
         cooldownCoinsAvailable: 0,
         minutesUntilNextCooldown: null,
+        secondsUntilNextCooldown: null,
         rank: 'beginner'
     });
 
@@ -36,11 +37,16 @@ export default function CoinsScreen({ navigation }: any) {
     const loadCoins = async () => {
         try {
             const response = await api.getMyCoins();
+            // Fallback: if secondsUntilNextCooldown is not available, calculate from minutes
+            const secondsUntilNext = response.coins.secondsUntilNextCooldown ??
+                (response.coins.minutesUntilNextCooldown ? response.coins.minutesUntilNextCooldown * 60 : null);
+
             setCoinsData({
                 totalCoins: response.coins.totalCoins,
                 lifetimeGiven: response.coins.lifetimeGiven,
                 cooldownCoinsAvailable: response.coins.cooldownCoinsAvailable,
                 minutesUntilNextCooldown: response.coins.minutesUntilNextCooldown,
+                secondsUntilNextCooldown: secondsUntilNext,
                 rank: response.coins.rank || 'beginner'
             });
         } catch (error) {
@@ -93,6 +99,7 @@ export default function CoinsScreen({ navigation }: any) {
                 <CooldownCoinsWidget
                     cooldownCoinsAvailable={coinsData.cooldownCoinsAvailable}
                     minutesUntilNext={coinsData.minutesUntilNextCooldown}
+                    secondsUntilNext={coinsData.secondsUntilNextCooldown}
                     onPress={handleClaimCooldown}
                 />
                 <Text style={styles.cooldownInfo}>
