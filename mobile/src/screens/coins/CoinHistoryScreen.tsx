@@ -106,7 +106,7 @@ export default function CoinHistoryScreen() {
   const renderItem = ({ item }: { item: Transaction }) => {
     const icon = getTransactionIcon(item.type);
     const title = getTransactionTitle(item);
-    const isIncrease = !item.type.includes('give') || item.type === 'receive';
+    const isIncrease = !item.type?.includes('give') || item.type === 'receive';
 
     return (
       <View style={styles.item}>

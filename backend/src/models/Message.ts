@@ -158,23 +158,24 @@ Message.init(
     sequelize,
     tableName: 'messages',
     timestamps: true,
-    indexes: [
-      {
-        fields: ['conversationId', 'createdAt']
-      },
-      {
-        fields: ['senderId', 'createdAt']
-      },
-      {
-        fields: ['receiverId', 'createdAt']
-      },
-      {
-        fields: ['receiverId', 'isRead'],
-        where: {
-          isRead: false
-        }
-      }
-    ]
+    // Temporarily disable indexes for SQLite compatibility
+    // indexes: [
+    //   {
+    //     fields: ['conversation_id', 'created_at']
+    //   },
+    //   {
+    //     fields: ['sender_id', 'created_at']
+    //   },
+    //   {
+    //     fields: ['receiver_id', 'created_at']
+    //   },
+    //   {
+    //     fields: ['receiver_id', 'is_read'],
+    //     where: {
+    //       is_read: false
+    //     }
+    //   }
+    // ]
   }
 );
 

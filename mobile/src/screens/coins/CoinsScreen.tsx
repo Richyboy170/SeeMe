@@ -66,7 +66,11 @@ export default function CoinsScreen({ navigation }: any) {
                 [{ text: 'Awesome!', onPress: loadCoins }]
             );
         } catch (error: any) {
-            Alert.alert('Error', error.message || 'Failed to claim coins');
+            const errorMessage = error.response?.data?.error ||
+                                error.response?.data?.message ||
+                                error.message ||
+                                'Failed to claim coins';
+            Alert.alert('Error', errorMessage);
         }
     };
 

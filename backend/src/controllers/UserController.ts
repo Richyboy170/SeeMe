@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
+import { Op } from 'sequelize';
 import { User } from '../models/User';
+import { Follow } from '../models/Follow';
 import { AuthRequest } from '../middleware/auth';
 import { logger } from '../utils/logger';
 import { PushNotificationService } from '../services/PushNotificationService';
@@ -242,6 +244,80 @@ export class UserController {
     } catch (error) {
       logger.error('Error getting notification settings', { error, userId: req.user?.id });
       res.status(500).json({ error: 'Failed to get notification settings' });
+    }
+  }
+
+  /**
+   * Search users by username
+   * @route GET /api/users/search?q=query
+   */
+  static async searchUsers(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.id;
+      const { q, limit = 20, offset = 0 } = req.query;
+
+      if (!q || typeof q !== 'string' || q.trim().length < 1) {
+        res.status(400).json({ error: 'Search query is required' });
+        return;
+      }
+
+      const searchQuery = q.trim().toLowerCase();
+      const limitNum = Math.min(parseInt(limit as string) || 20, 50);
+      const offsetNum = parseInt(offset as string) || 0;
+
+      // Search users by username (excluding current user)
+      const users = await User.findAll({
+        where: {
+          id: { [Op.ne]: userId },
+          username: {
+            [Op.iLike]: `%${searchQuery}%`
+          }
+        },
+        attributes: [
+          'id',
+          'username',
+          'activeAvatarId',
+          'positivityGiveCounter',
+          'positivityRank',
+          'createdAt'
+        ],
+        limit: limitNum,
+        offset: offsetNum,
+        order: [['username', 'ASC']]
+      });
+
+      // Get follow status for each user
+      const userIds = users.map(u => u.id);
+      const followings = await Follow.findAll({
+        where: {
+          followerId: userId,
+          followingId: { [Op.in]: userIds }
+        }
+      });
+
+      const followingIds = new Set(followings.map(f => f.followingId));
+
+      const usersWithFollowStatus = users.map(user => ({
+        id: user.id,
+        username: user.username,
+        activeAvatarId: user.activeAvatarId,
+        positivityGiveCounter: user.positivityGiveCounter,
+        positivityRank: user.positivityRank,
+        isFollowing: followingIds.has(user.id)
+      }));
+
+      res.json({
+        users: usersWithFollowStatus,
+        pagination: {
+          limit: limitNum,
+          offset: offsetNum,
+          hasMore: users.length === limitNum
+        }
+      });
+
+    } catch (error) {
+      logger.error('Error searching users', { error, userId: req.user?.id });
+      res.status(500).json({ error: 'Failed to search users' });
     }
   }
 }

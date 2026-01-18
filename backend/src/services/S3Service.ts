@@ -26,6 +26,14 @@ const config: S3Config = {
   cloudfrontDomain: process.env.CLOUDFRONT_DOMAIN
 };
 
+// Local server URL for development
+const getLocalServerUrl = () => {
+  const host = process.env.HOST || '0.0.0.0';
+  const port = process.env.PORT || '3000';
+  // Use the actual server address for mobile access
+  return `http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`;
+};
+
 // Check if AWS is configured
 const isAwsConfigured = !!(
   config.accessKeyId &&
@@ -77,8 +85,9 @@ export class S3Service {
         fs.writeFileSync(filePath, buffer);
         logger.debug('Image saved locally', { path: filePath });
 
-        // Return local URL
-        return `file://${filePath}`;
+        // Return HTTP URL for the static file server
+        // The key is the path relative to the storage directory
+        return `/storage/${key}`;
       }
     } catch (error) {
       logger.error('Failed to upload image', { error, key });
@@ -102,8 +111,16 @@ export class S3Service {
    */
   static async downloadImage(url: string): Promise<Buffer> {
     try {
-      if (url.startsWith('file://')) {
-        // Local file
+      if (url.startsWith('/storage/')) {
+        // Local file served via HTTP
+        const key = url.replace('/storage/', '');
+        const filePath = path.join(localStoragePath, key);
+        if (!fs.existsSync(filePath)) {
+          throw new Error('File not found');
+        }
+        return fs.readFileSync(filePath);
+      } else if (url.startsWith('file://')) {
+        // Legacy local file format
         const filePath = url.replace('file://', '');
         if (!fs.existsSync(filePath)) {
           throw new Error('File not found');
@@ -130,8 +147,16 @@ export class S3Service {
    */
   static async deleteImage(url: string): Promise<void> {
     try {
-      if (url.startsWith('file://')) {
-        // Local file
+      if (url.startsWith('/storage/')) {
+        // Local file served via HTTP
+        const key = url.replace('/storage/', '');
+        const filePath = path.join(localStoragePath, key);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+          logger.debug('Image deleted locally', { path: filePath });
+        }
+      } else if (url.startsWith('file://')) {
+        // Legacy local file format
         const filePath = url.replace('file://', '');
         if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);
@@ -173,7 +198,11 @@ export class S3Service {
    */
   static async imageExists(url: string): Promise<boolean> {
     try {
-      if (url.startsWith('file://')) {
+      if (url.startsWith('/storage/')) {
+        const key = url.replace('/storage/', '');
+        const filePath = path.join(localStoragePath, key);
+        return fs.existsSync(filePath);
+      } else if (url.startsWith('file://')) {
         const filePath = url.replace('file://', '');
         return fs.existsSync(filePath);
       } else if (isAwsConfigured && config.cloudfrontDomain) {

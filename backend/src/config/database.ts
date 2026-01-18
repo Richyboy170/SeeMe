@@ -51,7 +51,14 @@ export const connectPostgreSQL = async (): Promise<void> => {
     await sequelize.authenticate();
 
     // Sync database schema (creates tables if they don't exist)
-    await sequelize.sync({ alter: useSQLiteFallback });
+    // For fresh PostgreSQL setup, use force to recreate tables cleanly
+    // In production, you should use migrations instead
+    const isFirstSetup = process.env.DB_FORCE_SYNC === 'true';
+    await sequelize.sync({
+      force: isFirstSetup,
+      // Disable alter mode - use migrations for schema changes in production
+      alter: false
+    });
 
     // Import setupAssociations here to avoid circular dependency
     // This ensures all models are initialized before setting up associations

@@ -143,20 +143,21 @@ CoinTransaction.init(
     tableName: 'coin_transactions',
     timestamps: true,
     updatedAt: false,
-    indexes: [
-      {
-        name: 'idx_coin_transactions_from_user',
-        fields: ['from_user_id', { name: 'created_at', order: 'DESC' }]
-      },
-      {
-        name: 'idx_coin_transactions_to_user',
-        fields: ['to_user_id', { name: 'created_at', order: 'DESC' }]
-      },
-      {
-        name: 'idx_coin_transactions_type',
-        fields: ['transaction_type']
-      }
-    ]
+    // Temporarily disable indexes for SQLite compatibility
+    // indexes: [
+    //   {
+    //     name: 'idx_coin_transactions_from_user',
+    //     fields: ['from_user_id', { name: 'created_at', order: 'DESC' }]
+    //   },
+    //   {
+    //     name: 'idx_coin_transactions_to_user',
+    //     fields: ['to_user_id', { name: 'created_at', order: 'DESC' }]
+    //   },
+    //   {
+    //     name: 'idx_coin_transactions_type',
+    //     fields: ['transaction_type']
+    //   }
+    // ]
   }
 );
 

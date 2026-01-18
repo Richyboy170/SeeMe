@@ -201,20 +201,21 @@ Post.init(
     sequelize,
     tableName: 'posts',
     timestamps: true,
-    indexes: [
-      {
-        name: 'idx_posts_user_created',
-        fields: ['user_id', 'created_at']
-      },
-      {
-        name: 'idx_posts_status',
-        fields: ['status']
-      },
-      {
-        name: 'idx_posts_created',
-        fields: ['created_at']
-      }
-    ]
+    // Temporarily disable indexes for SQLite compatibility
+    // indexes: [
+    //   {
+    //     name: 'idx_posts_user_created',
+    //     fields: ['user_id', 'created_at']
+    //   },
+    //   {
+    //     name: 'idx_posts_status',
+    //     fields: ['status']
+    //   },
+    //   {
+    //     name: 'idx_posts_created',
+    //     fields: ['created_at']
+    //   }
+    // ]
   }
 );
 

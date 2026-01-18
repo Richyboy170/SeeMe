@@ -3,7 +3,7 @@ import Conversation from '../models/Conversation';
 import Message from '../models/Message';
 import User from '../models/User';
 import BlockedUser from '../models/BlockedUser';
-import { redisClient } from '../config/redis';
+import { redisClient, redisAvailable } from '../config/redis';
 import { logger } from '../utils/logger';
 import { PushNotificationService } from './PushNotificationService';
 
@@ -437,6 +437,10 @@ export class ChatService {
    * Check if a user is online
    */
   static async isUserOnline(userId: string): Promise<boolean> {
+    if (!redisAvailable || !redisClient) {
+      return false; // Can't check online status without Redis
+    }
+
     try {
       const exists = await redisClient.exists(`user:${userId}:online`);
       return exists === 1;

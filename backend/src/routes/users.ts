@@ -5,6 +5,13 @@ import { UserController } from '../controllers/UserController';
 const router = Router();
 
 /**
+ * @route   GET /api/users/search
+ * @desc    Search users by username
+ * @access  Private
+ */
+router.get('/search', authenticateToken, UserController.searchUsers);
+
+/**
  * @route   GET /api/users/me
  * @desc    Get current user's profile
  * @access  Private

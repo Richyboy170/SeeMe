@@ -2,7 +2,7 @@ import { Server, Socket } from 'socket.io';
 import Message from '../models/Message';
 import Conversation from '../models/Conversation';
 import User from '../models/User';
-import { redisClient } from '../config/redis';
+import { redisClient, redisAvailable } from '../config/redis';
 import { logger } from '../utils/logger';
 import { PushNotificationService } from '../services/PushNotificationService';
 
@@ -194,7 +194,9 @@ export const handleChatEvents = (io: Server, socket: Socket) => {
       const { conversationId, receiverId } = data;
 
       // Set typing indicator in Redis (expires in 5 seconds)
-      await redisClient.setEx(`typing:${conversationId}:${userId}`, 5, 'true');
+      if (redisAvailable && redisClient) {
+        await redisClient.setEx(`typing:${conversationId}:${userId}`, 5, 'true');
+      }
 
       // Notify receiver
       io.to(`user:${receiverId}`).emit('chat:user_typing', {
@@ -221,7 +223,9 @@ export const handleChatEvents = (io: Server, socket: Socket) => {
       const { conversationId, receiverId } = data;
 
       // Remove typing indicator
-      await redisClient.del(`typing:${conversationId}:${userId}`);
+      if (redisAvailable && redisClient) {
+        await redisClient.del(`typing:${conversationId}:${userId}`);
+      }
 
       // Notify receiver
       io.to(`user:${receiverId}`).emit('chat:user_stopped_typing', {

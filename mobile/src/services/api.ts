@@ -1,9 +1,66 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
+
+// Auto-detect dev server IP from Expo
+const getDevApiUrl = () => {
+  const debuggerHost = Constants.expoConfig?.hostUri;
+  if (debuggerHost) {
+    const host = debuggerHost.split(':')[0];
+    return `http://${host}:3000/api`;
+  }
+  // Fallback to localhost for emulators
+  return 'http://localhost:3000/api';
+};
 
 export const API_URL = __DEV__
-  ? 'http://192.168.2.35:3000/api'  // Development - Use computer's IP instead of localhost
+  ? getDevApiUrl()
   : 'https://api.seeme.app/api';   // Production
+
+// Base URL without /api for static assets like images
+export const getBaseUrl = () => {
+  return API_URL.replace(/\/api$/, '');
+};
+
+// Helper to convert relative image URLs to absolute URLs
+export const getImageUrl = (url: string | null | undefined): string | null => {
+  // Return null for falsy values or empty/whitespace strings
+  if (!url || typeof url !== 'string' || url.trim() === '') return null;
+
+  const trimmedUrl = url.trim();
+
+  // Already a valid absolute URL
+  if (trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')) {
+    return trimmedUrl;
+  }
+
+  // Relative storage URL - convert to absolute
+  if (trimmedUrl.startsWith('/storage/')) {
+    const baseUrl = getBaseUrl();
+    if (baseUrl) {
+      return `${baseUrl}${trimmedUrl}`;
+    }
+  }
+
+  // Handle file:// URLs from backend storage - extract relative path
+  if (trimmedUrl.startsWith('file://')) {
+    // Extract the storage path from file:// URLs
+    // e.g., file://C:\...\backend\storage\originals\... -> /storage/originals/...
+    const storageMatch = trimmedUrl.match(/[/\\]storage[/\\](.*)/i);
+    if (storageMatch) {
+      const relativePath = '/storage/' + storageMatch[1].replace(/\\/g, '/');
+      const baseUrl = getBaseUrl();
+      if (baseUrl) {
+        return `${baseUrl}${relativePath}`;
+      }
+    }
+  }
+
+  // For any other format, return null to prevent invalid URIs
+  // This prevents passing malformed URLs to Image component
+  console.warn('getImageUrl: Unrecognized URL format, returning null:', url);
+  return null;
+};
 
 class ApiClient {
   private client: AxiosInstance;
@@ -126,6 +183,7 @@ class ApiClient {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
+        timeout: 120000, // 2 minutes for image uploads
       });
 
       return response.data;
@@ -249,6 +307,38 @@ class ApiClient {
 
   async getUserOnlineStatus(userId: string) {
     const response = await this.client.get(`/chat/users/${userId}/online-status`);
+    return response.data;
+  }
+
+  // Follow methods
+  async followUser(username: string) {
+    const response = await this.client.post(`/users/${username}/follow`);
+    return response.data;
+  }
+
+  async unfollowUser(username: string) {
+    const response = await this.client.delete(`/users/${username}/follow`);
+    return response.data;
+  }
+
+  async checkFollowingStatus(username: string) {
+    const response = await this.client.get(`/users/${username}/following-status`);
+    return response.data;
+  }
+
+  async getFollowers(username: string) {
+    const response = await this.client.get(`/users/${username}/followers`);
+    return response.data;
+  }
+
+  async getFollowing(username: string) {
+    const response = await this.client.get(`/users/${username}/following`);
+    return response.data;
+  }
+
+  // Search users
+  async searchUsers(query: string, limit: number = 20, offset: number = 0) {
+    const response = await this.client.get(`/users/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`);
     return response.data;
   }
 

@@ -1,10 +1,10 @@
 import { Response } from 'express';
-import { Post } from '../models/Post';
+import { Post, PostStatus } from '../models/Post';
 import { User } from '../models/User';
 import { Follow } from '../models/Follow';
 import { Like } from '../models/Like';
 import { AuthRequest } from '../middleware/auth';
-import { redisClient } from '../config/redis';
+import { redisClient, redisAvailable } from '../config/redis';
 import { logger } from '../utils/logger';
 
 /**
@@ -26,16 +26,18 @@ export class FeedController {
       // Check cache first
       const cacheKey = `feed:${userId}:page:${page}`;
 
-      try {
-        const cached = await redisClient.get(cacheKey);
+      if (redisAvailable && redisClient) {
+        try {
+          const cached = await redisClient.get(cacheKey);
 
-        if (cached) {
-          logger.debug('Feed cache hit', { userId, page });
-          res.json(JSON.parse(cached));
-          return;
+          if (cached) {
+            logger.debug('Feed cache hit', { userId, page });
+            res.json(JSON.parse(cached));
+            return;
+          }
+        } catch (error) {
+          logger.warn('Redis cache read failed, continuing without cache', { error });
         }
-      } catch (error) {
-        logger.warn('Redis cache read failed, continuing without cache', { error });
       }
 
       // Get list of users being followed
@@ -67,7 +69,7 @@ export class FeedController {
       const { rows: posts, count } = await Post.findAndCountAll({
         where: {
           userId: followingIds,
-          status: 'completed'
+          status: PostStatus.COMPLETED
         },
         include: [{
           model: User,
@@ -122,11 +124,13 @@ export class FeedController {
       };
 
       // Cache for 1 minute
-      try {
-        await redisClient.setEx(cacheKey, 60, JSON.stringify(response));
-        logger.debug('Feed cached', { userId, page });
-      } catch (error) {
-        logger.warn('Redis cache write failed', { error });
+      if (redisAvailable && redisClient) {
+        try {
+          await redisClient.setEx(cacheKey, 60, JSON.stringify(response));
+          logger.debug('Feed cached', { userId, page });
+        } catch (error) {
+          logger.warn('Redis cache write failed', { error });
+        }
       }
 
       res.json(response);
@@ -152,21 +156,23 @@ export class FeedController {
       // Use user-specific cache for authenticated users, shared cache for unauthenticated
       const cacheKey = userId ? `discover:${userId}:page:${page}` : `discover:page:${page}`;
 
-      try {
-        const cached = await redisClient.get(cacheKey);
+      if (redisAvailable && redisClient) {
+        try {
+          const cached = await redisClient.get(cacheKey);
 
-        if (cached) {
-          logger.debug('Discover feed cache hit', { page, userId });
-          res.json(JSON.parse(cached));
-          return;
+          if (cached) {
+            logger.debug('Discover feed cache hit', { page, userId });
+            res.json(JSON.parse(cached));
+            return;
+          }
+        } catch (error) {
+          logger.warn('Redis cache read failed, continuing without cache', { error });
         }
-      } catch (error) {
-        logger.warn('Redis cache read failed, continuing without cache', { error });
       }
 
       const { rows: posts, count } = await Post.findAndCountAll({
         where: {
-          status: 'completed'
+          status: PostStatus.COMPLETED
         },
         include: [{
           model: User,
@@ -223,11 +229,13 @@ export class FeedController {
       };
 
       // Cache for 2 minutes (longer than personalized feed)
-      try {
-        await redisClient.setEx(cacheKey, 120, JSON.stringify(response));
-        logger.debug('Discover feed cached', { page, userId });
-      } catch (error) {
-        logger.warn('Redis cache write failed', { error });
+      if (redisAvailable && redisClient) {
+        try {
+          await redisClient.setEx(cacheKey, 120, JSON.stringify(response));
+          logger.debug('Discover feed cached', { page, userId });
+        } catch (error) {
+          logger.warn('Redis cache write failed', { error });
+        }
       }
 
       res.json(response);
@@ -243,6 +251,8 @@ export class FeedController {
    * Called when user follows/unfollows someone or when new posts are created
    */
   static async invalidateFeedCache(userId: string): Promise<void> {
+    if (!redisAvailable || !redisClient) return;
+
     try {
       // Delete all cached pages for this user
       const keys = await redisClient.keys(`feed:${userId}:page:*`);
@@ -260,6 +270,8 @@ export class FeedController {
    * Called when new posts are created
    */
   static async invalidateDiscoverCache(): Promise<void> {
+    if (!redisAvailable || !redisClient) return;
+
     try {
       const keys = await redisClient.keys('discover:page:*');
       if (keys.length > 0) {

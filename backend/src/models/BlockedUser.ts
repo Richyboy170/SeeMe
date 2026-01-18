@@ -73,19 +73,20 @@ BlockedUser.init(
     tableName: 'blocked_users',
     timestamps: true,
     updatedAt: false,
-    indexes: [
-      {
-        fields: ['blockerId']
-      },
-      {
-        fields: ['blockedId']
-      },
-      {
-        unique: true,
-        fields: ['blockerId', 'blockedId'],
-        name: 'blocked_users_unique'
-      }
-    ]
+    // Temporarily disable indexes for SQLite compatibility
+    // indexes: [
+    //   {
+    //     fields: ['blocker_id']
+    //   },
+    //   {
+    //     fields: ['blocked_id']
+    //   },
+    //   {
+    //     unique: true,
+    //     fields: ['blocker_id', 'blocked_id'],
+    //     name: 'blocked_users_unique'
+    //   }
+    // ]
   }
 );
 

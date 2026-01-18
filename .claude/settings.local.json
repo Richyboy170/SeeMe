@@ -78,7 +78,26 @@
       "Bash(docker ps:*)",
       "Bash(dir:*)",
       "Bash(del dataseeme.db)",
-      "Bash(npm run test:coverage:*)"
+      "Bash(npm run test:coverage:*)",
+      "Bash(powershell -Command \"Start-Sleep -Seconds 10\")",
+      "Bash(npm start)",
+      "Bash(powershell -Command \"Start-Sleep -Seconds 3\")",
+      "Bash(powershell -Command \"Start-Sleep -Seconds 5\")",
+      "Bash(sqlite3:*)",
+      "Bash(powershell:*)",
+      "Bash(wmic service:*)",
+      "Bash(done)",
+      "Bash(./psql.exe:*)",
+      "Bash(wsl redis-server:*)",
+      "Bash(wsl sudo systemctl:*)",
+      "Bash(wsl bash -c \"sudo redis-server --daemonize yes\")",
+      "Bash(wsl grep:*)",
+      "Bash(npm run db:shell:*)",
+      "Bash(if [ -f .env ])",
+      "Bash(then grep -E \"^DB_|^DATABASE_\" .env)",
+      "Bash(else echo \"No .env file found\")",
+      "Bash(ping:*)",
+      "Bash(git -C \"C:/Users/HP/Desktop/Richy-coding-hub-2026/SeeMe\" status --short)"
     ]
   }
 }

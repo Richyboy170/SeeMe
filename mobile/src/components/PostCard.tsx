@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import GiveCoinsModal from './coins/GiveCoinsModal';
+import { getImageUrl } from '../services/api';
 
 const { width } = Dimensions.get('window');
 
@@ -20,7 +21,8 @@ interface PostCardProps {
       username: string;
       activeAvatarId?: string;
     };
-    imageUrl: string;
+    imageUrl?: string;
+    originalImageUrl?: string;
     thumbnailUrl?: string;
     caption?: string;
     likesCount: number;
@@ -89,11 +91,21 @@ export default function PostCard({
       </TouchableOpacity>
 
       {/* Image */}
-      <Image
-        source={{ uri: post.thumbnailUrl || post.imageUrl }}
-        style={styles.postImage}
-        resizeMode="cover"
-      />
+      {(() => {
+        // Try thumbnailUrl, then imageUrl (processedImageUrl), then originalImageUrl as fallback
+        const imageUri = getImageUrl(post.thumbnailUrl) || getImageUrl(post.imageUrl) || getImageUrl(post.originalImageUrl);
+        return imageUri ? (
+          <Image
+            source={{ uri: imageUri }}
+            style={styles.postImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={[styles.postImage, { justifyContent: 'center', alignItems: 'center' }]}>
+            <Ionicons name="image-outline" size={48} color="#9CA3AF" />
+          </View>
+        );
+      })()}
 
       {/* Actions */}
       <View style={styles.actions}>

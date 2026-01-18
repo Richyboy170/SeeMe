@@ -1,9 +1,20 @@
 import { io, Socket } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 
-// Get base URL without /api path for socket connection
+// Auto-detect dev server IP from Expo
+const getDevSocketUrl = () => {
+  const debuggerHost = Constants.expoConfig?.hostUri;
+  if (debuggerHost) {
+    const host = debuggerHost.split(':')[0];
+    return `http://${host}:3000`;
+  }
+  // Fallback to localhost for emulators
+  return 'http://localhost:3000';
+};
+
 const SOCKET_URL = __DEV__
-  ? 'http://192.168.2.35:3000'  // Development - Use computer's IP instead of localhost
+  ? getDevSocketUrl()
   : 'https://api.seeme.app';     // Production
 
 class SocketService {
@@ -80,4 +91,3 @@ class SocketService {
 }
 
 export const socketService = new SocketService();
-export const socket = socketService.getSocket();

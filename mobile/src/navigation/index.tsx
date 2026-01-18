@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, CommonActions } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -11,6 +11,7 @@ import RegisterScreen from '../screens/auth/RegisterScreen';
 
 // Main screens
 import FeedScreen from '../screens/main/FeedScreen';
+import SearchUsersScreen from '../screens/main/SearchUsersScreen';
 import CreatePostScreen from '../screens/main/CreatePostScreen';
 import ProfileScreen from '../screens/main/ProfileScreen';
 import CoinsScreen from '../screens/coins/CoinsScreen';
@@ -50,8 +51,17 @@ export type ChatStackParamList = {
   };
 };
 
+export type SearchStackParamList = {
+  SearchUsers: undefined;
+  UserProfile: {
+    userId: string;
+    username: string;
+  };
+};
+
 export type MainTabParamList = {
   Feed: undefined;
+  Search: undefined;
   CreatePost: undefined;
   Messages: undefined;
   Coins: undefined;
@@ -61,6 +71,7 @@ export type MainTabParamList = {
 const AuthStack = createStackNavigator<AuthStackParamList>();
 const CoinsStack = createStackNavigator<CoinsStackParamList>();
 const ChatStack = createStackNavigator<ChatStackParamList>();
+const SearchStack = createStackNavigator<SearchStackParamList>();
 const MainTab = createBottomTabNavigator<MainTabParamList>();
 
 function AuthNavigator() {
@@ -131,15 +142,40 @@ function ChatNavigator() {
   );
 }
 
+function SearchNavigator() {
+  return (
+    <SearchStack.Navigator>
+      <SearchStack.Screen
+        name="SearchUsers"
+        component={SearchUsersScreen}
+        options={{
+          title: 'Find Friends',
+          headerShown: true
+        }}
+      />
+      <SearchStack.Screen
+        name="UserProfile"
+        component={ProfileScreen}
+        options={({ route }) => ({
+          title: route.params.username,
+          headerBackTitle: 'Back'
+        })}
+      />
+    </SearchStack.Navigator>
+  );
+}
+
 function MainNavigator() {
   return (
     <MainTab.Navigator
       screenOptions={({ route }) => ({
         tabBarIcon: ({ focused, color, size }) => {
-          let iconName: any;
+          let iconName: keyof typeof Ionicons.glyphMap = 'home';
 
           if (route.name === 'Feed') {
             iconName = focused ? 'home' : 'home-outline';
+          } else if (route.name === 'Search') {
+            iconName = focused ? 'search' : 'search-outline';
           } else if (route.name === 'CreatePost') {
             iconName = focused ? 'add-circle' : 'add-circle-outline';
           } else if (route.name === 'Messages') {
@@ -157,16 +193,21 @@ function MainNavigator() {
       })}
     >
       <MainTab.Screen name="Feed" component={FeedScreen} />
+      <MainTab.Screen
+        name="Search"
+        component={SearchNavigator}
+        options={{ headerShown: false, title: 'Find Friends', unmountOnBlur: true }}
+      />
       <MainTab.Screen name="CreatePost" component={CreatePostScreen} />
       <MainTab.Screen
         name="Messages"
         component={ChatNavigator}
-        options={{ headerShown: false }}
+        options={{ headerShown: false, unmountOnBlur: true }}
       />
       <MainTab.Screen
         name="Coins"
         component={CoinsNavigator}
-        options={{ headerShown: false }}
+        options={{ headerShown: false, unmountOnBlur: true }}
       />
       <MainTab.Screen name="Profile" component={ProfileScreen} />
     </MainTab.Navigator>

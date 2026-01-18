@@ -87,22 +87,23 @@ Conversation.init(
     sequelize,
     tableName: 'conversations',
     timestamps: true,
-    indexes: [
-      {
-        fields: ['user1Id', 'updatedAt']
-      },
-      {
-        fields: ['user2Id', 'updatedAt']
-      },
-      {
-        fields: ['lastMessageAt']
-      },
-      {
-        unique: true,
-        fields: ['user1Id', 'user2Id'],
-        name: 'conversation_users_unique'
-      }
-    ]
+    // Temporarily disable indexes for SQLite compatibility
+    // indexes: [
+    //   {
+    //     fields: ['user_1_id', 'updated_at']
+    //   },
+    //   {
+    //     fields: ['user_2_id', 'updated_at']
+    //   },
+    //   {
+    //     fields: ['last_message_at']
+    //   },
+    //   {
+    //     unique: true,
+    //     fields: ['user_1_id', 'user_2_id'],
+    //     name: 'conversation_users_unique'
+    //   }
+    // ]
   }
 );
 

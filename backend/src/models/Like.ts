@@ -65,25 +65,26 @@ Like.init(
     tableName: 'likes',
     timestamps: true,
     updatedAt: false, // No need for updatedAt on likes
-    indexes: [
-      {
-        unique: true,
-        name: 'unique_user_post_like',
-        fields: ['user_id', 'post_id']
-      },
-      {
-        name: 'idx_likes_post',
-        fields: ['post_id']
-      },
-      {
-        name: 'idx_likes_user',
-        fields: ['user_id']
-      },
-      {
-        name: 'idx_likes_created',
-        fields: ['created_at']
-      }
-    ]
+    // Temporarily disable indexes for SQLite compatibility
+    // indexes: [
+    //   {
+    //     unique: true,
+    //     name: 'unique_user_post_like',
+    //     fields: ['user_id', 'post_id']
+    //   },
+    //   {
+    //     name: 'idx_likes_post',
+    //     fields: ['post_id']
+    //   },
+    //   {
+    //     name: 'idx_likes_user',
+    //     fields: ['user_id']
+    //   },
+    //   {
+    //     name: 'idx_likes_created',
+    //     fields: ['created_at']
+    //   }
+    // ]
   }
 );
 

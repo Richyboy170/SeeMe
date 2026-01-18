@@ -181,15 +181,16 @@ PositivityCoins.init(
     sequelize,
     tableName: 'positivity_coins',
     timestamps: true,
-    indexes: [
-      {
-        fields: ['user_id']
-      },
-      {
-        name: 'idx_positivity_coins_give_counter',
-        fields: [{ name: 'lifetime_given', order: 'DESC' }]
-      }
-    ]
+    // Temporarily disable indexes for SQLite compatibility
+    // indexes: [
+    //   {
+    //     fields: ['user_id']
+    //   },
+    //   {
+    //     name: 'idx_positivity_coins_give_counter',
+    //     fields: [{ name: 'lifetime_given', order: 'DESC' }]
+    //   }
+    // ]
   }
 );
 

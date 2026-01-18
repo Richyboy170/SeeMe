@@ -115,16 +115,17 @@ CoinGivingActivity.init(
     tableName: 'coin_giving_activity',
     timestamps: true,
     updatedAt: false,
-    indexes: [
-      {
-        name: 'idx_coin_giving_giver',
-        fields: ['giver_id', { name: 'created_at', order: 'DESC' }]
-      },
-      {
-        name: 'idx_coin_giving_receiver',
-        fields: ['receiver_id', { name: 'created_at', order: 'DESC' }]
-      }
-    ]
+    // Temporarily disable indexes for SQLite compatibility
+    // indexes: [
+    //   {
+    //     name: 'idx_coin_giving_giver',
+    //     fields: ['giver_id', { name: 'created_at', order: 'DESC' }]
+    //   },
+    //   {
+    //     name: 'idx_coin_giving_receiver',
+    //     fields: ['receiver_id', { name: 'created_at', order: 'DESC' }]
+    //   }
+    // ]
   }
 );
 

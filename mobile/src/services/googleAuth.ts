@@ -6,10 +6,12 @@ WebBrowser.maybeCompleteAuthSession();
 
 // Google OAuth Configuration
 // IMPORTANT: Replace these with your actual Google Cloud Console client IDs
+// WARNING: Google Sign-In will NOT work until you replace the placeholder values below
+// Get your OAuth credentials from: https://console.cloud.google.com/apis/credentials
 const GOOGLE_CONFIG = {
-  androidClientId: 'YOUR_ANDROID_CLIENT_ID.apps.googleusercontent.com',
+  androidClientId: 'YOUR_ANDROID_CLIENT_ID.apps.googleusercontent.com', // TODO: Replace with actual Android Client ID
   iosClientId: '20449660740-db3e4niq4dn79524sjgmltp51fv0fabd.apps.googleusercontent.com',
-  webClientId: 'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com',
+  webClientId: 'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com', // TODO: Replace with actual Web Client ID
 };
 
 export interface GoogleSignInResult {

@@ -83,7 +83,8 @@ export default function ChatScreen({ route }: ChatScreenProps) {
   const loadCurrentUser = async () => {
     try {
       const response = await api.getProfile();
-      setCurrentUserId(response.user.id);
+      const user = response.user || response;
+      setCurrentUserId(user.id);
     } catch (error) {
       console.error('Load current user error:', error);
     }
@@ -140,7 +141,7 @@ export default function ChatScreen({ route }: ChatScreenProps) {
   };
 
   const handleMessagesRead = (data: any) => {
-    if (data.conversationId === conversationId) {
+    if (data.conversationId === conversationId && Array.isArray(data.messageIds)) {
       setMessages(prev =>
         prev.map(msg =>
           data.messageIds.includes(msg.id)

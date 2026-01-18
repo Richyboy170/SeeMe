@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect } from 'react';
 import {
   View,
   FlatList,
@@ -9,9 +9,10 @@ import {
   RefreshControl,
   ActivityIndicator
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
-import { api } from '../../services/api';
+import { api, getImageUrl } from '../../services/api';
+import { Ionicons } from '@expo/vector-icons';
 import { formatDistanceToNow } from 'date-fns';
 import { ChatStackParamList } from '../../navigation';
 
@@ -52,10 +53,34 @@ export default function ConversationsScreen() {
     loadConversations();
   }, []);
 
+  // Add New Message button to header
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity
+          style={{ marginRight: 16, padding: 4 }}
+          onPress={handleNewMessage}
+        >
+          <Ionicons name="create-outline" size={24} color="#3B82F6" />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
+
+  const handleNewMessage = () => {
+    // Navigate to Search tab to find a friend to message
+    navigation.dispatch(
+      CommonActions.navigate({
+        name: 'Search',
+      })
+    );
+  };
+
   const loadCurrentUser = async () => {
     try {
       const response = await api.getProfile();
-      setCurrentUserId(response.user.id);
+      const user = response.user || response;
+      setCurrentUserId(user.id);
     } catch (error) {
       console.error('Load current user error:', error);
     }
@@ -90,10 +115,19 @@ export default function ConversationsScreen() {
           otherUser
         })}
       >
-        <Image
-          source={{ uri: otherUser.avatarUrl || 'https://via.placeholder.com/56' }}
-          style={styles.avatar}
-        />
+        {(() => {
+          const avatarUri = otherUser.avatarUrl ? getImageUrl(otherUser.avatarUrl) : null;
+          return avatarUri ? (
+            <Image
+              source={{ uri: avatarUri }}
+              style={styles.avatar}
+            />
+          ) : (
+            <View style={[styles.avatar, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}>
+              <Ionicons name="person" size={28} color="#9CA3AF" />
+            </View>
+          );
+        })()}
 
         <View style={styles.conversationContent}>
           <View style={styles.conversationHeader}>

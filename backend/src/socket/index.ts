@@ -2,7 +2,7 @@ import { Server } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import { verifySocketToken } from '../middleware/socketAuth';
 import { handleChatEvents } from './chatHandler';
-import { redisClient } from '../config/redis';
+import { redisClient, redisAvailable } from '../config/redis';
 import { logger } from '../utils/logger';
 
 /**
@@ -34,8 +34,10 @@ export const initializeSocket = (httpServer: HTTPServer) => {
     socket.join(`user:${userId}`);
 
     // Mark user as online in Redis (expires in 5 minutes)
-    redisClient.setEx(`user:${userId}:online`, 300, 'true')
-      .catch(err => logger.error('Failed to set user online status', { userId, error: err }));
+    if (redisAvailable && redisClient) {
+      redisClient.setEx(`user:${userId}:online`, 300, 'true')
+        .catch(err => logger.error('Failed to set user online status', { userId, error: err }));
+    }
 
     // Handle chat events
     handleChatEvents(io, socket);
@@ -49,8 +51,10 @@ export const initializeSocket = (httpServer: HTTPServer) => {
       });
 
       // Remove online status
-      redisClient.del(`user:${userId}:online`)
-        .catch(err => logger.error('Failed to remove user online status', { userId, error: err }));
+      if (redisAvailable && redisClient) {
+        redisClient.del(`user:${userId}:online`)
+          .catch(err => logger.error('Failed to remove user online status', { userId, error: err }));
+      }
     });
 
     // Handle errors

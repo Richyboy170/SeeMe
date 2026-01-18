@@ -65,7 +65,11 @@ export default function GiveCoinsModal({
                 }}]
             );
         } catch (error: any) {
-            Alert.alert('Error', error.message || 'Failed to give coins');
+            const errorMessage = error.response?.data?.error ||
+                                error.response?.data?.message ||
+                                error.message ||
+                                'Failed to give coins';
+            Alert.alert('Error', errorMessage);
         } finally {
             setSubmitting(false);
         }

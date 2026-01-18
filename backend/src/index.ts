@@ -1,8 +1,12 @@
+import dotenv from 'dotenv';
+// Load environment variables FIRST before other imports
+dotenv.config();
+
 import express, { Request, Response } from 'express';
 import http from 'http';
 import helmet from 'helmet';
 import cors from 'cors';
-import dotenv from 'dotenv';
+import path from 'path';
 import { errorHandler } from './middleware/errorHandler';
 import { logger } from './utils/logger';
 import { connectPostgreSQL, disconnectPostgreSQL } from './config/database';
@@ -23,9 +27,6 @@ import uploadRoutes from './routes/upload';
 import chatRoutes from './routes/messages';
 import { celeryClient } from './config/celery';
 
-// Load environment variables
-dotenv.config();
-
 const app = express();
 
 // Security Middleware
@@ -44,6 +45,11 @@ app.use(cors({
 // Body Parser Middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Static file serving for local storage (development)
+const localStoragePath = path.join(process.cwd(), 'storage');
+app.use('/storage', express.static(localStoragePath));
+logger.info('Static file serving enabled', { path: localStoragePath });
 
 // Request Logging Middleware
 app.use((req: Request, _res: Response, next) => {

@@ -92,14 +92,44 @@ export class PostController {
       // Queue ML processing job
       try {
         const taskId = uuidv4();
-        await celeryClient.queueImageProcessing(
+        const queueResult = await celeryClient.queueImageProcessing(
           taskId,
           originalUrl,
           userId,
           avatarId
         );
 
-        logger.info('ML processing task queued', { postId: post.id, taskId });
+        if (queueResult) {
+          logger.info('ML processing task queued', { postId: post.id, taskId });
+        } else {
+          logger.warn('ML service unavailable, will auto-complete post', { postId: post.id });
+        }
+
+        // Auto-complete post if ML service is unavailable (queueResult is null)
+        // or in development mode with fallback enabled
+        const shouldAutoComplete = !queueResult ||
+          (process.env.NODE_ENV === 'development' && process.env.ML_DEVELOPMENT_FALLBACK === 'true');
+
+        if (shouldAutoComplete) {
+          // Auto-complete immediately since ML service is unavailable
+          setTimeout(async () => {
+            try {
+              const checkPost = await Post.findByPk(post.id);
+              if (checkPost && checkPost.status === PostStatus.PROCESSING) {
+                await checkPost.update({
+                  status: PostStatus.COMPLETED,
+                  processedImageUrl: originalUrl,
+                  thumbnailUrl: originalUrl,
+                  processingCompletedAt: new Date(),
+                  processingTimeSeconds: 0
+                });
+                logger.info('Post auto-completed (ML service unavailable)', { postId: post.id });
+              }
+            } catch (err) {
+              logger.error('Failed to auto-complete post', { error: err, postId: post.id });
+            }
+          }, 2000); // Short delay then complete
+        }
 
         res.status(201).json({
           postId: post.id,

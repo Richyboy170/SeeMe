@@ -71,25 +71,26 @@ Follow.init(
     sequelize,
     tableName: 'follows',
     timestamps: true,
-    indexes: [
-      {
-        unique: true,
-        name: 'unique_follow_relationship',
-        fields: ['follower_id', 'following_id']
-      },
-      {
-        name: 'idx_follows_follower',
-        fields: ['follower_id']
-      },
-      {
-        name: 'idx_follows_following',
-        fields: ['following_id']
-      },
-      {
-        name: 'idx_follows_created',
-        fields: ['created_at']
-      }
-    ],
+    // Temporarily disable indexes for SQLite compatibility
+    // indexes: [
+    //   {
+    //     unique: true,
+    //     name: 'unique_follow_relationship',
+    //     fields: ['follower_id', 'following_id']
+    //   },
+    //   {
+    //     name: 'idx_follows_follower',
+    //     fields: ['follower_id']
+    //   },
+    //   {
+    //     name: 'idx_follows_following',
+    //     fields: ['following_id']
+    //   },
+    //   {
+    //     name: 'idx_follows_created',
+    //     fields: ['created_at']
+    //   }
+    // ],
     validate: {
       cannotFollowSelf() {
         if (this.followerId === this.followingId) {

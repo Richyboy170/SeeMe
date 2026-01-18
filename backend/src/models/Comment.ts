@@ -106,24 +106,25 @@ Comment.init(
     sequelize,
     tableName: 'comments',
     timestamps: true,
-    indexes: [
-      {
-        name: 'idx_comments_post_created',
-        fields: ['post_id', 'created_at']
-      },
-      {
-        name: 'idx_comments_user',
-        fields: ['user_id']
-      },
-      {
-        name: 'idx_comments_parent',
-        fields: ['parent_comment_id']
-      },
-      {
-        name: 'idx_comments_created',
-        fields: ['created_at']
-      }
-    ]
+    // Temporarily disable indexes for SQLite compatibility
+    // indexes: [
+    //   {
+    //     name: 'idx_comments_post_created',
+    //     fields: ['post_id', 'created_at']
+    //   },
+    //   {
+    //     name: 'idx_comments_user',
+    //     fields: ['user_id']
+    //   },
+    //   {
+    //     name: 'idx_comments_parent',
+    //     fields: ['parent_comment_id']
+    //   },
+    //   {
+    //     name: 'idx_comments_created',
+    //     fields: ['created_at']
+    //   }
+    // ]
   }
 );
 
