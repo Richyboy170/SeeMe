@@ -32,14 +32,17 @@ export const connectRedis = async (): Promise<void> => {
       }
     });
 
-    // Log error only once to avoid spam, then suppress subsequent errors
-    client.on('error', (err) => {
+    // Log error only once, then replace with silent handler
+    const errorHandler = (err: Error) => {
       if (!redisErrorLogged) {
         redisErrorLogged = true;
-        logger.error('Redis client error', { error: err });
-        logger.warn('Subsequent Redis errors will be suppressed');
+        logger.warn('Redis unavailable - caching disabled', { code: (err as any).code || 'UNKNOWN' });
+        // Replace with silent handler to prevent future logs
+        client?.removeListener('error', errorHandler);
+        client?.on('error', () => {});
       }
-    });
+    };
+    client.on('error', errorHandler);
 
     client.on('ready', () => {
       logger.info('Redis connected and ready');
@@ -56,10 +59,9 @@ export const connectRedis = async (): Promise<void> => {
     redisAvailable = true;
     logger.info('Redis connected successfully');
 
-  } catch (error) {
+  } catch {
+    // Error already logged by error handler, just set flag and clean up
     redisErrorLogged = true;
-    logger.error('Redis connection failed', { error });
-    logger.warn('Continuing without Redis - caching features will be unavailable');
 
     // Clean up the client completely
     if (client) {

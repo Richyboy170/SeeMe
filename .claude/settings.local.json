@@ -97,7 +97,9 @@
       "Bash(then grep -E \"^DB_|^DATABASE_\" .env)",
       "Bash(else echo \"No .env file found\")",
       "Bash(ping:*)",
-      "Bash(git -C \"C:/Users/HP/Desktop/Richy-coding-hub-2026/SeeMe\" status --short)"
+      "Bash(git -C \"C:/Users/HP/Desktop/Richy-coding-hub-2026/SeeMe\" status --short)",
+      "Bash(git commit:*)",
+      "Bash(git add:*)"
     ]
   }
 }
