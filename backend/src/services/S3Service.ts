@@ -26,14 +26,6 @@ const config: S3Config = {
   cloudfrontDomain: process.env.CLOUDFRONT_DOMAIN
 };
 
-// Local server URL for development
-const getLocalServerUrl = () => {
-  const host = process.env.HOST || '0.0.0.0';
-  const port = process.env.PORT || '3000';
-  // Use the actual server address for mobile access
-  return `http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`;
-};
-
 // Check if AWS is configured
 const isAwsConfigured = !!(
   config.accessKeyId &&

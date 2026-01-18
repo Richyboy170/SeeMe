@@ -164,6 +164,8 @@ tmp/
 temp/
 *.tmp
 *.bak
+tmpclaude-*
+**/tmpclaude-*
 
 # ===================================
 # USER UPLOADED CONTENT (Development)
