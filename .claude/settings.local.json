@@ -108,7 +108,8 @@
       "Bash(npx expo run:android)",
       "Bash(npm uninstall:*)",
       "Bash(npm ls:*)",
-      "Bash(npx jest:*)"
+      "Bash(npx jest:*)",
+      "Bash(git fetch:*)"
     ]
   }
 }

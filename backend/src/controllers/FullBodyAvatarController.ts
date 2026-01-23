@@ -431,10 +431,11 @@ export class FullBodyAvatarController {
   static async processImage(req: AuthRequest, res: Response): Promise<void> {
     try {
       if (!req.file) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           error: 'Image file required'
         });
+        return;
       }
 
       const formData = new FormData();
@@ -466,7 +467,8 @@ export class FullBodyAvatarController {
       logger.error('Process image error:', error.message);
 
       if (error.response?.data) {
-        return res.status(error.response.status).json(error.response.data);
+        res.status(error.response.status).json(error.response.data);
+        return;
       }
 
       res.status(500).json({
@@ -486,10 +488,11 @@ export class FullBodyAvatarController {
   static async extractLandmarks(req: AuthRequest, res: Response): Promise<void> {
     try {
       if (!req.file) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           error: 'Image file required'
         });
+        return;
       }
 
       const formData = new FormData();
@@ -514,7 +517,8 @@ export class FullBodyAvatarController {
       logger.error('Extract landmarks error:', error.message);
 
       if (error.response?.data) {
-        return res.status(error.response.status).json(error.response.data);
+        res.status(error.response.status).json(error.response.data);
+        return;
       }
 
       res.status(500).json({
@@ -531,10 +535,11 @@ export class FullBodyAvatarController {
   static async detectPeople(req: AuthRequest, res: Response): Promise<void> {
     try {
       if (!req.file) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           error: 'Image file required'
         });
+        return;
       }
 
       const formData = new FormData();
@@ -558,7 +563,8 @@ export class FullBodyAvatarController {
       logger.error('Detect people error:', error.message);
 
       if (error.response?.data) {
-        return res.status(error.response.status).json(error.response.data);
+        res.status(error.response.status).json(error.response.data);
+        return;
       }
 
       res.status(500).json({
