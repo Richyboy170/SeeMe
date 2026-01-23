@@ -1,6 +1,11 @@
 import { sequelize } from '../config/database';
 import { logger } from './logger';
 import * as addFcmFields from '../migrations/add-fcm-fields';
+import * as addImageMessageFields from '../migrations/add-image-message-fields';
+import * as addUserInteractionsTable from '../migrations/add-user-interactions-table';
+import * as addAvatarConfigsTable from '../migrations/add-avatar-configs-table';
+import * as addPrivacySettings from '../migrations/add-privacy-settings';
+import * as addFullBodyAvatarsTable from '../migrations/add-full-body-avatars-table';
 
 /**
  * Run database migrations
@@ -12,6 +17,31 @@ const migrations = [
     name: 'add-fcm-fields',
     up: addFcmFields.up,
     down: addFcmFields.down
+  },
+  {
+    name: 'add-image-message-fields',
+    up: addImageMessageFields.up,
+    down: addImageMessageFields.down
+  },
+  {
+    name: 'add-user-interactions-table',
+    up: addUserInteractionsTable.up,
+    down: addUserInteractionsTable.down
+  },
+  {
+    name: 'add-avatar-configs-table',
+    up: addAvatarConfigsTable.up,
+    down: addAvatarConfigsTable.down
+  },
+  {
+    name: 'add-privacy-settings',
+    up: addPrivacySettings.up,
+    down: addPrivacySettings.down
+  },
+  {
+    name: 'add-full-body-avatars-table',
+    up: addFullBodyAvatarsTable.up,
+    down: addFullBodyAvatarsTable.down
   }
   // Add more migrations here as needed
 ];

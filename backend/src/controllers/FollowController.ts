@@ -1,9 +1,33 @@
 import { Request, Response } from 'express';
+import { Op } from 'sequelize';
 import { Follow } from '../models/Follow';
+import { FollowRequest } from '../models/FollowRequest';
 import { User } from '../models/User';
+import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
 import { AuthRequest } from '../middleware/auth';
 import { FeedController } from './FeedController';
 import { logger } from '../utils/logger';
+
+// Helper to format avatar data for API response
+function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
+  if (!avatar) return null;
+  return {
+    id: avatar.id,
+    style: avatar.style,
+    customizations: {
+      skinTone: avatar.skinTone,
+      eyeColor: avatar.eyeColor,
+      eyeSize: avatar.eyeSize,
+      hairColor: avatar.hairColor,
+      hairStyle: avatar.hairStyle,
+      accessories: {
+        glasses: avatar.glasses,
+        hat: avatar.hat,
+        earrings: avatar.earrings,
+      },
+    },
+  };
+}
 
 /**
  * Follow Controller
@@ -11,7 +35,7 @@ import { logger } from '../utils/logger';
  */
 export class FollowController {
   /**
-   * Follow a user
+   * Follow a user (or send follow request if private)
    */
   static async followUser(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -32,19 +56,50 @@ export class FollowController {
       }
 
       // Check if already following
-      const existing = await Follow.findOne({
+      const existingFollow = await Follow.findOne({
         where: {
           followerId,
           followingId: userToFollow.id
         }
       });
 
-      if (existing) {
+      if (existingFollow) {
         res.status(400).json({ error: 'Already following this user' });
         return;
       }
 
-      // Create follow
+      // Check if there's already a pending follow request
+      const existingRequest = await FollowRequest.findOne({
+        where: {
+          requesterId: followerId,
+          targetId: userToFollow.id,
+          status: 'pending'
+        }
+      });
+
+      if (existingRequest) {
+        res.status(400).json({ error: 'Follow request already pending' });
+        return;
+      }
+
+      // If user is private, create a follow request instead
+      if (userToFollow.isPrivate) {
+        await FollowRequest.create({
+          requesterId: followerId,
+          targetId: userToFollow.id,
+          status: 'pending'
+        });
+
+        logger.info('Follow request sent', { requesterId: followerId, targetId: userToFollow.id });
+
+        res.json({
+          message: 'Follow request sent',
+          status: 'requested'
+        });
+        return;
+      }
+
+      // Create follow for public accounts
       await Follow.create({
         followerId,
         followingId: userToFollow.id
@@ -57,7 +112,7 @@ export class FollowController {
 
       res.json({
         message: 'Now following user',
-        following: true
+        status: 'following'
       });
 
     } catch (error) {
@@ -67,7 +122,7 @@ export class FollowController {
   }
 
   /**
-   * Unfollow a user
+   * Unfollow a user or cancel follow request
    */
   static async unfollowUser(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -82,15 +137,23 @@ export class FollowController {
         return;
       }
 
-      // Delete follow
-      const deleted = await Follow.destroy({
+      // Try to delete follow
+      const deletedFollow = await Follow.destroy({
         where: {
           followerId,
           followingId: userToUnfollow.id
         }
       });
 
-      if (deleted === 0) {
+      // Also delete any pending follow requests
+      const deletedRequest = await FollowRequest.destroy({
+        where: {
+          requesterId: followerId,
+          targetId: userToUnfollow.id
+        }
+      });
+
+      if (deletedFollow === 0 && deletedRequest === 0) {
         res.status(400).json({ error: 'Not following this user' });
         return;
       }
@@ -98,11 +161,11 @@ export class FollowController {
       // Invalidate feed cache
       await FeedController.invalidateFeedCache(followerId);
 
-      logger.info('User unfollowed', { followerId, followingId: userToUnfollow.id });
+      logger.info('User unfollowed/request cancelled', { followerId, targetId: userToUnfollow.id });
 
       res.json({
-        message: 'Unfollowed user',
-        following: false
+        message: deletedFollow > 0 ? 'Unfollowed user' : 'Follow request cancelled',
+        status: 'none'
       });
 
     } catch (error) {
@@ -140,7 +203,22 @@ export class FollowController {
         order: [['createdAt', 'DESC']]
       });
 
-      const followers = follows.map(f => f.get('follower'));
+      const followerUsers = follows.map(f => f.get('follower') as any);
+      const userIds = followerUsers.map((u: any) => u.id);
+
+      // Fetch active avatars
+      const avatars = await AvatarConfigSQL.findAll({
+        where: {
+          userId: { [Op.in]: userIds },
+          isActive: true,
+        },
+      });
+      const avatarsByUserId = new Map(avatars.map(a => [a.userId, formatAvatarForResponse(a)]));
+
+      const followers = followerUsers.map((u: any) => ({
+        ...u,
+        activeAvatar: avatarsByUserId.get(u.id) || null,
+      }));
 
       res.json({
         followers,
@@ -188,7 +266,22 @@ export class FollowController {
         order: [['createdAt', 'DESC']]
       });
 
-      const following = follows.map(f => f.get('followingUser'));
+      const followingUsers = follows.map(f => f.get('followingUser') as any);
+      const userIds = followingUsers.map((u: any) => u.id);
+
+      // Fetch active avatars
+      const avatars = await AvatarConfigSQL.findAll({
+        where: {
+          userId: { [Op.in]: userIds },
+          isActive: true,
+        },
+      });
+      const avatarsByUserId = new Map(avatars.map(a => [a.userId, formatAvatarForResponse(a)]));
+
+      const following = followingUsers.map((u: any) => ({
+        ...u,
+        activeAvatar: avatarsByUserId.get(u.id) || null,
+      }));
 
       res.json({
         following,
@@ -229,7 +322,20 @@ export class FollowController {
         }
       });
 
-      res.json({ following: !!follow });
+      // Also check for pending follow request
+      const followRequest = await FollowRequest.findOne({
+        where: {
+          requesterId: followerId,
+          targetId: userToCheck.id,
+          status: 'pending'
+        }
+      });
+
+      res.json({
+        isFollowing: !!follow,
+        followRequestStatus: followRequest?.status || null,
+        isPrivate: userToCheck.isPrivate
+      });
 
     } catch (error) {
       logger.error('Error checking following', { error, username: req.params.username });
@@ -264,6 +370,220 @@ export class FollowController {
     } catch (error) {
       logger.error('Error getting follow counts', { error, username: req.params.username });
       res.status(500).json({ error: 'Failed to get follow counts' });
+    }
+  }
+
+  /**
+   * Get pending follow requests for the authenticated user
+   */
+  static async getFollowRequests(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.id;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = 30;
+      const offset = (page - 1) * limit;
+
+      const { rows: requests, count } = await FollowRequest.findAndCountAll({
+        where: {
+          targetId: userId,
+          status: 'pending'
+        },
+        order: [['createdAt', 'DESC']],
+        limit,
+        offset
+      });
+
+      // Get requester user info
+      const requesterIds = requests.map(r => r.requesterId);
+      const requesters = await User.findAll({
+        where: { id: { [Op.in]: requesterIds } },
+        attributes: ['id', 'username', 'activeAvatarId', 'positivityRank']
+      });
+
+      // Fetch active avatars
+      const avatars = await AvatarConfigSQL.findAll({
+        where: {
+          userId: { [Op.in]: requesterIds },
+          isActive: true,
+        },
+      });
+      const avatarsByUserId = new Map(avatars.map(a => [a.userId, formatAvatarForResponse(a)]));
+
+      const usersMap = new Map(requesters.map(u => [u.id, u.toJSON()]));
+
+      const followRequests = requests.map(request => {
+        const requester = usersMap.get(request.requesterId) as any;
+        return {
+          id: request.id,
+          status: request.status,
+          createdAt: request.createdAt,
+          requester: requester ? {
+            ...requester,
+            activeAvatar: avatarsByUserId.get(requester.id) || null,
+          } : null
+        };
+      });
+
+      res.json({
+        followRequests,
+        pagination: {
+          page,
+          limit,
+          total: count,
+          totalPages: Math.ceil(count / limit),
+          hasMore: page < Math.ceil(count / limit)
+        }
+      });
+
+    } catch (error) {
+      logger.error('Error getting follow requests', { error, userId: req.user?.id });
+      res.status(500).json({ error: 'Failed to get follow requests' });
+    }
+  }
+
+  /**
+   * Accept a follow request
+   */
+  static async acceptFollowRequest(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { requestId } = req.params;
+      const userId = req.user!.id;
+
+      const request = await FollowRequest.findOne({
+        where: {
+          id: requestId,
+          targetId: userId,
+          status: 'pending'
+        }
+      });
+
+      if (!request) {
+        res.status(404).json({ error: 'Follow request not found' });
+        return;
+      }
+
+      // Create the follow relationship
+      await Follow.create({
+        followerId: request.requesterId,
+        followingId: userId
+      });
+
+      // Update request status to approved
+      await request.update({ status: 'approved' });
+
+      // Invalidate feed cache for the requester
+      await FeedController.invalidateFeedCache(request.requesterId);
+
+      logger.info('Follow request accepted', { requestId, userId, requesterId: request.requesterId });
+
+      res.json({
+        message: 'Follow request accepted',
+        success: true
+      });
+
+    } catch (error) {
+      logger.error('Error accepting follow request', { error, requestId: req.params.requestId });
+      res.status(500).json({ error: 'Failed to accept follow request' });
+    }
+  }
+
+  /**
+   * Reject a follow request
+   */
+  static async rejectFollowRequest(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { requestId } = req.params;
+      const userId = req.user!.id;
+
+      const request = await FollowRequest.findOne({
+        where: {
+          id: requestId,
+          targetId: userId,
+          status: 'pending'
+        }
+      });
+
+      if (!request) {
+        res.status(404).json({ error: 'Follow request not found' });
+        return;
+      }
+
+      // Update request status to rejected
+      await request.update({ status: 'rejected' });
+
+      logger.info('Follow request rejected', { requestId, userId, requesterId: request.requesterId });
+
+      res.json({
+        message: 'Follow request rejected',
+        success: true
+      });
+
+    } catch (error) {
+      logger.error('Error rejecting follow request', { error, requestId: req.params.requestId });
+      res.status(500).json({ error: 'Failed to reject follow request' });
+    }
+  }
+
+  /**
+   * Cancel a sent follow request
+   */
+  static async cancelFollowRequest(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { username } = req.params;
+      const requesterId = req.user!.id;
+
+      const targetUser = await User.findOne({ where: { username } });
+
+      if (!targetUser) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
+
+      const deleted = await FollowRequest.destroy({
+        where: {
+          requesterId,
+          targetId: targetUser.id,
+          status: 'pending'
+        }
+      });
+
+      if (deleted === 0) {
+        res.status(404).json({ error: 'No pending follow request found' });
+        return;
+      }
+
+      logger.info('Follow request cancelled', { requesterId, targetId: targetUser.id });
+
+      res.json({
+        message: 'Follow request cancelled',
+        success: true
+      });
+
+    } catch (error) {
+      logger.error('Error cancelling follow request', { error, username: req.params.username });
+      res.status(500).json({ error: 'Failed to cancel follow request' });
+    }
+  }
+
+  /**
+   * Get follow request count for the authenticated user
+   */
+  static async getFollowRequestCount(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.id;
+
+      const count = await FollowRequest.count({
+        where: {
+          targetId: userId,
+          status: 'pending'
+        }
+      });
+
+      res.json({ count });
+
+    } catch (error) {
+      logger.error('Error getting follow request count', { error, userId: req.user?.id });
+      res.status(500).json({ error: 'Failed to get follow request count' });
     }
   }
 }

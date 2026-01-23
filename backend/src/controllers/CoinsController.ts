@@ -215,6 +215,26 @@ export class CoinsController {
   }
 
   /**
+   * Get recent coins received from other users (for notifications)
+   * @route GET /api/coins/received
+   * @access Private
+   */
+  static async getReceivedCoins(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.id;
+      const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+      const since = req.query.since as string; // Optional: only get coins since this date
+
+      const received = await CoinsService.getReceivedCoins(userId, limit, since);
+
+      res.json({ received });
+    } catch (error) {
+      logger.error('Error getting received coins', { error, userId: req.user?.id });
+      res.status(500).json({ error: 'Failed to get received coins' });
+    }
+  }
+
+  /**
    * Get coins info for a specific user (public profile)
    * @route GET /api/coins/user/:userId
    * @access Public

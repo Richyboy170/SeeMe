@@ -1,7 +1,9 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { ChatService } from '../services/ChatService';
+import { S3Service } from '../services/S3Service';
 import { logger } from '../utils/logger';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Controller for chat-related endpoints
@@ -422,6 +424,147 @@ export class ChatController {
       res.status(500).json({
         success: false,
         message: 'Failed to get online status'
+      });
+    }
+  }
+
+  /**
+   * Send image message with view mode options
+   * POST /api/chat/messages/image
+   * Body (multipart): { image, conversationId, receiverId, messageType, imageViewMode, expiresInSeconds? }
+   */
+  static async sendImageMessage(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required'
+        });
+        return;
+      }
+
+      const userId = req.user.id;
+      const { conversationId, receiverId, imageViewMode, expiresInSeconds } = req.body;
+
+      if (!req.file) {
+        res.status(400).json({
+          success: false,
+          message: 'Image file is required'
+        });
+        return;
+      }
+
+      if (!conversationId || !receiverId) {
+        res.status(400).json({
+          success: false,
+          message: 'conversationId and receiverId are required'
+        });
+        return;
+      }
+
+      // Upload image to storage
+      const imageKey = `chat/${conversationId}/${uuidv4()}.jpg`;
+      const mediaUrl = await S3Service.uploadImage(
+        req.file.buffer,
+        imageKey,
+        req.file.mimetype
+      );
+
+      // Calculate expires at for time_bomb messages
+      let expiresAt: Date | undefined;
+      if (imageViewMode === 'time_bomb' && expiresInSeconds) {
+        expiresAt = new Date(Date.now() + parseInt(expiresInSeconds) * 1000);
+      }
+
+      // Create the message
+      const message = await ChatService.sendImageMessage(
+        conversationId,
+        userId,
+        receiverId,
+        mediaUrl,
+        imageViewMode || 'keep',
+        expiresAt
+      );
+
+      res.json({
+        success: true,
+        message
+      });
+    } catch (error) {
+      logger.error('Send image message error', { error });
+      res.status(500).json({
+        success: false,
+        message: 'Failed to send image message'
+      });
+    }
+  }
+
+  /**
+   * Mark image message as viewed
+   * POST /api/chat/messages/:messageId/viewed
+   */
+  static async markImageViewed(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required'
+        });
+        return;
+      }
+
+      const userId = req.user.id;
+      const { messageId } = req.params;
+
+      await ChatService.markImageViewed(messageId, userId);
+
+      res.json({
+        success: true,
+        message: 'Image marked as viewed'
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('not found')) {
+        res.status(404).json({
+          success: false,
+          message: error.message
+        });
+        return;
+      }
+
+      logger.error('Mark image viewed error', { error });
+      res.status(500).json({
+        success: false,
+        message: 'Failed to mark image as viewed'
+      });
+    }
+  }
+
+  /**
+   * Get total unread message count for current user
+   * GET /api/chat/unread-count
+   */
+  static async getTotalUnreadCount(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required'
+        });
+        return;
+      }
+
+      const userId = req.user.id;
+      const unreadCount = await ChatService.getTotalUnreadCount(userId);
+
+      res.json({
+        success: true,
+        unreadCount
+      });
+    } catch (error) {
+      logger.error('Get unread count error', { error });
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get unread count'
       });
     }
   }

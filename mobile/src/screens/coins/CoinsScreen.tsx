@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     View,
     ScrollView,
@@ -6,13 +6,23 @@ import {
     StyleSheet,
     RefreshControl,
     TouchableOpacity,
-    Alert
+    Alert,
+    Animated
 } from 'react-native';
 import { api } from '../../services/api';
 import CooldownCoinsWidget from '../../components/coins/CooldownCoinsWidget';
 import CoinsBalance from '../../components/coins/CoinsBalance';
 import GiveCounterBadge from '../../components/coins/GiveCounterBadge';
 import { Ionicons } from '@expo/vector-icons';
+
+interface ReceivedCoin {
+    id: string;
+    fromUserId: string;
+    fromUsername: string;
+    amount: number;
+    message: string | null;
+    createdAt: string;
+}
 
 export default function CoinsScreen({ navigation }: any) {
     const [loading, setLoading] = useState(true);
@@ -25,14 +35,39 @@ export default function CoinsScreen({ navigation }: any) {
         secondsUntilNextCooldown: null,
         rank: 'beginner'
     });
+    const [receivedCoins, setReceivedCoins] = useState<ReceivedCoin[]>([]);
+    const [showAllReceived, setShowAllReceived] = useState(false);
+
+    // Animation for notification cards
+    const notificationAnim = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
         loadCoins();
+        loadReceivedCoins();
 
         // Refresh every minute to update cooldown timer
         const interval = setInterval(loadCoins, 60000);
         return () => clearInterval(interval);
     }, []);
+
+    const loadReceivedCoins = async () => {
+        try {
+            const response = await api.getReceivedCoins(10);
+            setReceivedCoins(response.received || []);
+
+            // Animate in if there are new received coins
+            if (response.received?.length > 0) {
+                Animated.spring(notificationAnim, {
+                    toValue: 1,
+                    friction: 6,
+                    tension: 100,
+                    useNativeDriver: true,
+                }).start();
+            }
+        } catch (error) {
+            console.error('Error loading received coins:', error);
+        }
+    };
 
     const loadCoins = async () => {
         try {
@@ -77,6 +112,59 @@ export default function CoinsScreen({ navigation }: any) {
     const handleRefresh = () => {
         setRefreshing(true);
         loadCoins();
+        loadReceivedCoins();
+    };
+
+    const formatTimeAgo = (dateString: string) => {
+        const now = new Date();
+        const date = new Date(dateString);
+        const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+        if (diffInSeconds < 60) return 'Just now';
+        if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+        if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+        if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
+        return date.toLocaleDateString();
+    };
+
+    const renderReceivedNotification = (item: ReceivedCoin, index: number) => {
+        const slideAnim = notificationAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [-50, 0],
+        });
+
+        return (
+            <Animated.View
+                key={item.id}
+                style={[
+                    styles.notificationCard,
+                    {
+                        opacity: notificationAnim,
+                        transform: [{ translateX: slideAnim }],
+                    },
+                ]}
+            >
+                <View style={styles.notificationIcon}>
+                    <Ionicons name="gift" size={24} color="#FBBF24" />
+                </View>
+                <View style={styles.notificationContent}>
+                    <Text style={styles.notificationTitle}>
+                        <Text style={styles.notificationUsername}>@{item.fromUsername}</Text>
+                        {' '}sent you{' '}
+                        <Text style={styles.notificationAmount}>{item.amount} coin{item.amount > 1 ? 's' : ''}</Text>
+                    </Text>
+                    {item.message && (
+                        <Text style={styles.notificationMessage} numberOfLines={2}>
+                            "{item.message}"
+                        </Text>
+                    )}
+                    <Text style={styles.notificationTime}>{formatTimeAgo(item.createdAt)}</Text>
+                </View>
+                <View style={styles.notificationBadge}>
+                    <Text style={styles.notificationBadgeText}>+{item.amount}</Text>
+                </View>
+            </Animated.View>
+        );
     };
 
     return (
@@ -91,6 +179,28 @@ export default function CoinsScreen({ navigation }: any) {
                 <Text style={styles.title}>Positivity Coins</Text>
                 <Text style={styles.subtitle}>Spread kindness, earn rewards</Text>
             </View>
+
+            {/* Received Coins Notifications */}
+            {receivedCoins.length > 0 && (
+                <View style={styles.notificationsSection}>
+                    <View style={styles.notificationHeader}>
+                        <View style={styles.notificationHeaderLeft}>
+                            <Ionicons name="heart" size={20} color="#EF4444" />
+                            <Text style={styles.notificationHeaderTitle}>Kindness Received</Text>
+                        </View>
+                        {receivedCoins.length > 3 && (
+                            <TouchableOpacity onPress={() => setShowAllReceived(!showAllReceived)}>
+                                <Text style={styles.showMoreText}>
+                                    {showAllReceived ? 'Show less' : `See all (${receivedCoins.length})`}
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                    {(showAllReceived ? receivedCoins : receivedCoins.slice(0, 3)).map((item, index) =>
+                        renderReceivedNotification(item, index)
+                    )}
+                </View>
+            )}
 
             {/* Balance Card */}
             <View style={styles.balanceCard}>
@@ -131,7 +241,7 @@ export default function CoinsScreen({ navigation }: any) {
                     icon="create-outline"
                     title="Write a Meaningful Post"
                     reward="+2 coins"
-                    description="Share something positive or helpful"
+                    description="Write a caption with 20+ characters"
                     onPress={() => navigation.navigate('CreatePost')}
                 />
 
@@ -139,7 +249,7 @@ export default function CoinsScreen({ navigation }: any) {
                     icon="chatbubble-outline"
                     title="Leave a Kind Comment"
                     reward="+1 coin"
-                    description="Brighten someone's day"
+                    description="10+ characters with positive words or emojis"
                     onPress={() => navigation.navigate('Feed')}
                 />
 
@@ -344,5 +454,100 @@ const styles = StyleSheet.create({
         fontWeight: '500',
         color: '#111827',
         marginLeft: 12
+    },
+
+    // Notification styles
+    notificationsSection: {
+        backgroundColor: '#FFF',
+        marginHorizontal: 16,
+        marginTop: 16,
+        borderRadius: 16,
+        padding: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3
+    },
+    notificationHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 12
+    },
+    notificationHeaderLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8
+    },
+    notificationHeaderTitle: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#111827'
+    },
+    showMoreText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#007AFF'
+    },
+    notificationCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FEF3C7',
+        borderRadius: 12,
+        padding: 12,
+        marginBottom: 8
+    },
+    notificationIcon: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: '#FFF',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 12,
+        shadowColor: '#FBBF24',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+        elevation: 2
+    },
+    notificationContent: {
+        flex: 1
+    },
+    notificationTitle: {
+        fontSize: 14,
+        color: '#374151',
+        lineHeight: 20
+    },
+    notificationUsername: {
+        fontWeight: '700',
+        color: '#111827'
+    },
+    notificationAmount: {
+        fontWeight: '700',
+        color: '#F59E0B'
+    },
+    notificationMessage: {
+        fontSize: 13,
+        color: '#6B7280',
+        fontStyle: 'italic',
+        marginTop: 4
+    },
+    notificationTime: {
+        fontSize: 12,
+        color: '#9CA3AF',
+        marginTop: 4
+    },
+    notificationBadge: {
+        backgroundColor: '#10B981',
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 12
+    },
+    notificationBadgeText: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#FFF'
     }
 });

@@ -11,7 +11,7 @@ from pathlib import Path
 import torch
 
 from config import settings
-from routes import face_processing_router
+from routes import face_processing_router, body_avatar_router
 
 # Configure Loguru
 logger.remove()
@@ -45,6 +45,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(face_processing_router)
+app.include_router(body_avatar_router)
 
 
 def check_models_loaded() -> dict:

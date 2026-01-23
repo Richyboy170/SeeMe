@@ -152,9 +152,27 @@ class ApiClient {
     return response.data;
   }
 
-  // Placeholder methods for future use
+  // Feed methods
   async getFeed(page: number = 1) {
     const response = await this.client.get(`/feed?page=${page}`);
+    return response.data;
+  }
+
+  async getAlgorithmicFeed(page: number = 1, limit: number = 20) {
+    const response = await this.client.get(`/feed/algorithmic?page=${page}&limit=${limit}`);
+    return response.data;
+  }
+
+  async trackInteraction(
+    targetId: string,
+    interactionType: 'view' | 'like' | 'comment' | 'comment_view' | 'share' | 'profile_view' | 'follow' | 'coin_gift' | 'save',
+    metadata?: object
+  ) {
+    const response = await this.client.post('/feed/track-interaction', {
+      targetId,
+      interactionType,
+      metadata
+    });
     return response.data;
   }
 
@@ -252,6 +270,11 @@ class ApiClient {
     return response.data;
   }
 
+  async getReceivedCoins(limit: number = 10) {
+    const response = await this.client.get(`/coins/received?limit=${limit}`);
+    return response.data;
+  }
+
   // Chat methods
   async getConversations() {
     const response = await this.client.get('/chat/conversations');
@@ -310,6 +333,26 @@ class ApiClient {
     return response.data;
   }
 
+  // Image message methods
+  async sendImageMessage(formData: FormData) {
+    const response = await this.client.post('/chat/messages/image', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  }
+
+  async markImageViewed(messageId: string) {
+    const response = await this.client.post(`/chat/messages/${messageId}/viewed`);
+    return response.data;
+  }
+
+  async getTotalUnreadCount() {
+    const response = await this.client.get('/chat/unread-count');
+    return response.data;
+  }
+
   // Follow methods
   async followUser(username: string) {
     const response = await this.client.post(`/users/${username}/follow`);
@@ -342,19 +385,152 @@ class ApiClient {
     return response.data;
   }
 
+  // Get recommended users
+  async getRecommendedUsers(limit: number = 20) {
+    const response = await this.client.get(`/users/recommendations?limit=${limit}`);
+    return response.data;
+  }
+
+  // Privacy settings methods
+  async getPrivacySettings() {
+    const response = await this.client.get('/users/privacy-settings');
+    return response.data;
+  }
+
+  async updatePrivacySettings(isPrivate: boolean) {
+    const response = await this.client.patch('/users/privacy-settings', { isPrivate });
+    return response.data;
+  }
+
+  // Follow requests methods
+  async getFollowRequests(page: number = 1) {
+    const response = await this.client.get(`/users/follow-requests?page=${page}`);
+    return response.data;
+  }
+
+  async getFollowRequestCount() {
+    const response = await this.client.get('/users/follow-requests/count');
+    return response.data;
+  }
+
+  async acceptFollowRequest(requestId: string) {
+    const response = await this.client.post(`/users/follow-requests/${requestId}/accept`);
+    return response.data;
+  }
+
+  async rejectFollowRequest(requestId: string) {
+    const response = await this.client.post(`/users/follow-requests/${requestId}/reject`);
+    return response.data;
+  }
+
+  async cancelFollowRequest(username: string) {
+    const response = await this.client.delete(`/users/follow-requests/${username}`);
+    return response.data;
+  }
+
+  // Comments methods
+  async getPostComments(postId: string, page: number = 1) {
+    const response = await this.client.get(`/posts/${postId}/comments?page=${page}`);
+    return response.data;
+  }
+
+  async createComment(postId: string, content: string, parentCommentId?: string) {
+    const response = await this.client.post(`/posts/${postId}/comments`, {
+      content,
+      parentCommentId: parentCommentId || null
+    });
+    return response.data;
+  }
+
+  async getCommentReplies(commentId: string, page: number = 1) {
+    const response = await this.client.get(`/comments/${commentId}/replies?page=${page}`);
+    return response.data;
+  }
+
+  async deleteComment(commentId: string) {
+    const response = await this.client.delete(`/comments/${commentId}`);
+    return response.data;
+  }
+
+  // Avatar methods
+  async getMyAvatars() {
+    const response = await this.client.get('/avatars/me');
+    return response.data;
+  }
+
+  async getAvatar(avatarId: string) {
+    const response = await this.client.get(`/avatars/${avatarId}`);
+    return response.data;
+  }
+
+  async createAvatar(data: {
+    name: string;
+    style: 'cartoon' | 'anime' | 'minimalist';
+    customizations?: {
+      skinTone?: string;
+      eyeColor?: string;
+      eyeSize?: number;
+      hairColor?: string;
+      hairStyle?: string;
+      accessories?: {
+        glasses?: string | null;
+        hat?: string | null;
+        earrings?: string | null;
+      };
+    };
+  }) {
+    const response = await this.client.post('/avatars', data);
+    return response.data;
+  }
+
+  async updateAvatar(avatarId: string, data: {
+    name?: string;
+    style?: 'cartoon' | 'anime' | 'minimalist';
+    customizations?: {
+      skinTone?: string;
+      eyeColor?: string;
+      eyeSize?: number;
+      hairColor?: string;
+      hairStyle?: string;
+      accessories?: {
+        glasses?: string | null;
+        hat?: string | null;
+        earrings?: string | null;
+      };
+    };
+  }) {
+    const response = await this.client.put(`/avatars/${avatarId}`, data);
+    return response.data;
+  }
+
+  async deleteAvatar(avatarId: string) {
+    const response = await this.client.delete(`/avatars/${avatarId}`);
+    return response.data;
+  }
+
+  async activateAvatar(avatarId: string) {
+    const response = await this.client.post(`/avatars/${avatarId}/activate`);
+    return response.data;
+  }
+
   // Generic HTTP methods for flexibility
   async get(endpoint: string) {
     const response = await this.client.get(endpoint);
     return response;
   }
 
-  async post(endpoint: string, data?: any) {
-    const response = await this.client.post(endpoint, data);
+  async post(endpoint: string, data?: any, config?: any) {
+    const response = await this.client.post(endpoint, data, config);
     return response;
   }
 
   async put(endpoint: string, data?: any) {
     const response = await this.client.put(endpoint, data);
+    return response;
+  }
+
+  async patch(endpoint: string, data?: any) {
+    const response = await this.client.patch(endpoint, data);
     return response;
   }
 

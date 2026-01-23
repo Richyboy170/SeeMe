@@ -2,11 +2,73 @@ import { Request, Response } from 'express';
 import { Comment } from '../models/Comment';
 import { Post } from '../models/Post';
 import { User } from '../models/User';
+import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
 import { AuthRequest } from '../middleware/auth';
 import { sequelize } from '../config/database';
 import { logger } from '../utils/logger';
 import { CoinsService } from '../services/CoinsService';
 import { PositivityDetectionService } from '../services/PositivityDetectionService';
+
+// Helper to format avatar data for API response
+function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
+  if (!avatar) return null;
+  return {
+    id: avatar.id,
+    style: avatar.style,
+    customizations: {
+      skinTone: avatar.skinTone,
+      eyeColor: avatar.eyeColor,
+      eyeSize: avatar.eyeSize,
+      hairColor: avatar.hairColor,
+      hairStyle: avatar.hairStyle,
+      accessories: {
+        glasses: avatar.glasses,
+        hat: avatar.hat,
+        earrings: avatar.earrings,
+      },
+    },
+  };
+}
+
+// Helper to add avatar data to comments
+async function addAvatarsToComments(comments: any[]): Promise<any[]> {
+  // Collect all unique user IDs from comments and their replies
+  const userIds = new Set<string>();
+  comments.forEach(comment => {
+    if (comment.user?.id) userIds.add(comment.user.id);
+    if (comment.replies) {
+      comment.replies.forEach((reply: any) => {
+        if (reply.user?.id) userIds.add(reply.user.id);
+      });
+    }
+  });
+
+  // Fetch active avatars
+  const avatars = await AvatarConfigSQL.findAll({
+    where: {
+      userId: [...userIds],
+      isActive: true,
+    },
+  });
+  const avatarsByUserId = new Map(avatars.map(a => [a.userId, formatAvatarForResponse(a)]));
+
+  // Add avatars to comments
+  return comments.map(comment => {
+    const commentJson = comment.toJSON ? comment.toJSON() : comment;
+    if (commentJson.user) {
+      commentJson.user.activeAvatar = avatarsByUserId.get(commentJson.user.id) || null;
+    }
+    if (commentJson.replies) {
+      commentJson.replies = commentJson.replies.map((reply: any) => {
+        if (reply.user) {
+          reply.user.activeAvatar = avatarsByUserId.get(reply.user.id) || null;
+        }
+        return reply;
+      });
+    }
+    return commentJson;
+  });
+}
 
 /**
  * Comment Controller
@@ -79,6 +141,10 @@ export class CommentController {
         }]
       });
 
+      // Add avatar data to the new comment
+      const commentsWithAvatars = await addAvatarsToComments([commentWithUser!]);
+      const commentWithAvatar = commentsWithAvatars[0];
+
       logger.info('Comment created', { commentId: comment.id, postId, userId });
 
       // Check if comment is positive and award coins
@@ -113,7 +179,7 @@ export class CommentController {
 
       res.status(201).json({
         message: 'Comment created',
-        comment: commentWithUser,
+        comment: commentWithAvatar,
         coinsEarned
       });
 
@@ -170,8 +236,11 @@ export class CommentController {
         offset
       });
 
+      // Add avatar data to comments
+      const commentsWithAvatars = await addAvatarsToComments(comments);
+
       res.json({
-        comments,
+        comments: commentsWithAvatars,
         pagination: {
           page,
           limit,
@@ -217,8 +286,11 @@ export class CommentController {
         offset
       });
 
+      // Add avatar data to replies
+      const repliesWithAvatars = await addAvatarsToComments(replies);
+
       res.json({
-        replies,
+        replies: repliesWithAvatars,
         pagination: {
           page,
           limit,

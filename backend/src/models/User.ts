@@ -17,6 +17,7 @@ export interface UserAttributes {
   positivityRank: string;
   fcmToken: string | null;
   chatNotificationsEnabled: boolean;
+  isPrivate: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -24,7 +25,7 @@ export interface UserAttributes {
 /**
  * Optional attributes for user creation
  */
-interface UserCreationAttributes extends Optional<UserAttributes, 'id' | 'ageVerified' | 'activeAvatarId' | 'positivityGiveCounter' | 'positivityRank' | 'fcmToken' | 'chatNotificationsEnabled' | 'createdAt' | 'updatedAt' | 'passwordHash' | 'googleId' | 'authProvider'> {}
+interface UserCreationAttributes extends Optional<UserAttributes, 'id' | 'ageVerified' | 'activeAvatarId' | 'positivityGiveCounter' | 'positivityRank' | 'fcmToken' | 'chatNotificationsEnabled' | 'isPrivate' | 'createdAt' | 'updatedAt' | 'passwordHash' | 'googleId' | 'authProvider'> {}
 
 /**
  * User model representing registered users in the platform
@@ -42,6 +43,7 @@ export class User extends Model<UserAttributes, UserCreationAttributes> implemen
   public positivityRank!: string;
   public fcmToken!: string | null;
   public chatNotificationsEnabled!: boolean;
+  public isPrivate!: boolean;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 
@@ -153,6 +155,12 @@ User.init(
       defaultValue: true,
       allowNull: false,
       comment: 'Whether user wants to receive chat push notifications'
+    },
+    isPrivate: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+      comment: 'Whether the user account is private (requires follow approval)'
     },
     createdAt: {
       type: DataTypes.DATE,

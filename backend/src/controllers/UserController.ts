@@ -2,9 +2,31 @@ import { Request, Response } from 'express';
 import { Op } from 'sequelize';
 import { User } from '../models/User';
 import { Follow } from '../models/Follow';
+import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
 import { AuthRequest } from '../middleware/auth';
 import { logger } from '../utils/logger';
 import { PushNotificationService } from '../services/PushNotificationService';
+
+// Helper to format avatar data for API response
+function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
+  if (!avatar) return null;
+  return {
+    id: avatar.id,
+    style: avatar.style,
+    customizations: {
+      skinTone: avatar.skinTone,
+      eyeColor: avatar.eyeColor,
+      eyeSize: avatar.eyeSize,
+      hairColor: avatar.hairColor,
+      hairStyle: avatar.hairStyle,
+      accessories: {
+        glasses: avatar.glasses,
+        hat: avatar.hat,
+        earrings: avatar.earrings,
+      },
+    },
+  };
+}
 
 /**
  * User Controller
@@ -37,6 +59,13 @@ export class UserController {
         return;
       }
 
+      // Fetch active avatar if exists
+      let activeAvatar = null;
+      if (user.activeAvatarId) {
+        const avatar = await AvatarConfigSQL.findByPk(user.activeAvatarId);
+        activeAvatar = formatAvatarForResponse(avatar);
+      }
+
       res.json({
         user: {
           id: user.id,
@@ -44,6 +73,7 @@ export class UserController {
           email: user.email,
           ageVerified: user.ageVerified,
           activeAvatarId: user.activeAvatarId,
+          activeAvatar,
           positivityGiveCounter: user.positivityGiveCounter,
           positivityRank: user.positivityRank,
           createdAt: user.createdAt
@@ -80,11 +110,19 @@ export class UserController {
         return;
       }
 
+      // Fetch active avatar if exists
+      let activeAvatar = null;
+      if (user.activeAvatarId) {
+        const avatar = await AvatarConfigSQL.findByPk(user.activeAvatarId);
+        activeAvatar = formatAvatarForResponse(avatar);
+      }
+
       res.json({
         user: {
           id: user.id,
           username: user.username,
           activeAvatarId: user.activeAvatarId,
+          activeAvatar,
           positivityGiveCounter: user.positivityGiveCounter,
           positivityRank: user.positivityRank,
           createdAt: user.createdAt
@@ -104,7 +142,7 @@ export class UserController {
   static async updateCurrentUser(req: AuthRequest, res: Response): Promise<void> {
     try {
       const userId = req.user!.id;
-      const { username, activeAvatarId } = req.body;
+      const { username, activeAvatarId, isPrivate } = req.body;
 
       const user = await User.findByPk(userId);
 
@@ -132,6 +170,10 @@ export class UserController {
         user.activeAvatarId = activeAvatarId;
       }
 
+      if (isPrivate !== undefined) {
+        user.isPrivate = isPrivate;
+      }
+
       await user.save();
 
       logger.info('User profile updated', { userId });
@@ -144,13 +186,83 @@ export class UserController {
           email: user.email,
           activeAvatarId: user.activeAvatarId,
           positivityGiveCounter: user.positivityGiveCounter,
-          positivityRank: user.positivityRank
+          positivityRank: user.positivityRank,
+          isPrivate: user.isPrivate
         }
       });
 
     } catch (error) {
       logger.error('Error updating user profile', { error, userId: req.user?.id });
       res.status(500).json({ error: 'Failed to update profile' });
+    }
+  }
+
+  /**
+   * Update privacy settings
+   * @route PATCH /api/users/privacy-settings
+   */
+  static async updatePrivacySettings(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.id;
+      const { isPrivate } = req.body;
+
+      if (isPrivate === undefined) {
+        res.status(400).json({ error: 'isPrivate is required' });
+        return;
+      }
+
+      const user = await User.findByPk(userId);
+
+      if (!user) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
+
+      user.isPrivate = isPrivate;
+      await user.save();
+
+      logger.info('Privacy settings updated', { userId, isPrivate });
+
+      res.json({
+        success: true,
+        message: 'Privacy settings updated successfully',
+        settings: {
+          isPrivate: user.isPrivate
+        }
+      });
+
+    } catch (error) {
+      logger.error('Error updating privacy settings', { error, userId: req.user?.id });
+      res.status(500).json({ error: 'Failed to update privacy settings' });
+    }
+  }
+
+  /**
+   * Get privacy settings
+   * @route GET /api/users/privacy-settings
+   */
+  static async getPrivacySettings(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.id;
+
+      const user = await User.findByPk(userId, {
+        attributes: ['isPrivate']
+      });
+
+      if (!user) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
+
+      res.json({
+        settings: {
+          isPrivate: user.isPrivate
+        }
+      });
+
+    } catch (error) {
+      logger.error('Error getting privacy settings', { error, userId: req.user?.id });
+      res.status(500).json({ error: 'Failed to get privacy settings' });
     }
   }
 
@@ -297,10 +409,20 @@ export class UserController {
 
       const followingIds = new Set(followings.map(f => f.followingId));
 
+      // Fetch active avatars for all users in search results
+      const avatars = await AvatarConfigSQL.findAll({
+        where: {
+          userId: { [Op.in]: userIds },
+          isActive: true,
+        },
+      });
+      const avatarsByUserId = new Map(avatars.map(a => [a.userId, formatAvatarForResponse(a)]));
+
       const usersWithFollowStatus = users.map(user => ({
         id: user.id,
         username: user.username,
         activeAvatarId: user.activeAvatarId,
+        activeAvatar: avatarsByUserId.get(user.id) || null,
         positivityGiveCounter: user.positivityGiveCounter,
         positivityRank: user.positivityRank,
         isFollowing: followingIds.has(user.id)

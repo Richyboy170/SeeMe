@@ -1,25 +1,34 @@
-import React, { useState, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import {
   View,
   FlatList,
   TouchableOpacity,
   Text,
   StyleSheet,
-  Image,
   RefreshControl,
   ActivityIndicator
 } from 'react-native';
-import { useNavigation, CommonActions } from '@react-navigation/native';
+import { useNavigation, CommonActions, useFocusEffect } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
-import { api, getImageUrl } from '../../services/api';
+import { api } from '../../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { formatDistanceToNow } from 'date-fns';
-import { ChatStackParamList } from '../../navigation';
+import { ChatStackParamList, useUnreadCount } from '../../navigation/types';
+import { socketService } from '../../services/socket';
+import Avatar from '../../components/Avatar';
+import { AvatarCustomizations } from '../../components/AvatarRenderer';
+
+interface ActiveAvatar {
+  id: string;
+  style: 'cartoon' | 'anime' | 'minimalist';
+  customizations: AvatarCustomizations;
+}
 
 interface User {
   id: string;
   username: string;
   avatarUrl?: string;
+  activeAvatar?: ActiveAvatar | null;
 }
 
 interface Message {
@@ -47,11 +56,53 @@ export default function ConversationsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const navigation = useNavigation<ConversationsScreenNavigationProp>();
+  const { refreshUnreadCount } = useUnreadCount();
 
   useEffect(() => {
     loadCurrentUser();
     loadConversations();
+
+    // Socket listeners for real-time updates
+    const socket = socketService.getSocket();
+    if (socket) {
+      // When a new message arrives, refresh conversations
+      socket.on('chat:new_message', handleSocketNewMessage);
+      // When messages are marked as read, update unread count
+      socket.on('chat:messages_read', handleMessagesRead);
+    }
+
+    return () => {
+      const socket = socketService.getSocket();
+      if (socket) {
+        socket.off('chat:new_message', handleSocketNewMessage);
+        socket.off('chat:messages_read', handleMessagesRead);
+      }
+    };
   }, []);
+
+  // Refresh conversations and unread count when screen gets focus
+  useFocusEffect(
+    useCallback(() => {
+      loadConversations();
+      refreshUnreadCount();
+    }, [refreshUnreadCount])
+  );
+
+  const handleSocketNewMessage = (data: any) => {
+    // Refresh conversations to show new message
+    loadConversations();
+  };
+
+  const handleMessagesRead = (data: any) => {
+    // Update the conversation's unread count to 0
+    setConversations(prev =>
+      prev.map(conv =>
+        conv.id === data.conversationId
+          ? { ...conv, unreadCount: 0 }
+          : conv
+      )
+    );
+  };
 
   // Add New Message button to header
   useLayoutEffect(() => {
@@ -115,19 +166,14 @@ export default function ConversationsScreen() {
           otherUser
         })}
       >
-        {(() => {
-          const avatarUri = otherUser.avatarUrl ? getImageUrl(otherUser.avatarUrl) : null;
-          return avatarUri ? (
-            <Image
-              source={{ uri: avatarUri }}
-              style={styles.avatar}
-            />
-          ) : (
-            <View style={[styles.avatar, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}>
-              <Ionicons name="person" size={28} color="#9CA3AF" />
-            </View>
-          );
-        })()}
+        <Avatar
+          size={56}
+          avatarUrl={!otherUser.activeAvatar ? otherUser.avatarUrl : undefined}
+          username={otherUser.username}
+          style={styles.avatar}
+          customizations={otherUser.activeAvatar?.customizations}
+          avatarStyle={otherUser.activeAvatar?.style}
+        />
 
         <View style={styles.conversationContent}>
           <View style={styles.conversationHeader}>

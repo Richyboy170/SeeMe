@@ -63,6 +63,8 @@ export default function CoinHistoryScreen() {
         return { name: 'chatbubble', color: '#FBBF24' };
       case 'ad_reward':
         return { name: 'play-circle', color: '#8B5CF6' };
+      case 'welcome_bonus':
+        return { name: 'gift', color: '#10B981' };
       default:
         return { name: 'ellipse', color: '#9CA3AF' };
     }
@@ -86,6 +88,8 @@ export default function CoinHistoryScreen() {
         return 'Earned from Positive Comment';
       case 'ad_reward':
         return 'Earned from Ad';
+      case 'welcome_bonus':
+        return 'Welcome Bonus';
       default:
         return 'Transaction';
     }

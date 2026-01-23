@@ -8,16 +8,21 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
-  FlatList,
   Dimensions,
   Modal,
   StatusBar,
+  Share,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useFocusEffect, useNavigation, CommonActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { api, getImageUrl } from '../../services/api';
 import GiveCounterBadge from '../../components/coins/GiveCounterBadge';
 import GiveCoinsModal from '../../components/coins/GiveCoinsModal';
+import Avatar from '../../components/Avatar';
+import { AvatarCustomizations } from '../../components/AvatarRenderer';
 
 const { width } = Dimensions.get('window');
 const GRID_GAP = 1;
@@ -43,9 +48,21 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
   const [selectedPost, setSelectedPost] = useState<any>(null);
   const [selectedPostIndex, setSelectedPostIndex] = useState(0);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [followRequestStatus, setFollowRequestStatus] = useState<string | null>(null);
+  const [isPrivateProfile, setIsPrivateProfile] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [postGiveModalVisible, setPostGiveModalVisible] = useState(false);
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [followRequestCount, setFollowRequestCount] = useState(0);
   const [messageLoading, setMessageLoading] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editUsername, setEditUsername] = useState('');
+  const [editBio, setEditBio] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [activeAvatar, setActiveAvatar] = useState<{
+    customizations: AvatarCustomizations;
+    style: 'cartoon' | 'anime' | 'minimalist';
+  } | null>(null);
 
   const userId = route?.params?.userId;
   const username = route?.params?.username;
@@ -54,6 +71,10 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     React.useCallback(() => {
       loadProfile();
       loadPosts();
+      if (!userId) {
+        loadPrivacySettings();
+        loadFollowRequestCount();
+      }
     }, [userId, username])
   );
 
@@ -68,8 +89,19 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     setLoading(true);
     try {
       const response = await api.getProfile(userId);
-      setUser(response.user || response);
+      const userData = response.user || response;
+      setUser(userData);
       setIsOwnProfile(!userId || response.isOwnProfile);
+
+      // Set active avatar from profile response
+      if (userData.activeAvatar) {
+        setActiveAvatar({
+          customizations: userData.activeAvatar.customizations,
+          style: userData.activeAvatar.style,
+        });
+      } else {
+        setActiveAvatar(null);
+      }
     } catch (error) {
       console.error('Error loading profile:', error);
       Alert.alert('Error', 'Failed to load profile');
@@ -94,8 +126,28 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     try {
       const response = await api.checkFollowingStatus(user.username);
       setIsFollowing(response.isFollowing);
+      setFollowRequestStatus(response.followRequestStatus || null);
+      setIsPrivateProfile(response.isPrivate || false);
     } catch (error) {
       console.error('Error checking follow status:', error);
+    }
+  };
+
+  const loadPrivacySettings = async () => {
+    try {
+      const response = await api.getPrivacySettings();
+      setIsPrivate(response.settings?.isPrivate || false);
+    } catch (error) {
+      console.error('Error loading privacy settings:', error);
+    }
+  };
+
+  const loadFollowRequestCount = async () => {
+    try {
+      const response = await api.getFollowRequestCount();
+      setFollowRequestCount(response.count || 0);
+    } catch (error) {
+      console.error('Error loading follow request count:', error);
     }
   };
 
@@ -107,19 +159,30 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
       if (isFollowing) {
         await api.unfollowUser(user.username);
         setIsFollowing(false);
+        setFollowRequestStatus(null);
         // Update local follower count
         setUser((prev: any) => ({
           ...prev,
           followersCount: Math.max(0, (prev.followersCount || 1) - 1)
         }));
+      } else if (followRequestStatus === 'pending') {
+        // Cancel follow request
+        await api.unfollowUser(user.username);
+        setFollowRequestStatus(null);
       } else {
-        await api.followUser(user.username);
-        setIsFollowing(true);
-        // Update local follower count
-        setUser((prev: any) => ({
-          ...prev,
-          followersCount: (prev.followersCount || 0) + 1
-        }));
+        const response = await api.followUser(user.username);
+        if (response.status === 'requested') {
+          // Follow request sent to private account
+          setFollowRequestStatus('pending');
+        } else {
+          // Direct follow to public account
+          setIsFollowing(true);
+          // Update local follower count
+          setUser((prev: any) => ({
+            ...prev,
+            followersCount: (prev.followersCount || 0) + 1
+          }));
+        }
       }
     } catch (error: any) {
       const errorMessage = error.response?.data?.error || 'Failed to update follow status';
@@ -127,6 +190,34 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     } finally {
       setFollowLoading(false);
     }
+  };
+
+  const handleTogglePrivacy = async () => {
+    try {
+      const newPrivacyState = !isPrivate;
+      await api.updatePrivacySettings(newPrivacyState);
+      setIsPrivate(newPrivacyState);
+      Alert.alert(
+        'Success',
+        newPrivacyState
+          ? 'Your account is now private. New followers will need your approval.'
+          : 'Your account is now public.'
+      );
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update privacy settings');
+    }
+  };
+
+  const getFollowButtonText = () => {
+    if (isFollowing) return 'Following';
+    if (followRequestStatus === 'pending') return 'Requested';
+    return 'Follow';
+  };
+
+  const getFollowButtonStyle = () => {
+    if (isFollowing) return [styles.followButton, styles.followingButton];
+    if (followRequestStatus === 'pending') return [styles.followButton, styles.requestedButton];
+    return [styles.followButton];
   };
 
   const handleMessage = async () => {
@@ -196,6 +287,69 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
 
   const closePost = () => {
     setSelectedPost(null);
+  };
+
+  const handleEditProfile = () => {
+    setEditUsername(user?.username || '');
+    setEditBio(user?.bio || '');
+    setEditModalVisible(true);
+  };
+
+  const handleSaveProfile = async () => {
+    if (savingProfile) return;
+
+    const trimmedUsername = editUsername.trim();
+    const trimmedBio = editBio.trim();
+
+    if (!trimmedUsername) {
+      Alert.alert('Error', 'Username cannot be empty');
+      return;
+    }
+
+    if (trimmedUsername.length < 3) {
+      Alert.alert('Error', 'Username must be at least 3 characters');
+      return;
+    }
+
+    setSavingProfile(true);
+    try {
+      await api.updateProfile({
+        username: trimmedUsername,
+        bio: trimmedBio,
+      });
+
+      // Update local state
+      setUser((prev: any) => ({
+        ...prev,
+        username: trimmedUsername,
+        bio: trimmedBio,
+      }));
+
+      setEditModalVisible(false);
+      Alert.alert('Success', 'Profile updated successfully');
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.error || 'Failed to update profile';
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const handleShareProfile = async () => {
+    try {
+      const profileUrl = `https://seeme.app/@${user?.username}`;
+      const message = `Check out ${user?.username}'s profile on SeeMe!`;
+
+      await Share.share({
+        message: `${message}\n${profileUrl}`,
+        url: profileUrl, // iOS only
+        title: `${user?.username}'s SeeMe Profile`,
+      });
+    } catch (error: any) {
+      if (error.message !== 'User did not share') {
+        Alert.alert('Error', 'Failed to share profile');
+      }
+    }
   };
 
   const goToPrevPost = () => {
@@ -288,16 +442,14 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
           <View style={styles.profileTop}>
             {/* Avatar */}
             <View style={styles.avatarContainer}>
-              {(() => {
-                const avatarUri = user.avatarUrl ? getImageUrl(user.avatarUrl) : null;
-                return avatarUri ? (
-                  <Image source={{ uri: avatarUri }} style={styles.avatar} />
-                ) : (
-                  <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                    <Ionicons name="person" size={40} color="#C7C7CC" />
-                  </View>
-                );
-              })()}
+              <Avatar
+                size={86}
+                avatarUrl={!activeAvatar ? user.avatarUrl : undefined}
+                username={user.username}
+                showBorder
+                customizations={activeAvatar?.customizations}
+                avatarStyle={activeAvatar?.style}
+              />
             </View>
 
             {/* Stats */}
@@ -327,31 +479,38 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
           <View style={styles.actionButtons}>
             {isOwnProfile ? (
               <>
-                <TouchableOpacity style={styles.editButton}>
+                <TouchableOpacity style={styles.editButton} onPress={handleEditProfile}>
                   <Text style={styles.editButtonText}>Edit profile</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.shareButton}>
+                <TouchableOpacity style={styles.shareButton} onPress={handleShareProfile}>
                   <Text style={styles.editButtonText}>Share profile</Text>
                 </TouchableOpacity>
+                {followRequestCount > 0 && (
+                  <TouchableOpacity
+                    style={styles.requestsButton}
+                    onPress={() => navigation.navigate('FollowRequests')}
+                  >
+                    <View style={styles.requestsBadge}>
+                      <Text style={styles.requestsBadgeText}>{followRequestCount}</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
               </>
             ) : (
               <>
                 <TouchableOpacity
-                  style={[
-                    styles.followButton,
-                    isFollowing && styles.followingButton
-                  ]}
+                  style={getFollowButtonStyle()}
                   onPress={handleFollow}
                   disabled={followLoading}
                 >
                   {followLoading ? (
-                    <ActivityIndicator size="small" color={isFollowing ? '#000' : '#FFF'} />
+                    <ActivityIndicator size="small" color={isFollowing || followRequestStatus === 'pending' ? '#000' : '#FFF'} />
                   ) : (
                     <Text style={[
                       styles.followButtonText,
-                      isFollowing && styles.followingButtonText
+                      (isFollowing || followRequestStatus === 'pending') && styles.followingButtonText
                     ]}>
-                      {isFollowing ? 'Following' : 'Follow'}
+                      {getFollowButtonText()}
                     </Text>
                   )}
                 </TouchableOpacity>
@@ -403,14 +562,13 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
             <ActivityIndicator size="small" color="#C7C7CC" />
           </View>
         ) : posts.length > 0 ? (
-          <FlatList
-            data={posts}
-            keyExtractor={(item) => item.id}
-            numColumns={3}
-            scrollEnabled={false}
-            renderItem={renderGridItem}
-            columnWrapperStyle={styles.gridRow}
-          />
+          <View style={styles.gridContainer}>
+            {posts.map((item, index) => (
+              <View key={item.id}>
+                {renderGridItem({ item, index })}
+              </View>
+            ))}
+          </View>
         ) : (
           <View style={styles.emptyState}>
             <View style={styles.emptyIcon}>
@@ -470,16 +628,12 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
                 {/* Post Header */}
                 <View style={styles.postHeader}>
                   <View style={styles.postUserInfo}>
-                    {(() => {
-                      const avatarUri = user.avatarUrl ? getImageUrl(user.avatarUrl) : null;
-                      return avatarUri ? (
-                        <Image source={{ uri: avatarUri }} style={styles.postAvatar} />
-                      ) : (
-                        <View style={[styles.postAvatar, styles.avatarPlaceholder]}>
-                          <Ionicons name="person" size={16} color="#C7C7CC" />
-                        </View>
-                      );
-                    })()}
+                    <Avatar
+                      size={32}
+                      avatarUrl={user.avatarUrl}
+                      username={user.username}
+                      style={styles.postAvatar}
+                    />
                     <Text style={styles.postUsername}>{user.username}</Text>
                   </View>
                   <TouchableOpacity>
@@ -595,6 +749,113 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
           }}
         />
       )}
+
+      {/* Edit Profile Modal */}
+      <Modal
+        visible={editModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setEditModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.editModalContainer}
+        >
+          <View style={styles.editModalHeader}>
+            <TouchableOpacity onPress={() => setEditModalVisible(false)}>
+              <Text style={styles.editModalCancel}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={styles.editModalTitle}>Edit Profile</Text>
+            <TouchableOpacity onPress={handleSaveProfile} disabled={savingProfile}>
+              {savingProfile ? (
+                <ActivityIndicator size="small" color="#3897F0" />
+              ) : (
+                <Text style={styles.editModalSave}>Save</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.editModalContent}>
+            {/* Avatar Section */}
+            <View style={styles.editAvatarSection}>
+              <Avatar
+                size={100}
+                avatarUrl={!activeAvatar ? user?.avatarUrl : undefined}
+                username={user?.username}
+                showBorder
+                customizations={activeAvatar?.customizations}
+                avatarStyle={activeAvatar?.style}
+              />
+              <TouchableOpacity
+                style={styles.editAvatarButton}
+                onPress={() => {
+                  setEditModalVisible(false);
+                  navigation.navigate('AvatarCustomization', {});
+                }}
+              >
+                <Text style={styles.editAvatarButtonText}>Customize Avatar</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Username Input */}
+            <View style={styles.editInputGroup}>
+              <Text style={styles.editInputLabel}>Username</Text>
+              <TextInput
+                style={styles.editInput}
+                value={editUsername}
+                onChangeText={setEditUsername}
+                placeholder="Enter username"
+                placeholderTextColor="#8E8E93"
+                autoCapitalize="none"
+                autoCorrect={false}
+                maxLength={30}
+              />
+            </View>
+
+            {/* Bio Input */}
+            <View style={styles.editInputGroup}>
+              <Text style={styles.editInputLabel}>Bio</Text>
+              <TextInput
+                style={[styles.editInput, styles.editBioInput]}
+                value={editBio}
+                onChangeText={setEditBio}
+                placeholder="Write something about yourself"
+                placeholderTextColor="#8E8E93"
+                multiline
+                numberOfLines={4}
+                maxLength={150}
+                textAlignVertical="top"
+              />
+              <Text style={styles.editCharCount}>{editBio.length}/150</Text>
+            </View>
+
+            {/* Privacy Settings */}
+            <View style={styles.privacySection}>
+              <Text style={styles.privacySectionTitle}>Privacy</Text>
+              <TouchableOpacity style={styles.privacyToggle} onPress={handleTogglePrivacy}>
+                <View style={styles.privacyToggleLeft}>
+                  <Ionicons
+                    name={isPrivate ? 'lock-closed' : 'lock-open'}
+                    size={20}
+                    color={isPrivate ? '#FBBF24' : '#8E8E93'}
+                  />
+                  <View style={styles.privacyToggleText}>
+                    <Text style={styles.privacyToggleLabel}>Private Account</Text>
+                    <Text style={styles.privacyToggleDescription}>
+                      {isPrivate
+                        ? 'Only approved followers can see your posts'
+                        : 'Anyone can see your posts'}
+                    </Text>
+                  </View>
+                </View>
+                <View style={[styles.toggleSwitch, isPrivate && styles.toggleSwitchActive]}>
+                  <View style={[styles.toggleKnob, isPrivate && styles.toggleKnobActive]} />
+                </View>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -716,8 +977,34 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#C7C7CC',
   },
+  requestedButton: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FBBF24',
+  },
   followingButtonText: {
     color: '#000',
+  },
+  requestsButton: {
+    backgroundColor: '#FBBF24',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  requestsBadge: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  requestsBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FBBF24',
   },
   messageButton: {
     backgroundColor: '#F2F2F7',
@@ -756,7 +1043,9 @@ const styles = StyleSheet.create({
   },
 
   // Grid
-  gridRow: {
+  gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: GRID_GAP,
   },
   gridItem: {
@@ -971,5 +1260,157 @@ const styles = StyleSheet.create({
   postCounter: {
     fontSize: 14,
     color: '#8E8E93',
+  },
+
+  // Edit Profile Modal
+  editModalContainer: {
+    flex: 1,
+    backgroundColor: '#FFF',
+  },
+  editModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#C7C7CC',
+  },
+  editModalCancel: {
+    fontSize: 16,
+    color: '#000',
+  },
+  editModalTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+  },
+  editModalSave: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#3897F0',
+  },
+  editModalContent: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  editAvatarSection: {
+    alignItems: 'center',
+    paddingVertical: 24,
+  },
+  editAvatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 0.5,
+    borderColor: '#C7C7CC',
+  },
+  editAvatarButton: {
+    marginTop: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#FBBF24',
+    borderRadius: 20,
+  },
+  editAvatarButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFF',
+  },
+  editInputGroup: {
+    marginBottom: 20,
+  },
+  editInputLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#8E8E93',
+    marginBottom: 8,
+  },
+  editInput: {
+    fontSize: 16,
+    color: '#000',
+    borderWidth: 1,
+    borderColor: '#C7C7CC',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: '#F9F9F9',
+  },
+  editBioInput: {
+    height: 100,
+    paddingTop: 12,
+  },
+  editCharCount: {
+    fontSize: 12,
+    color: '#8E8E93',
+    textAlign: 'right',
+    marginTop: 4,
+  },
+
+  // Privacy Section
+  privacySection: {
+    marginTop: 20,
+    marginBottom: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E5EA',
+    paddingTop: 20,
+  },
+  privacySectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#8E8E93',
+    marginBottom: 12,
+  },
+  privacyToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    backgroundColor: '#F9F9F9',
+    borderRadius: 12,
+  },
+  privacyToggleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  privacyToggleText: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  privacyToggleLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 2,
+  },
+  privacyToggleDescription: {
+    fontSize: 12,
+    color: '#8E8E93',
+  },
+  toggleSwitch: {
+    width: 50,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#E5E5EA',
+    padding: 2,
+    justifyContent: 'center',
+  },
+  toggleSwitchActive: {
+    backgroundColor: '#FBBF24',
+  },
+  toggleKnob: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#FFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  toggleKnobActive: {
+    alignSelf: 'flex-end',
   },
 });

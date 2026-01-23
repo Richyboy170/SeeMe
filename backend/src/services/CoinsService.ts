@@ -225,20 +225,27 @@ export class CoinsService {
   static async awardCoinsForPost(userId: string, postId: string): Promise<number> {
     const COINS_PER_POST = 2;
 
+    // Auto-initialize coins if needed (outside transaction)
+    let coins = await PositivityCoins.findByPk(userId);
+    if (!coins) {
+      coins = await this.initializeUserCoins(userId);
+    }
+
     const transaction = await sequelize.transaction();
 
     try {
-      const coins = await PositivityCoins.findByPk(userId, { transaction });
-      if (!coins) {
+      // Re-fetch within transaction
+      const coinsInTx = await PositivityCoins.findByPk(userId, { transaction });
+      if (!coinsInTx) {
         await transaction.rollback();
         throw new Error('Coins not initialized');
       }
 
-      await coins.update(
+      await coinsInTx.update(
         {
-          totalCoins: coins.totalCoins + COINS_PER_POST,
-          lifetimeEarned: coins.lifetimeEarned + COINS_PER_POST,
-          coinsFromPosts: coins.coinsFromPosts + COINS_PER_POST
+          totalCoins: coinsInTx.totalCoins + COINS_PER_POST,
+          lifetimeEarned: coinsInTx.lifetimeEarned + COINS_PER_POST,
+          coinsFromPosts: coinsInTx.coinsFromPosts + COINS_PER_POST
         },
         { transaction }
       );
@@ -272,20 +279,27 @@ export class CoinsService {
   static async awardCoinsForComment(userId: string, commentId: string): Promise<number> {
     const COINS_PER_COMMENT = 1;
 
+    // Auto-initialize coins if needed (outside transaction)
+    let coins = await PositivityCoins.findByPk(userId);
+    if (!coins) {
+      coins = await this.initializeUserCoins(userId);
+    }
+
     const transaction = await sequelize.transaction();
 
     try {
-      const coins = await PositivityCoins.findByPk(userId, { transaction });
-      if (!coins) {
+      // Re-fetch within transaction
+      const coinsInTx = await PositivityCoins.findByPk(userId, { transaction });
+      if (!coinsInTx) {
         await transaction.rollback();
         throw new Error('Coins not initialized');
       }
 
-      await coins.update(
+      await coinsInTx.update(
         {
-          totalCoins: coins.totalCoins + COINS_PER_COMMENT,
-          lifetimeEarned: coins.lifetimeEarned + COINS_PER_COMMENT,
-          coinsFromComments: coins.coinsFromComments + COINS_PER_COMMENT
+          totalCoins: coinsInTx.totalCoins + COINS_PER_COMMENT,
+          lifetimeEarned: coinsInTx.lifetimeEarned + COINS_PER_COMMENT,
+          coinsFromComments: coinsInTx.coinsFromComments + COINS_PER_COMMENT
         },
         { transaction }
       );
@@ -319,20 +333,27 @@ export class CoinsService {
   static async awardCoinsForAd(userId: string, adId: string): Promise<number> {
     const COINS_PER_AD = 5;
 
+    // Auto-initialize coins if needed (outside transaction)
+    let coins = await PositivityCoins.findByPk(userId);
+    if (!coins) {
+      coins = await this.initializeUserCoins(userId);
+    }
+
     const transaction = await sequelize.transaction();
 
     try {
-      const coins = await PositivityCoins.findByPk(userId, { transaction });
-      if (!coins) {
+      // Re-fetch within transaction
+      const coinsInTx = await PositivityCoins.findByPk(userId, { transaction });
+      if (!coinsInTx) {
         await transaction.rollback();
         throw new Error('Coins not initialized');
       }
 
-      await coins.update(
+      await coinsInTx.update(
         {
-          totalCoins: coins.totalCoins + COINS_PER_AD,
-          lifetimeEarned: coins.lifetimeEarned + COINS_PER_AD,
-          coinsFromAds: coins.coinsFromAds + COINS_PER_AD
+          totalCoins: coinsInTx.totalCoins + COINS_PER_AD,
+          lifetimeEarned: coinsInTx.lifetimeEarned + COINS_PER_AD,
+          coinsFromAds: coinsInTx.coinsFromAds + COINS_PER_AD
         },
         { transaction }
       );
@@ -595,16 +616,36 @@ export class CoinsService {
   }
 
   /**
-   * Get transaction history for a user
+   * Get transaction history for a user (transformed for frontend)
    */
   static async getTransactionHistory(
     userId: string,
     limit: number = 50
-  ): Promise<CoinTransaction[]> {
+  ): Promise<Array<{
+    id: string;
+    type: string;
+    amount: number;
+    balanceAfter: number;
+    createdAt: Date;
+    metadata?: {
+      fromUsername?: string;
+      toUsername?: string;
+      message?: string;
+    };
+  }>> {
     try {
+      // Query transactions that belong to this user:
+      // - given_to_user: only show to the sender (fromUserId)
+      // - received_from_user: only show to the receiver (toUserId)
+      // - system rewards (welcome_bonus, earned_*): show to the receiver (toUserId)
       const transactions = await CoinTransaction.findAll({
         where: {
-          [Op.or]: [{ fromUserId: userId }, { toUserId: userId }]
+          [Op.or]: [
+            // User sent coins - show given_to_user transactions
+            { fromUserId: userId, transactionType: 'given_to_user' },
+            // User received coins or system rewards - show where they are the recipient
+            { toUserId: userId, transactionType: { [Op.ne]: 'given_to_user' } }
+          ]
         },
         include: [
           {
@@ -622,9 +663,114 @@ export class CoinsService {
         limit
       });
 
-      return transactions;
+      // Get current balance to calculate historical balances
+      const userCoins = await PositivityCoins.findByPk(userId);
+      let runningBalance = userCoins?.totalCoins || 0;
+
+      // Map transaction types from backend to frontend format
+      const typeMap: Record<string, string> = {
+        'earned_cooldown': 'cooldown_claim',
+        'given_to_user': 'give',
+        'received_from_user': 'receive',
+        'earned_post': 'post_reward',
+        'earned_comment': 'comment_reward',
+        'earned_ad': 'ad_reward',
+        'welcome_bonus': 'welcome_bonus'
+      };
+
+      // Transform transactions (newest first, calculate balance backwards)
+      const transformed = transactions.map((tx) => {
+        const fromUser = tx.get('fromUser') as User | null;
+        const toUser = tx.get('toUser') as User | null;
+
+        // Determine if this is an incoming or outgoing transaction for the user
+        const isOutgoing = tx.transactionType === 'given_to_user' && tx.fromUserId === userId;
+
+        // Calculate balance after this transaction
+        const balanceAfter = runningBalance;
+
+        // Adjust running balance for next (older) transaction
+        if (isOutgoing) {
+          runningBalance += tx.amount; // Add back what was spent
+        } else {
+          runningBalance -= tx.amount; // Subtract what was earned
+        }
+
+        return {
+          id: tx.id,
+          type: typeMap[tx.transactionType] || tx.transactionType,
+          amount: tx.amount,
+          balanceAfter,
+          createdAt: tx.createdAt,
+          metadata: {
+            fromUsername: fromUser?.username || undefined,
+            toUsername: toUser?.username || undefined,
+            message: tx.message || undefined
+          }
+        };
+      });
+
+      return transformed;
     } catch (error) {
       logger.error('Error getting transaction history', { error, userId });
+      throw error;
+    }
+  }
+
+  /**
+   * Get recent coins received from other users (for notifications)
+   */
+  static async getReceivedCoins(
+    userId: string,
+    limit: number = 20,
+    since?: string
+  ): Promise<Array<{
+    id: string;
+    fromUserId: string;
+    fromUsername: string;
+    amount: number;
+    message: string | null;
+    createdAt: Date;
+  }>> {
+    try {
+      const whereClause: any = {
+        toUserId: userId,
+        transactionType: 'received_from_user'
+      };
+
+      // Optional: filter by date if 'since' is provided
+      if (since) {
+        whereClause.createdAt = {
+          [Op.gt]: new Date(since)
+        };
+      }
+
+      const transactions = await CoinTransaction.findAll({
+        where: whereClause,
+        include: [
+          {
+            model: User,
+            as: 'fromUser',
+            attributes: ['id', 'username', 'activeAvatarId']
+          }
+        ],
+        order: [['createdAt', 'DESC']],
+        limit
+      });
+
+      return transactions.map((tx) => {
+        const fromUser = tx.get('fromUser') as User | null;
+        return {
+          id: tx.id,
+          fromUserId: tx.fromUserId || '',
+          fromUsername: fromUser?.username || 'Unknown',
+          amount: tx.amount,
+          message: tx.message,
+          createdAt: tx.createdAt
+        };
+      });
+    } catch (error) {
+      logger.error('Error getting received coins', { error, userId });
       throw error;
     }
   }

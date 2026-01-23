@@ -25,6 +25,8 @@ import commentRoutes from './routes/comments';
 import coinsRoutes from './routes/coins';
 import uploadRoutes from './routes/upload';
 import chatRoutes from './routes/messages';
+import avatarRoutes from './routes/avatars';
+// import fullBodyAvatarRoutes from './routes/fullBodyAvatar'; // TEMP DISABLED
 import { celeryClient } from './config/celery';
 
 const app = express();
@@ -75,7 +77,8 @@ app.get('/health', (_req: Request, res: Response) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/users', followRoutes);
-// app.use('/api/avatars', avatarRoutes);
+app.use('/api/avatars', avatarRoutes);
+// app.use('/api/full-body-avatar', fullBodyAvatarRoutes); // TEMP DISABLED
 app.use('/api/posts', postRoutes);
 app.use('/api/feed', feedRoutes);
 app.use('/api/internal', internalRoutes);

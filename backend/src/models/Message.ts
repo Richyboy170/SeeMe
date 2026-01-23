@@ -17,6 +17,11 @@ export interface MessageAttributes {
   readAt: Date | null;
   isDeletedBySender: boolean;
   isDeletedByReceiver: boolean;
+  // Image message fields
+  imageViewMode: 'keep' | 'view_once' | 'time_bomb' | null;
+  viewedAt: Date | null;
+  expiresAt: Date | null;
+  isExpired: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -24,7 +29,7 @@ export interface MessageAttributes {
 /**
  * Optional attributes for message creation
  */
-interface MessageCreationAttributes extends Optional<MessageAttributes, 'id' | 'content' | 'mediaUrl' | 'sharedPostId' | 'isRead' | 'readAt' | 'isDeletedBySender' | 'isDeletedByReceiver' | 'createdAt' | 'updatedAt'> {}
+interface MessageCreationAttributes extends Optional<MessageAttributes, 'id' | 'content' | 'mediaUrl' | 'sharedPostId' | 'isRead' | 'readAt' | 'isDeletedBySender' | 'isDeletedByReceiver' | 'imageViewMode' | 'viewedAt' | 'expiresAt' | 'isExpired' | 'createdAt' | 'updatedAt'> {}
 
 /**
  * Message model representing a chat message
@@ -42,6 +47,11 @@ export class Message extends Model<MessageAttributes, MessageCreationAttributes>
   public readAt!: Date | null;
   public isDeletedBySender!: boolean;
   public isDeletedByReceiver!: boolean;
+  // Image message fields
+  public imageViewMode!: 'keep' | 'view_once' | 'time_bomb' | null;
+  public viewedAt!: Date | null;
+  public expiresAt!: Date | null;
+  public isExpired!: boolean;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 }
@@ -142,6 +152,36 @@ Message.init(
       defaultValue: false,
       allowNull: false,
       comment: 'Whether receiver has deleted this message'
+    },
+    imageViewMode: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      defaultValue: null,
+      validate: {
+        isIn: {
+          args: [['keep', 'view_once', 'time_bomb', null]],
+          msg: 'Invalid image view mode'
+        }
+      },
+      comment: 'View mode for image messages: keep, view_once, or time_bomb'
+    },
+    viewedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+      comment: 'Timestamp when view_once image was viewed'
+    },
+    expiresAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+      comment: 'Expiration time for time_bomb images'
+    },
+    isExpired: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+      comment: 'Whether the image message has expired'
     },
     createdAt: {
       type: DataTypes.DATE,

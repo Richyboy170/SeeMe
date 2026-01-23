@@ -11425,6 +11425,4055 @@ CONDITIONAL GO if:
 
 ---
 
+# PHASE 3.1: FULL-BODY 3D AVATAR SYSTEM (ENHANCED)
+
+**Duration:** 4 weeks (Weeks 22-25)
+**Goal:** Enable users to create full-body 3D avatars from photos using pose detection and VRM 3D models
+**Parallel Workstreams:** 3 (CV Pipeline, 3D Rendering, Mobile Integration)
+
+---
+
+## 🔑 CRITICAL IMPLEMENTATION STRATEGY
+
+**Key Principle: Don't Reinvent the Wheel!**
+
+This phase leverages **proven open-source solutions** that have been battle-tested by the VTuber community:
+
+| Component | Solution | Why |
+|-----------|----------|-----|
+| **Pose-to-Rig Mapping** | KalidoKit (MIT License) | 5.5k GitHub stars, handles MediaPipe → bone rotation conversion |
+| **3D Avatar Format** | VRM via @pixiv/three-vrm (MIT) | Industry standard, 15k+ weekly npm downloads |
+| **Default Avatars** | VRoid CC0 Models | Free, commercially usable, high quality |
+| **Pose Detection** | MediaPipe Holistic | Free, fast, combined body + hands detection |
+
+**Benefits:**
+- ✅ No custom pose-to-rig math (KalidoKit handles coordinate conversions)
+- ✅ Standardized avatar format (VRM works across platforms)
+- ✅ Free, licensed assets for default avatars
+- ✅ Battle-tested by VTuber/avatar community
+- ✅ Significant development time savings
+
+---
+
+## OVERVIEW
+
+This phase implements a feature where users can **optionally** choose to create a full-body 3D avatar from their photos. The feature is **user-initiated** - computer vision pose detection only runs when the user explicitly requests it.
+
+**Feature Locations (3 Entry Points):**
+
+| Location | When | Purpose |
+|----------|------|---------|
+| **1. Profile Creation** | New user signup | Create initial full-body avatar |
+| **2. Create Post** | Making a new post | Optionally turn photo into 3D avatar post |
+| **3. Profile Settings** | Anytime | Update/change existing avatar |
+
+---
+
+**Flow 1: Profile Creation (Onboarding)**
+```
+┌─────────────────────────────────────┐
+│  Create Your Avatar                 │
+│                                     │
+│  Upload a full-body photo and       │
+│  we'll create your 3D avatar!       │
+│                                     │
+│  ┌─────────────────────────────┐   │
+│  │                             │   │
+│  │      [📷 Take Photo]        │   │
+│  │                             │   │
+│  │      [🖼️ Choose Photo]      │   │
+│  │                             │   │
+│  └─────────────────────────────┘   │
+│                                     │
+│           [Skip for now]            │
+└─────────────────────────────────────┘
+```
+
+---
+
+**Flow 2: Create Post (Auto Person Detection)**
+
+**🚨 STRICT POLICY: Real people photos cannot be posted as-is!**
+
+| Image Contains | Options | Can Post As-Is? |
+|----------------|---------|-----------------|
+| Real person(s) | **1) Convert to 3D Avatar** OR **2) Blur faces** | ❌ NO |
+| Landscape/scenery | None needed | ✅ YES |
+| Food/objects | None needed | ✅ YES |
+| Animals/pets | None needed | ✅ YES |
+| Already an avatar | None needed | ✅ YES |
+
+**Why this policy:**
+- Protects user privacy
+- Prevents posting photos of others without consent
+- Core app identity: avatars, not real faces
+- Makes the platform unique and safe
+
+```
+User selects image
+        │
+        ▼
+┌─────────────────────────┐
+│ Quick CV scan for       │  ← Fast check (<200ms)
+│ person detection        │     Runs automatically
+└───────────┬─────────────┘
+            │
+     ┌──────┴──────┐
+     │             │
+  Person        No Person
+  detected      detected
+     │             │
+     ▼             ▼
+┌─────────────┐  ┌─────────────┐
+│ User must   │  │ Can post    │
+│ choose:     │  │ directly    │
+│ • 3D Avatar │  │             │
+│ • Blur faces│  │             │
+└──────┬──────┘  └──────┬──────┘
+       │                │
+       ▼                ▼
+      Post             Post
+```
+
+---
+
+**Flow 3: Profile Settings (with Preset Poses)**
+```
+┌─────────────────────────────────────┐
+│  Profile Settings                   │
+│                                     │
+│  ┌───────────┐                     │
+│  │  Current  │  [Update Photo]     │
+│  │  Avatar   │  [Change Style]     │
+│  │   🧍      │  [Choose Pose]      │
+│  └───────────┘                     │
+│                                     │
+└─────────────────────────────────────┘
+```
+
+---
+
+**Common Processing Flow (All 3 Entry Points):**
+```
+User selects/takes photo
+         │
+         ▼
+User taps "Create 3D Avatar"
+         │
+         ▼
+┌─────────────────────────┐
+│ Backend: MediaPipe      │
+│ extracts landmarks      │
+└─────────┬───────────────┘
+          │
+          ▼
+┌─────────────────────────┐
+│ Mobile: KalidoKit       │
+│ converts to bone        │
+│ rotations               │
+└─────────┬───────────────┘
+          │
+          ▼
+┌─────────────────────────┐
+│ Mobile: three-vrm       │
+│ renders VRM avatar      │
+│ with pose applied       │
+└─────────┬───────────────┘
+          │
+          ▼
+┌─────────────────────────┐
+│ User customizes         │
+│ colors & style          │
+└─────────┬───────────────┘
+          │
+          ▼
+      Save/Post
+```
+
+**Important: NO AI REQUIRED - Pure CV + 3D Graphics**
+
+| Step | Technology | What It Does |
+|------|------------|--------------|
+| 1. Person Detection | MediaPipe (CV) | Detects people in image |
+| 2. Landmark Extraction | MediaPipe Holistic | Returns raw landmarks |
+| 3. Pose Solving | KalidoKit (Client) | Converts to bone rotations |
+| 4. 3D Rendering | three-vrm + Three.js | Renders VRM avatar |
+
+- **NO generative AI** - no LLMs, no image generation
+- **NO AI API calls** - everything runs locally
+- **NO per-request cost** - just server/device compute
+
+---
+
+## WORKSTREAM 3.1.1: CV PIPELINE (SIMPLIFIED)
+
+**Agent:** CV Pipeline Agent
+**Duration:** Weeks 22-23 (2 weeks)
+**Dependencies:** Python environment from Phase 0
+**Output:** MediaPipe API that returns raw landmarks for KalidoKit
+
+**Key Insight:** Since we're using KalidoKit on the client, the Python ML service only needs to:
+1. Run MediaPipe Holistic
+2. Return raw landmark data
+3. Let the mobile app use KalidoKit for pose calculations
+
+---
+
+### **Task 3.1.1.1: MediaPipe Holistic API Endpoint**
+
+**Goal:** Extract landmarks in KalidoKit-compatible format
+
+**Implementation:**
+
+```python
+# ml-service/src/api/body_avatar_routes.py
+
+from fastapi import APIRouter, File, UploadFile
+from fastapi.responses import JSONResponse
+import mediapipe as mp
+import numpy as np
+from PIL import Image
+import io
+
+router = APIRouter(prefix="/api/body-avatar", tags=["body-avatar"])
+
+mp_holistic = mp.solutions.holistic
+
+@router.post("/extract-landmarks")
+async def extract_landmarks(file: UploadFile = File(...)):
+    """
+    Extract MediaPipe Holistic landmarks from image.
+    Returns raw landmark data for KalidoKit processing on client.
+    
+    KalidoKit expects:
+    - faceLandmarks: 468/478 points
+    - poseLandmarks: 33 points (2D normalized)
+    - poseWorldLandmarks: 33 points (3D meters)
+    - leftHandLandmarks: 21 points
+    - rightHandLandmarks: 21 points
+    """
+    try:
+        contents = await file.read()
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+        image_array = np.array(image)
+        h, w = image_array.shape[:2]
+        
+        with mp_holistic.Holistic(
+            static_image_mode=True,
+            model_complexity=2,
+            enable_segmentation=False,
+            refine_face_landmarks=True,
+            min_detection_confidence=0.5
+        ) as holistic:
+            results = holistic.process(image_array)
+        
+        if not results.pose_landmarks:
+            return JSONResponse({
+                "success": False,
+                "error": "no_person_detected",
+                "message": "No person detected in image"
+            }, status_code=400)
+        
+        # Convert landmarks to KalidoKit-compatible format
+        response = {
+            "success": True,
+            "imageSize": {"width": w, "height": h},
+            "poseLandmarks": None,
+            "poseWorldLandmarks": None,
+            "faceLandmarks": None,
+            "leftHandLandmarks": None,
+            "rightHandLandmarks": None,
+        }
+        
+        # Pose landmarks (2D normalized)
+        if results.pose_landmarks:
+            response["poseLandmarks"] = [
+                {"x": lm.x, "y": lm.y, "z": lm.z, "visibility": lm.visibility}
+                for lm in results.pose_landmarks.landmark
+            ]
+        
+        # Pose world landmarks (3D in meters)
+        if results.pose_world_landmarks:
+            response["poseWorldLandmarks"] = [
+                {"x": lm.x, "y": lm.y, "z": lm.z, "visibility": lm.visibility}
+                for lm in results.pose_world_landmarks.landmark
+            ]
+        
+        # Face landmarks (468 or 478 with iris)
+        if results.face_landmarks:
+            response["faceLandmarks"] = [
+                {"x": lm.x, "y": lm.y, "z": lm.z}
+                for lm in results.face_landmarks.landmark
+            ]
+        
+        # Hand landmarks
+        if results.left_hand_landmarks:
+            response["leftHandLandmarks"] = [
+                {"x": lm.x, "y": lm.y, "z": lm.z}
+                for lm in results.left_hand_landmarks.landmark
+            ]
+        
+        if results.right_hand_landmarks:
+            response["rightHandLandmarks"] = [
+                {"x": lm.x, "y": lm.y, "z": lm.z}
+                for lm in results.right_hand_landmarks.landmark
+            ]
+        
+        return JSONResponse(response)
+        
+    except Exception as e:
+        return JSONResponse({
+            "success": False,
+            "error": "processing_failed",
+            "message": str(e)
+        }, status_code=500)
+```
+
+**Acceptance Criteria:**
+- [ ] `/extract-landmarks` returns all MediaPipe Holistic data
+- [ ] Output format compatible with KalidoKit
+- [ ] Handles missing body parts gracefully (returns null for missing)
+- [ ] Works with various image sizes
+
+---
+
+### **Task 3.1.1.2: Lightweight Person Detection (Content Policy)**
+
+**Goal:** Quick check if image contains a person - blocks posting real people photos
+
+**When it runs:** Automatically when user selects image for posting
+
+**Implementation:**
+
+```python
+# ml-service/src/api/body_avatar_routes.py (add to same file)
+
+import cv2
+
+@router.post("/detect-person")
+async def detect_person(file: UploadFile = File(...)):
+    """
+    Quick person detection for content policy enforcement.
+    Uses lightweight pose model (complexity=0) for speed.
+    Target: <200ms response time.
+    """
+    try:
+        contents = await file.read()
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+        image_array = np.array(image)
+        
+        # Resize for faster processing
+        h, w = image_array.shape[:2]
+        max_dim = 640
+        if max(h, w) > max_dim:
+            scale = max_dim / max(h, w)
+            new_w, new_h = int(w * scale), int(h * scale)
+            image_array = cv2.resize(image_array, (new_w, new_h))
+        
+        with mp.solutions.pose.Pose(
+            static_image_mode=True,
+            model_complexity=0,  # Fastest model
+            min_detection_confidence=0.5
+        ) as pose:
+            results = pose.process(image_array)
+        
+        person_detected = results.pose_landmarks is not None
+        
+        return JSONResponse({
+            "person_detected": person_detected,
+            "can_post_directly": not person_detected,
+            "message": "Person detected - must convert to avatar or blur" if person_detected else "Ready to post"
+        })
+        
+    except Exception as e:
+        return JSONResponse({
+            "person_detected": False,
+            "error": str(e)
+        }, status_code=500)
+```
+
+**Acceptance Criteria:**
+- [ ] `/detect-person` responds in <200ms
+- [ ] Detects person presence with >90% accuracy
+- [ ] Runs automatically on every post image
+- [ ] Doesn't block non-person images
+
+---
+
+### **Task 3.1.1.3: Face Blur Option**
+
+**Goal:** Blur all faces in image as alternative to 3D avatar conversion
+
+```python
+# ml-service/src/api/body_avatar_routes.py (add to same file)
+
+from fastapi.responses import Response
+import json
+
+@router.post("/blur-faces")
+async def blur_faces_in_image(file: UploadFile = File(...)):
+    """
+    Blur all faces in image.
+    Returns processed image with faces blurred.
+    Target: <500ms response time.
+    """
+    contents = await file.read()
+    image = Image.open(io.BytesIO(contents)).convert("RGB")
+    image_array = np.array(image)
+    h, w = image_array.shape[:2]
+    
+    output_image = image_array.copy()
+    face_locations = []
+    
+    with mp.solutions.face_detection.FaceDetection(
+        model_selection=1,  # Full range
+        min_detection_confidence=0.5
+    ) as face_detection:
+        results = face_detection.process(image_array)
+    
+    if results.detections:
+        for detection in results.detections:
+            bbox = detection.location_data.relative_bounding_box
+            x = int(bbox.xmin * w)
+            y = int(bbox.ymin * h)
+            box_w = int(bbox.width * w)
+            box_h = int(bbox.height * h)
+            
+            # Expand box slightly
+            padding = int(max(box_w, box_h) * 0.2)
+            x1 = max(0, x - padding)
+            y1 = max(0, y - padding)
+            x2 = min(w, x + box_w + padding)
+            y2 = min(h, y + box_h + padding)
+            
+            # Apply strong blur
+            face_region = output_image[y1:y2, x1:x2]
+            blurred_face = cv2.GaussianBlur(face_region, (99, 99), 0)
+            output_image[y1:y2, x1:x2] = blurred_face
+            
+            face_locations.append({"x": x1, "y": y1, "width": x2-x1, "height": y2-y1})
+    
+    # Convert back to bytes
+    img_pil = Image.fromarray(output_image)
+    buffer = io.BytesIO()
+    img_pil.save(buffer, format='JPEG', quality=90)
+    
+    return Response(
+        content=buffer.getvalue(),
+        media_type="image/jpeg",
+        headers={
+            "X-Faces-Found": str(len(face_locations)),
+            "X-Face-Locations": json.dumps(face_locations)
+        }
+    )
+```
+
+**Acceptance Criteria:**
+- [ ] Detects all faces in image (>95% accuracy)
+- [ ] Applies strong blur that fully obscures faces
+- [ ] Processing time <500ms
+- [ ] Works with multiple faces
+
+---
+
+## WORKSTREAM 3.1.2: 3D RENDERING (USING EXISTING LIBRARIES)
+
+**Agent:** Mobile 3D Agent
+**Duration:** Weeks 22-24 (3 weeks)
+**Dependencies:** CV Pipeline endpoints working
+**Output:** Full-body avatar rendering with VRM models
+
+---
+
+### **Task 3.1.2.1: Install Required Packages**
+
+```bash
+cd mobile
+
+# 3D rendering
+npm install three @react-three/fiber
+
+# VRM support (Pixiv's official library)
+npm install @pixiv/three-vrm
+
+# KalidoKit for pose solving (handles MediaPipe → bone rotations)
+npm install kalidokit
+
+# For React Native
+npm install expo-three expo-gl
+```
+
+**Why These Libraries:**
+
+| Library | Purpose | Stars/Downloads |
+|---------|---------|-----------------|
+| KalidoKit | Converts MediaPipe landmarks to rig rotations | 5.5k GitHub stars |
+| @pixiv/three-vrm | Loads & renders VRM avatars | 15k+ weekly npm |
+| three | 3D rendering foundation | Industry standard |
+
+---
+
+### **Task 3.1.2.2: KalidoKit Pose Solving Service**
+
+**Key Insight:** KalidoKit already solves the hard problem of coordinate conversion!
+
+```typescript
+// mobile/src/services/poseService.ts
+
+import * as Kalidokit from 'kalidokit';
+
+export interface MediaPipeLandmarks {
+  poseLandmarks: Array<{x: number; y: number; z: number; visibility?: number}>;
+  poseWorldLandmarks: Array<{x: number; y: number; z: number; visibility?: number}>;
+  faceLandmarks?: Array<{x: number; y: number; z: number}>;
+  leftHandLandmarks?: Array<{x: number; y: number; z: number}>;
+  rightHandLandmarks?: Array<{x: number; y: number; z: number}>;
+}
+
+export interface SolvedPose {
+  // Body rig (from Kalidokit.Pose.solve())
+  RightUpperArm: {x: number; y: number; z: number};
+  LeftUpperArm: {x: number; y: number; z: number};
+  RightLowerArm: {x: number; y: number; z: number};
+  LeftLowerArm: {x: number; y: number; z: number};
+  RightHand: {x: number; y: number; z: number};
+  LeftHand: {x: number; y: number; z: number};
+  Spine: {x: number; y: number; z: number};
+  Hips: {
+    rotation: {x: number; y: number; z: number};
+    position: {x: number; y: number; z: number};
+  };
+  
+  // Face rig (from Kalidokit.Face.solve())
+  head?: {
+    x: number;
+    y: number;
+    z: number;
+    width: number;
+    height: number;
+    position: {x: number; y: number; z: number};
+  };
+  eye?: {l: number; r: number};
+  brow?: number;
+  pupil?: {x: number; y: number};
+  mouth?: {
+    x: number;
+    y: number;
+    shape: {A: number; E: number; I: number; O: number; U: number};
+  };
+}
+
+/**
+ * Solve pose from MediaPipe landmarks using KalidoKit.
+ * KalidoKit handles:
+ * - Coordinate system conversion (MediaPipe Y-down → Three.js Y-up)
+ * - Euler angle calculations
+ * - Hand/finger solving
+ */
+export function solvePose(landmarks: MediaPipeLandmarks): SolvedPose {
+  // Solve body pose
+  const poseRig = Kalidokit.Pose.solve(
+    landmarks.poseWorldLandmarks,
+    landmarks.poseLandmarks,
+    { runtime: 'mediapipe', imageSize: { width: 1, height: 1 } }
+  );
+  
+  // Solve face (if landmarks available)
+  let faceRig = null;
+  if (landmarks.faceLandmarks) {
+    faceRig = Kalidokit.Face.solve(landmarks.faceLandmarks, {
+      runtime: 'mediapipe',
+      imageSize: { width: 1, height: 1 }
+    });
+  }
+  
+  // Solve hands (if landmarks available)
+  let leftHandRig = null;
+  let rightHandRig = null;
+  
+  if (landmarks.leftHandLandmarks) {
+    leftHandRig = Kalidokit.Hand.solve(landmarks.leftHandLandmarks, 'Left');
+  }
+  
+  if (landmarks.rightHandLandmarks) {
+    rightHandRig = Kalidokit.Hand.solve(landmarks.rightHandLandmarks, 'Right');
+  }
+  
+  return {
+    ...poseRig,
+    head: faceRig?.head,
+    eye: faceRig?.eye,
+    brow: faceRig?.brow,
+    pupil: faceRig?.pupil,
+    mouth: faceRig?.mouth,
+  };
+}
+```
+
+**Acceptance Criteria:**
+- [ ] `solvePose()` returns KalidoKit-format bone rotations
+- [ ] Handles missing face/hand landmarks gracefully
+- [ ] Output directly usable with VRM bone system
+
+---
+
+### **Task 3.1.2.3: VRM Avatar Renderer Component**
+
+```typescript
+// mobile/src/components/3d/VRMAvatarRenderer.tsx
+
+import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { View, StyleSheet, ActivityIndicator, Text } from 'react-native';
+import { Canvas, useFrame, useThree } from '@react-three/fiber/native';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
+import { VRM, VRMLoaderPlugin, VRMHumanBoneName } from '@pixiv/three-vrm';
+import * as THREE from 'three';
+import { SolvedPose } from '../../services/poseService';
+
+// ============================================================
+// TYPES
+// ============================================================
+
+interface AvatarCustomization {
+  skinColor: string;
+  hairColor: string;
+  eyeColor: string;
+}
+
+interface VRMAvatarRendererProps {
+  modelUrl: string;
+  pose?: SolvedPose;
+  customization?: AvatarCustomization;
+  onLoadComplete?: () => void;
+  onLoadError?: (error: Error) => void;
+}
+
+// ============================================================
+// VRM LOADER HOOK
+// ============================================================
+
+function useVRMLoader(modelUrl: string) {
+  const [vrm, setVrm] = useState<VRM | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    const loader = new GLTFLoader();
+    loader.register((parser) => new VRMLoaderPlugin(parser));
+
+    setLoading(true);
+    setError(null);
+
+    loader.load(
+      modelUrl,
+      (gltf) => {
+        const loadedVrm = gltf.userData.vrm as VRM;
+        
+        // Rotate to face camera (VRM faces +Z by default)
+        loadedVrm.scene.rotation.y = Math.PI;
+        
+        setVrm(loadedVrm);
+        setLoading(false);
+      },
+      undefined,
+      (err) => {
+        setError(err as Error);
+        setLoading(false);
+      }
+    );
+
+    return () => {
+      if (vrm) {
+        vrm.dispose();
+      }
+    };
+  }, [modelUrl]);
+
+  return { vrm, loading, error };
+}
+
+// ============================================================
+// POSE APPLICATION
+// ============================================================
+
+/**
+ * Apply KalidoKit pose to VRM model.
+ * VRM bone names map directly to KalidoKit output.
+ */
+function applyPoseToVRM(vrm: VRM, pose: SolvedPose) {
+  const humanoid = vrm.humanoid;
+  if (!humanoid) return;
+
+  // Map KalidoKit output to VRM bones
+  const boneMapping: Record<string, VRMHumanBoneName> = {
+    'RightUpperArm': VRMHumanBoneName.RightUpperArm,
+    'LeftUpperArm': VRMHumanBoneName.LeftUpperArm,
+    'RightLowerArm': VRMHumanBoneName.RightLowerArm,
+    'LeftLowerArm': VRMHumanBoneName.LeftLowerArm,
+    'RightHand': VRMHumanBoneName.RightHand,
+    'LeftHand': VRMHumanBoneName.LeftHand,
+    'Spine': VRMHumanBoneName.Spine,
+    'Hips': VRMHumanBoneName.Hips,
+  };
+
+  // Apply body pose
+  for (const [kalidoName, vrmBoneName] of Object.entries(boneMapping)) {
+    const boneNode = humanoid.getNormalizedBoneNode(vrmBoneName);
+    if (!boneNode) continue;
+
+    const rotation = (pose as any)[kalidoName];
+    if (!rotation) continue;
+
+    // KalidoKit outputs Euler angles in radians
+    if (kalidoName === 'Hips') {
+      boneNode.rotation.set(
+        rotation.rotation.x,
+        rotation.rotation.y,
+        rotation.rotation.z
+      );
+    } else {
+      boneNode.rotation.set(rotation.x, rotation.y, rotation.z);
+    }
+  }
+
+  // Apply head rotation if available
+  if (pose.head) {
+    const headBone = humanoid.getNormalizedBoneNode(VRMHumanBoneName.Head);
+    if (headBone) {
+      headBone.rotation.set(pose.head.x, pose.head.y, pose.head.z);
+    }
+  }
+
+  // Apply facial expressions if available
+  if (vrm.expressionManager && pose.mouth) {
+    // Map mouth shape to VRM expressions
+    const mouthShape = pose.mouth.shape;
+    vrm.expressionManager.setValue('aa', mouthShape.A);
+    vrm.expressionManager.setValue('ee', mouthShape.E);
+    vrm.expressionManager.setValue('ih', mouthShape.I);
+    vrm.expressionManager.setValue('oh', mouthShape.O);
+    vrm.expressionManager.setValue('ou', mouthShape.U);
+  }
+
+  // Apply blink
+  if (vrm.expressionManager && pose.eye) {
+    vrm.expressionManager.setValue('blinkLeft', 1 - pose.eye.l);
+    vrm.expressionManager.setValue('blinkRight', 1 - pose.eye.r);
+  }
+}
+
+// ============================================================
+// COLOR CUSTOMIZATION
+// ============================================================
+
+/**
+ * Apply color customization to VRM materials.
+ * Uses VRM's MToon material system.
+ */
+function applyCustomization(vrm: VRM, customization: AvatarCustomization) {
+  vrm.scene.traverse((object) => {
+    if (object instanceof THREE.Mesh && object.material) {
+      const material = object.material as THREE.Material & {
+        uniforms?: Record<string, { value: any }>;
+        color?: THREE.Color;
+      };
+      
+      const name = object.name.toLowerCase();
+      
+      // Skin materials
+      if (name.includes('skin') || name.includes('face') || name.includes('body')) {
+        if (material.color) {
+          material.color.set(customization.skinColor);
+        }
+      }
+      
+      // Hair materials
+      if (name.includes('hair')) {
+        if (material.color) {
+          material.color.set(customization.hairColor);
+        }
+      }
+      
+      // Eye materials
+      if (name.includes('eye') && !name.includes('eyebrow')) {
+        if (material.color) {
+          material.color.set(customization.eyeColor);
+        }
+      }
+    }
+  });
+}
+
+// ============================================================
+// AVATAR SCENE COMPONENT
+// ============================================================
+
+function AvatarScene({ 
+  vrm, 
+  pose, 
+  customization 
+}: { 
+  vrm: VRM; 
+  pose?: SolvedPose; 
+  customization?: AvatarCustomization;
+}) {
+  const { scene } = useThree();
+
+  useEffect(() => {
+    scene.add(vrm.scene);
+    return () => {
+      scene.remove(vrm.scene);
+    };
+  }, [vrm, scene]);
+
+  // Apply pose when it changes
+  useEffect(() => {
+    if (pose) {
+      applyPoseToVRM(vrm, pose);
+    }
+  }, [vrm, pose]);
+
+  // Apply customization when it changes
+  useEffect(() => {
+    if (customization) {
+      applyCustomization(vrm, customization);
+    }
+  }, [vrm, customization]);
+
+  // Update VRM each frame (for expression interpolation)
+  useFrame((state, delta) => {
+    vrm.update(delta);
+  });
+
+  return null;
+}
+
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
+
+export function VRMAvatarRenderer({
+  modelUrl,
+  pose,
+  customization,
+  onLoadComplete,
+  onLoadError,
+}: VRMAvatarRendererProps) {
+  const { vrm, loading, error } = useVRMLoader(modelUrl);
+
+  useEffect(() => {
+    if (vrm && onLoadComplete) {
+      onLoadComplete();
+    }
+  }, [vrm, onLoadComplete]);
+
+  useEffect(() => {
+    if (error && onLoadError) {
+      onLoadError(error);
+    }
+  }, [error, onLoadError]);
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#6366F1" />
+        <Text style={styles.loadingText}>Loading avatar...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>Failed to load avatar</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <Canvas
+        camera={{ position: [0, 1.5, 2], fov: 30 }}
+        gl={{ antialias: true }}
+      >
+        <ambientLight intensity={0.6} />
+        <directionalLight position={[1, 2, 3]} intensity={0.8} />
+        
+        {vrm && (
+          <AvatarScene 
+            vrm={vrm} 
+            pose={pose} 
+            customization={customization} 
+          />
+        )}
+      </Canvas>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#1A1A2E',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#1A1A2E',
+  },
+  loadingText: {
+    color: '#FFFFFF',
+    marginTop: 12,
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#1A1A2E',
+  },
+  errorText: {
+    color: '#EF4444',
+    fontSize: 16,
+  },
+});
+
+export default VRMAvatarRenderer;
+```
+
+**Acceptance Criteria:**
+- [ ] VRM models load correctly on iOS and Android
+- [ ] Pose applies correctly from KalidoKit output
+- [ ] Color customization works for skin, hair, eyes
+- [ ] 60fps rendering on mid-range devices
+- [ ] Model switching works without memory leaks
+
+---
+
+### **Task 3.1.2.4: Default Avatar Models (CC0 Licensed)**
+
+**Free VRM Models to Include:**
+
+**Source 1: VRoid Official CC0 Models**
+- Download from: https://github.com/madjin/vrm-samples
+- License: CC0 (Public Domain) - Can be used commercially without attribution
+
+**Recommended Default Avatars:**
+| Model | Style | Gender | Notes |
+|-------|-------|--------|-------|
+| AvatarSample_A | Anime | Female | Good for default |
+| AvatarSample_B | Anime | Male | Good for default |
+| AvatarSample_D_Darkness | Dark/Gothic | Neutral | Alternative style |
+| AvatarSample_E | Casual | Female | Alternative |
+| AvatarSample_F | Casual | Male | Alternative |
+
+**Implementation:**
+
+```typescript
+// mobile/src/data/defaultAvatars.ts
+
+export interface DefaultAvatar {
+  id: string;
+  name: string;
+  style: 'anime' | 'cartoon' | 'minimalist';
+  modelUrl: string;
+  thumbnailUrl: string;
+  supportsColorCustomization: boolean;
+}
+
+export const DEFAULT_AVATARS: DefaultAvatar[] = [
+  {
+    id: 'avatar_a',
+    name: 'Sakura',
+    style: 'anime',
+    modelUrl: 'https://cdn.seeme.app/avatars/vrm/sample_a.vrm',
+    thumbnailUrl: 'https://cdn.seeme.app/avatars/thumbs/sample_a.png',
+    supportsColorCustomization: true,
+  },
+  {
+    id: 'avatar_b',
+    name: 'Hikaru',
+    style: 'anime',
+    modelUrl: 'https://cdn.seeme.app/avatars/vrm/sample_b.vrm',
+    thumbnailUrl: 'https://cdn.seeme.app/avatars/thumbs/sample_b.png',
+    supportsColorCustomization: true,
+  },
+  {
+    id: 'avatar_d',
+    name: 'Shadow',
+    style: 'anime',
+    modelUrl: 'https://cdn.seeme.app/avatars/vrm/sample_d.vrm',
+    thumbnailUrl: 'https://cdn.seeme.app/avatars/thumbs/sample_d.png',
+    supportsColorCustomization: true,
+  },
+  {
+    id: 'avatar_e',
+    name: 'Luna',
+    style: 'anime',
+    modelUrl: 'https://cdn.seeme.app/avatars/vrm/sample_e.vrm',
+    thumbnailUrl: 'https://cdn.seeme.app/avatars/thumbs/sample_e.png',
+    supportsColorCustomization: true,
+  },
+];
+
+export const getAvatarById = (id: string): DefaultAvatar | undefined => {
+  return DEFAULT_AVATARS.find(avatar => avatar.id === id);
+};
+```
+
+**Acceptance Criteria:**
+- [ ] 4+ default avatars available
+- [ ] All avatars are CC0 or MIT licensed
+- [ ] Models load in <3 seconds on 4G
+- [ ] Thumbnail previews load quickly
+
+---
+
+### **Task 3.1.2.5: Preset Poses Library**
+
+**Using KalidoKit output format for consistency:**
+
+```typescript
+// mobile/src/data/presetPoses.ts
+
+import { SolvedPose } from '../services/poseService';
+
+export interface PresetPose {
+  id: string;
+  name: string;
+  icon: string;
+  category: 'casual' | 'expressive' | 'action';
+  pose: Partial<SolvedPose>;
+}
+
+export const PRESET_POSES: PresetPose[] = [
+  {
+    id: 'standing',
+    name: 'Standing',
+    icon: '🧍',
+    category: 'casual',
+    pose: {
+      RightUpperArm: { x: 0, y: 0, z: -0.3 },
+      LeftUpperArm: { x: 0, y: 0, z: 0.3 },
+      RightLowerArm: { x: 0, y: 0, z: 0 },
+      LeftLowerArm: { x: 0, y: 0, z: 0 },
+      Spine: { x: 0, y: 0, z: 0 },
+      Hips: {
+        rotation: { x: 0, y: 0, z: 0 },
+        position: { x: 0, y: 1, z: 0 },
+      },
+    },
+  },
+  {
+    id: 'wave',
+    name: 'Wave',
+    icon: '👋',
+    category: 'expressive',
+    pose: {
+      RightUpperArm: { x: 0, y: 0, z: -2.0 },
+      LeftUpperArm: { x: 0, y: 0, z: 0.3 },
+      RightLowerArm: { x: 0, y: 0, z: -1.2 },
+      LeftLowerArm: { x: 0, y: 0, z: 0 },
+      Spine: { x: 0, y: 0, z: 0 },
+      Hips: {
+        rotation: { x: 0, y: 0, z: 0 },
+        position: { x: 0, y: 1, z: 0 },
+      },
+    },
+  },
+  {
+    id: 'peace',
+    name: 'Peace',
+    icon: '✌️',
+    category: 'expressive',
+    pose: {
+      RightUpperArm: { x: 0, y: 0, z: -1.5 },
+      LeftUpperArm: { x: 0, y: 0, z: 0.3 },
+      RightLowerArm: { x: 0, y: 0, z: -0.8 },
+      LeftLowerArm: { x: 0, y: 0, z: 0 },
+      Spine: { x: 0.1, y: 0, z: 0 },
+      Hips: {
+        rotation: { x: 0, y: 0.1, z: 0 },
+        position: { x: 0, y: 1, z: 0 },
+      },
+    },
+  },
+  {
+    id: 'thumbs_up',
+    name: 'Thumbs Up',
+    icon: '👍',
+    category: 'expressive',
+    pose: {
+      RightUpperArm: { x: 0, y: 0.5, z: -1.0 },
+      LeftUpperArm: { x: 0, y: 0, z: 0.3 },
+      RightLowerArm: { x: 0, y: 0, z: -0.5 },
+      LeftLowerArm: { x: 0, y: 0, z: 0 },
+      Spine: { x: 0, y: 0, z: 0 },
+      Hips: {
+        rotation: { x: 0, y: 0, z: 0 },
+        position: { x: 0, y: 1, z: 0 },
+      },
+    },
+  },
+  {
+    id: 'flex',
+    name: 'Flex',
+    icon: '💪',
+    category: 'action',
+    pose: {
+      RightUpperArm: { x: 0, y: 0, z: -1.8 },
+      LeftUpperArm: { x: 0, y: 0, z: 1.8 },
+      RightLowerArm: { x: 0, y: 0, z: -2.0 },
+      LeftLowerArm: { x: 0, y: 0, z: 2.0 },
+      Spine: { x: -0.1, y: 0, z: 0 },
+      Hips: {
+        rotation: { x: 0, y: 0, z: 0 },
+        position: { x: 0, y: 1, z: 0 },
+      },
+    },
+  },
+  {
+    id: 'shrug',
+    name: 'Shrug',
+    icon: '🤷',
+    category: 'expressive',
+    pose: {
+      RightUpperArm: { x: 0, y: 0, z: -0.8 },
+      LeftUpperArm: { x: 0, y: 0, z: 0.8 },
+      RightLowerArm: { x: 0, y: 0, z: -1.0 },
+      LeftLowerArm: { x: 0, y: 0, z: 1.0 },
+      Spine: { x: 0, y: 0, z: 0 },
+      Hips: {
+        rotation: { x: 0, y: 0, z: 0 },
+        position: { x: 0, y: 1, z: 0 },
+      },
+    },
+  },
+];
+
+export const getPoseById = (id: string): PresetPose | undefined => {
+  return PRESET_POSES.find(pose => pose.id === id);
+};
+```
+
+**Acceptance Criteria:**
+- [ ] 6+ preset poses available
+- [ ] Poses categorized (casual, expressive, action)
+- [ ] Instant pose switching (no processing needed)
+- [ ] User's avatar customization preserved when changing pose
+
+---
+
+## WORKSTREAM 3.1.3: FULL INTEGRATION
+
+**Agent:** Full-Stack Integration Agent
+**Duration:** Week 25 (1 week)
+**Dependencies:** CV Pipeline + 3D Rendering complete
+**Output:** Complete avatar creation flow working end-to-end
+
+---
+
+### **Task 3.1.3.1: Full Body Avatar Screen**
+
+```typescript
+// mobile/src/screens/FullBodyAvatarScreen.tsx
+
+import React, { useState, useCallback } from 'react';
+import {
+  View,
+  StyleSheet,
+  TouchableOpacity,
+  Text,
+  ScrollView,
+  ActivityIndicator,
+} from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { VRMAvatarRenderer } from '../components/3d/VRMAvatarRenderer';
+import { solvePose, SolvedPose, MediaPipeLandmarks } from '../services/poseService';
+import { DEFAULT_AVATARS, DefaultAvatar } from '../data/defaultAvatars';
+import { PRESET_POSES, PresetPose } from '../data/presetPoses';
+import { api } from '../services/api';
+
+// Color palettes
+const SKIN_COLORS = ['#FFE0BD', '#FFCD94', '#EAC086', '#C68642', '#8D5524', '#5C3317'];
+const HAIR_COLORS = ['#2C1810', '#4A3728', '#8B4513', '#D4A76A', '#E8D4B8', '#B8860B', '#FF6B6B', '#9370DB'];
+const EYE_COLORS = ['#4A3728', '#634E34', '#2E536F', '#3D9970', '#7FDBFF', '#B10DC9'];
+
+interface AvatarCustomization {
+  skinColor: string;
+  hairColor: string;
+  eyeColor: string;
+}
+
+export function FullBodyAvatarScreen() {
+  const [selectedAvatar, setSelectedAvatar] = useState<DefaultAvatar>(DEFAULT_AVATARS[0]);
+  const [customization, setCustomization] = useState<AvatarCustomization>({
+    skinColor: SKIN_COLORS[0],
+    hairColor: HAIR_COLORS[0],
+    eyeColor: EYE_COLORS[0],
+  });
+  const [currentPose, setCurrentPose] = useState<Partial<SolvedPose> | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [activeTab, setActiveTab] = useState<'avatar' | 'colors' | 'pose'>('avatar');
+
+  // Upload photo and extract pose
+  const handleUploadPhoto = useCallback(async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      setIsProcessing(true);
+      try {
+        const formData = new FormData();
+        formData.append('file', {
+          uri: result.assets[0].uri,
+          type: 'image/jpeg',
+          name: 'photo.jpg',
+        } as any);
+
+        // Call backend to extract landmarks
+        const response = await api.post('/body-avatar/extract-landmarks', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+
+        if (response.data.success) {
+          // Use KalidoKit to solve pose on client
+          const landmarks: MediaPipeLandmarks = {
+            poseLandmarks: response.data.poseLandmarks,
+            poseWorldLandmarks: response.data.poseWorldLandmarks,
+            faceLandmarks: response.data.faceLandmarks,
+            leftHandLandmarks: response.data.leftHandLandmarks,
+            rightHandLandmarks: response.data.rightHandLandmarks,
+          };
+          
+          const solvedPose = solvePose(landmarks);
+          setCurrentPose(solvedPose);
+        }
+      } catch (error) {
+        console.error('Failed to extract pose:', error);
+      } finally {
+        setIsProcessing(false);
+      }
+    }
+  }, []);
+
+  // Apply preset pose
+  const handleSelectPreset = useCallback((preset: PresetPose) => {
+    setCurrentPose(preset.pose);
+  }, []);
+
+  return (
+    <View style={styles.container}>
+      {/* 3D Avatar Preview */}
+      <View style={styles.previewContainer}>
+        <VRMAvatarRenderer
+          modelUrl={selectedAvatar.modelUrl}
+          pose={currentPose as SolvedPose}
+          customization={customization}
+        />
+        
+        {isProcessing && (
+          <View style={styles.processingOverlay}>
+            <ActivityIndicator size="large" color="#6366F1" />
+            <Text style={styles.processingText}>Extracting pose...</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Customization Panel */}
+      <View style={styles.customizationPanel}>
+        {/* Tabs */}
+        <View style={styles.tabs}>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'avatar' && styles.tabActive]}
+            onPress={() => setActiveTab('avatar')}
+          >
+            <Text style={[styles.tabText, activeTab === 'avatar' && styles.tabTextActive]}>
+              Avatar
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'colors' && styles.tabActive]}
+            onPress={() => setActiveTab('colors')}
+          >
+            <Text style={[styles.tabText, activeTab === 'colors' && styles.tabTextActive]}>
+              Colors
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'pose' && styles.tabActive]}
+            onPress={() => setActiveTab('pose')}
+          >
+            <Text style={[styles.tabText, activeTab === 'pose' && styles.tabTextActive]}>
+              Pose
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Tab Content */}
+        <ScrollView horizontal style={styles.tabContent}>
+          {activeTab === 'avatar' && (
+            DEFAULT_AVATARS.map((avatar) => (
+              <TouchableOpacity
+                key={avatar.id}
+                style={[
+                  styles.avatarOption,
+                  selectedAvatar.id === avatar.id && styles.avatarSelected,
+                ]}
+                onPress={() => setSelectedAvatar(avatar)}
+              >
+                <Text style={styles.avatarName}>{avatar.name}</Text>
+                <Text style={styles.avatarStyle}>{avatar.style}</Text>
+              </TouchableOpacity>
+            ))
+          )}
+          
+          {activeTab === 'colors' && (
+            <View>
+              <Text style={styles.colorLabel}>Skin</Text>
+              <ScrollView horizontal style={styles.paletteScroll}>
+                {SKIN_COLORS.map((color) => (
+                  <TouchableOpacity
+                    key={color}
+                    style={[
+                      styles.colorButton,
+                      { backgroundColor: color },
+                      customization.skinColor === color && styles.colorSelected,
+                    ]}
+                    onPress={() => setCustomization(c => ({ ...c, skinColor: color }))}
+                  />
+                ))}
+              </ScrollView>
+              
+              <Text style={styles.colorLabel}>Hair</Text>
+              <ScrollView horizontal style={styles.paletteScroll}>
+                {HAIR_COLORS.map((color) => (
+                  <TouchableOpacity
+                    key={color}
+                    style={[
+                      styles.colorButton,
+                      { backgroundColor: color },
+                      customization.hairColor === color && styles.colorSelected,
+                    ]}
+                    onPress={() => setCustomization(c => ({ ...c, hairColor: color }))}
+                  />
+                ))}
+              </ScrollView>
+            </View>
+          )}
+          
+          {activeTab === 'pose' && (
+            <>
+              <TouchableOpacity
+                style={styles.uploadButton}
+                onPress={handleUploadPhoto}
+              >
+                <Text style={styles.uploadText}>📷 From Photo</Text>
+              </TouchableOpacity>
+              
+              {PRESET_POSES.map((preset) => (
+                <TouchableOpacity
+                  key={preset.id}
+                  style={[
+                    styles.poseOption,
+                    currentPose === preset.pose && styles.poseSelected,
+                  ]}
+                  onPress={() => handleSelectPreset(preset)}
+                >
+                  <Text style={styles.poseIcon}>{preset.icon}</Text>
+                  <Text style={styles.poseName}>{preset.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </>
+          )}
+        </ScrollView>
+      </View>
+
+      {/* Action Buttons */}
+      <View style={styles.actions}>
+        <TouchableOpacity style={styles.actionButton}>
+          <Text style={styles.actionText}>Reset</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.actionButton, styles.saveButton]}>
+          <Text style={[styles.actionText, styles.saveText]}>Save Avatar</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0F0F23',
+  },
+  previewContainer: {
+    flex: 1,
+    minHeight: 300,
+  },
+  processingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 15, 35, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  processingText: {
+    color: '#FFFFFF',
+    marginTop: 12,
+    fontSize: 16,
+  },
+  customizationPanel: {
+    backgroundColor: '#1A1A2E',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 16,
+    minHeight: 200,
+  },
+  tabs: {
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabActive: {
+    borderBottomColor: '#6366F1',
+  },
+  tabText: {
+    color: '#888',
+    fontSize: 14,
+  },
+  tabTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  tabContent: {
+    minHeight: 80,
+  },
+  colorLabel: {
+    color: '#888',
+    fontSize: 12,
+    marginBottom: 8,
+    marginTop: 8,
+  },
+  paletteScroll: {
+    flexDirection: 'row',
+  },
+  colorButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: 10,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  colorSelected: {
+    borderColor: '#6366F1',
+    borderWidth: 3,
+  },
+  avatarOption: {
+    backgroundColor: '#2A2A4A',
+    padding: 12,
+    borderRadius: 12,
+    marginRight: 10,
+    minWidth: 80,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  avatarSelected: {
+    borderColor: '#6366F1',
+  },
+  avatarName: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  avatarStyle: {
+    color: '#888',
+    fontSize: 12,
+    marginTop: 4,
+  },
+  uploadButton: {
+    backgroundColor: '#6366F1',
+    padding: 12,
+    borderRadius: 12,
+    marginRight: 10,
+  },
+  uploadText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  poseOption: {
+    backgroundColor: '#2A2A4A',
+    padding: 12,
+    borderRadius: 12,
+    marginRight: 10,
+    alignItems: 'center',
+    minWidth: 70,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  poseSelected: {
+    borderColor: '#6366F1',
+  },
+  poseIcon: {
+    fontSize: 24,
+  },
+  poseName: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    marginTop: 4,
+  },
+  actions: {
+    flexDirection: 'row',
+    padding: 16,
+    backgroundColor: '#1A1A2E',
+    justifyContent: 'space-around',
+  },
+  actionButton: {
+    backgroundColor: '#2A2A4A',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+  },
+  actionText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+  },
+  saveButton: {
+    backgroundColor: '#6366F1',
+  },
+  saveText: {
+    fontWeight: '600',
+  },
+});
+
+export default FullBodyAvatarScreen;
+```
+
+---
+
+### **Task 3.1.3.2: Backend Storage Schema**
+
+```typescript
+// backend/src/models/FullBodyAvatar.ts
+
+import { Schema, model, Document } from 'mongoose';
+
+interface IFullBodyAvatar extends Document {
+  userId: string;
+  modelId: string;  // Reference to default VRM model
+  
+  // Customization
+  skinColor: string;
+  hairColor: string;
+  eyeColor: string;
+  
+  // Current pose (stored as KalidoKit format)
+  currentPose: {
+    type: 'preset' | 'custom';
+    presetId?: string;
+    customPose?: Record<string, any>;
+  };
+  
+  // Metadata
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const FullBodyAvatarSchema = new Schema<IFullBodyAvatar>({
+  userId: { type: String, required: true, unique: true, index: true },
+  modelId: { type: String, required: true, default: 'avatar_a' },
+  
+  skinColor: { type: String, default: '#FFE0BD' },
+  hairColor: { type: String, default: '#2C1810' },
+  eyeColor: { type: String, default: '#4A3728' },
+  
+  currentPose: {
+    type: { type: String, enum: ['preset', 'custom'], default: 'preset' },
+    presetId: { type: String, default: 'standing' },
+    customPose: { type: Schema.Types.Mixed },
+  },
+}, { timestamps: true });
+
+export const FullBodyAvatar = model<IFullBodyAvatar>('FullBodyAvatar', FullBodyAvatarSchema);
+```
+
+---
+
+## ⚠️ COMMON PITFALLS TO AVOID
+
+1. **Coordinate System Mismatch**
+   - MediaPipe uses Y-down (image coordinates)
+   - Three.js/VRM uses Y-up (3D world coordinates)
+   - **KalidoKit handles this conversion - USE IT!**
+
+2. **Quaternion vs Euler**
+   - KalidoKit outputs Euler angles (radians)
+   - Three.js `rotation.set(x, y, z)` accepts Euler
+   - Don't manually convert unless needed
+
+3. **VRM Model Orientation**
+   - VRM models face +Z by default
+   - Rotate by `Math.PI` on Y axis to face camera
+
+4. **Memory Management**
+   - Call `VRM.dispose()` when switching models
+   - Unload textures when component unmounts
+
+5. **Performance**
+   - Don't call KalidoKit.solve() every frame
+   - Only update when new landmarks arrive
+   - Use `requestAnimationFrame` throttling if needed
+
+---
+
+## PHASE 3.1 COMPLETION CRITERIA
+
+### **Content Policy Features:**
+- [ ] Auto person detection on every post image (<200ms)
+- [ ] Real people photos blocked from direct posting
+- [ ] User choice when person detected: 3D Avatar OR Blur Faces
+- [ ] Face blur works on all faces in image (>95% accuracy)
+- [ ] Non-person images (scenery, food, etc.) can post directly
+
+### **3D Avatar Features:**
+- [ ] User can upload photo for body avatar
+- [ ] MediaPipe extracts landmarks (backend)
+- [ ] KalidoKit solves pose (client)
+- [ ] VRM avatar renders with applied pose
+- [ ] 4+ default avatars available (CC0 licensed)
+- [ ] Skin/hair/eye color customization
+- [ ] Avatar saves and persists for user
+
+### **Preset Poses:**
+- [ ] 6+ preset poses available
+- [ ] Poses categorized (casual, expressive, action)
+- [ ] Instant pose switching (no CV processing needed)
+- [ ] User's customization preserved when changing pose
+
+### **Technical Quality:**
+- [ ] Person detection <200ms (lightweight model)
+- [ ] Landmark extraction <1 second
+- [ ] Face blur <500ms
+- [ ] 3D rendering 60fps on mid-range devices
+- [ ] Memory usage <200MB for 3D scene
+- [ ] All CV runs locally (no AI API costs)
+
+### **Libraries Used:**
+- [ ] KalidoKit for pose solving ✅
+- [ ] @pixiv/three-vrm for VRM rendering ✅
+- [ ] MediaPipe Holistic for landmarks ✅
+- [ ] VRoid CC0 models for defaults ✅
+
+---
+
+## 🔬 3D MODEL CUSTOMIZATION: RESEARCH & IMPLEMENTATION GUIDE
+
+This section documents GitHub research findings, common pitfalls, and production-ready code for VRM avatar customization in SeeMe.
+
+---
+
+### **KEY GITHUB RESOURCES STUDIED**
+
+| Repository | Stars | Purpose | Key Learnings |
+|------------|-------|---------|---------------|
+| **pixiv/three-vrm** | 3.8k | Official VRM loader for Three.js | MToon material system, expression management |
+| **gatosyocora/vrm-avatar-editor** | 17 | Web-based VRM editor | Texture color changing, material manipulation |
+| **vladmandic/human-three-vrm** | 200+ | MediaPipe + VRM integration | Pose mapping, real-time updates |
+| **shrekshao/gltf-avatar-threejs** | 300+ | Modular avatar system | Skin/outfit switching, body part visibility |
+| **ToxSam/open-source-avatars** | 100+ | 300+ free VRM models | CC0/CC-BY licensing, metadata structure |
+| **VerseEngine/three-avatar** | 50+ | Complete avatar system | IK, animations, collision |
+
+---
+
+### **⚠️ CRITICAL PITFALLS TO AVOID**
+
+Based on GitHub issues, forum discussions, and production implementations:
+
+#### **Pitfall 1: Direct Material Color Assignment Doesn't Work**
+
+❌ **WRONG - This won't work properly:**
+```typescript
+// This seems intuitive but causes issues
+mesh.material.color.set('#FF0000');
+```
+
+**Problem:** VRM uses MToon shader which has multiple color properties (litColor, shadeColor). Direct color assignment may not affect the visible appearance or may cause rendering issues.
+
+✅ **CORRECT - Use MToon-specific properties:**
+```typescript
+// Access MToon material properties correctly
+const material = mesh.material as MToonMaterial;
+
+// Set lit (main) color - this is what users see in light
+material.color.set(new THREE.Color(skinColor));
+
+// Set shade color - this is what users see in shadow
+material.shadeColor?.set(new THREE.Color(skinColor).multiplyScalar(0.7));
+
+// Mark material as needing update
+material.needsUpdate = true;
+```
+
+---
+
+#### **Pitfall 2: Texture Tinting vs Color Replacement**
+
+❌ **WRONG - Tinting entire texture:**
+```typescript
+// This tints the entire texture including details
+material.color.set('#FFD0BD');  // Skin color tints everything
+```
+
+**Problem:** If the texture has painted details (eyes, lips, clothing patterns), setting material color will tint EVERYTHING, not just the skin.
+
+✅ **CORRECT - Use mask textures or separate materials:**
+```typescript
+// SOLUTION 1: VRM models should have separate materials per body part
+// Identify materials by mesh name
+vrm.scene.traverse((object) => {
+  if (object instanceof THREE.Mesh) {
+    const name = object.name.toLowerCase();
+    
+    // Only modify skin materials
+    if (name.includes('body') || name.includes('face') || name.includes('skin')) {
+      applyColorToMaterial(object.material, skinColor);
+    }
+    
+    // Only modify hair materials
+    if (name.includes('hair')) {
+      applyColorToMaterial(object.material, hairColor);
+    }
+  }
+});
+
+// SOLUTION 2: Use grayscale base textures + color multiplication
+// This requires VRM models prepared with grayscale textures
+function applyColorToGrayscaleTexture(material: MToonMaterial, color: string) {
+  // Grayscale texture * color = colored result
+  material.color.set(new THREE.Color(color));
+}
+```
+
+---
+
+#### **Pitfall 3: Memory Leaks on Model Switching**
+
+❌ **WRONG - Just replacing the model:**
+```typescript
+// Memory leak! Old textures/geometries stay in GPU memory
+scene.remove(oldVrm.scene);
+const newVrm = await loadVRM(newModelUrl);
+scene.add(newVrm.scene);
+```
+
+✅ **CORRECT - Proper disposal:**
+```typescript
+// CRITICAL: Call dispose() to free GPU memory
+function switchAvatar(oldVrm: VRM | null, newVrm: VRM) {
+  if (oldVrm) {
+    // Remove from scene first
+    scene.remove(oldVrm.scene);
+    
+    // Dispose all materials and textures
+    oldVrm.scene.traverse((object) => {
+      if (object instanceof THREE.Mesh) {
+        // Dispose geometry
+        object.geometry?.dispose();
+        
+        // Dispose materials
+        if (Array.isArray(object.material)) {
+          object.material.forEach(mat => disposeMaterial(mat));
+        } else {
+          disposeMaterial(object.material);
+        }
+      }
+    });
+    
+    // Use VRM's built-in dispose method
+    oldVrm.dispose();
+  }
+  
+  scene.add(newVrm.scene);
+}
+
+function disposeMaterial(material: THREE.Material) {
+  // Dispose all textures
+  for (const key of Object.keys(material)) {
+    const value = (material as any)[key];
+    if (value instanceof THREE.Texture) {
+      value.dispose();
+    }
+  }
+  material.dispose();
+}
+```
+
+---
+
+#### **Pitfall 4: MToon Shade Color Ignored**
+
+**Problem:** Setting only `color` makes shadows look wrong because MToon uses a two-tone system.
+
+✅ **CORRECT - Set both lit and shade colors:**
+```typescript
+interface MToonColorConfig {
+  litColor: string;      // Main color (in light)
+  shadeColor?: string;   // Shadow color (in dark areas)
+  shadeShift?: number;   // When shadow starts (0-1)
+  shadeToony?: number;   // How sharp the shadow edge is (0-1)
+}
+
+function setMToonColors(material: MToonMaterial, config: MToonColorConfig) {
+  const lit = new THREE.Color(config.litColor);
+  
+  // Lit color (main visible color)
+  material.color.copy(lit);
+  
+  // Shade color (shadow areas) - default to 70% darker if not specified
+  if (config.shadeColor) {
+    material.shadeColor?.set(new THREE.Color(config.shadeColor));
+  } else {
+    material.shadeColor?.set(lit.clone().multiplyScalar(0.7));
+  }
+  
+  // Optional: adjust shadow parameters for anime look
+  if (config.shadeShift !== undefined) {
+    material.shadingShiftFactor = config.shadeShift;
+  }
+  if (config.shadeToony !== undefined) {
+    material.shadingToonyFactor = config.shadeToony;
+  }
+  
+  material.needsUpdate = true;
+}
+```
+
+---
+
+#### **Pitfall 5: Color Doesn't Update Immediately**
+
+**Problem:** Material changes don't render until next frame or require explicit update.
+
+✅ **CORRECT - Force material update:**
+```typescript
+function updateMaterialColor(material: THREE.Material, color: string) {
+  if ('color' in material) {
+    (material as any).color.set(new THREE.Color(color));
+  }
+  
+  // CRITICAL: Mark as needing recompile
+  material.needsUpdate = true;
+  
+  // For MToon specifically, may need to update uniforms
+  if ('uniforms' in material && (material as any).uniforms) {
+    const uniforms = (material as any).uniforms;
+    if (uniforms.litFactor) {
+      uniforms.litFactor.value.set(new THREE.Color(color));
+    }
+  }
+}
+```
+
+---
+
+#### **Pitfall 6: Inconsistent Material Naming Across VRM Models**
+
+**Problem:** Different VRM models use different naming conventions for body parts.
+
+✅ **CORRECT - Robust material identification:**
+```typescript
+// Mapping of possible names for each body part
+const MATERIAL_NAME_PATTERNS = {
+  skin: [
+    'skin', 'body', 'face', 'hand', 'arm', 'leg', 'neck',
+    'hada', 'Body', 'Face', 'Skin', 'flesh'
+  ],
+  hair: [
+    'hair', 'Hair', 'kami', 'bangs', 'Bangs', 'hairfront', 'hairback'
+  ],
+  eye: [
+    'eye', 'Eye', 'iris', 'Iris', 'pupil', 'Pupil',
+    'me', 'hitomi'  // Japanese terms
+  ],
+  eyebrow: [
+    'eyebrow', 'Eyebrow', 'brow', 'Brow', 'mayu'
+  ],
+  cloth: [
+    'cloth', 'Cloth', 'shirt', 'pants', 'dress', 'outfit',
+    'fuku', 'wear', 'costume'
+  ]
+};
+
+function identifyMaterialType(meshName: string, materialName: string): string | null {
+  const searchText = `${meshName} ${materialName}`.toLowerCase();
+  
+  for (const [type, patterns] of Object.entries(MATERIAL_NAME_PATTERNS)) {
+    for (const pattern of patterns) {
+      if (searchText.includes(pattern.toLowerCase())) {
+        return type;
+      }
+    }
+  }
+  
+  return null; // Unknown material type
+}
+
+function applyCustomization(vrm: VRM, customization: AvatarCustomization) {
+  vrm.scene.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    
+    const materialType = identifyMaterialType(
+      object.name,
+      (object.material as THREE.Material).name || ''
+    );
+    
+    switch (materialType) {
+      case 'skin':
+        setMToonColors(object.material as MToonMaterial, {
+          litColor: customization.skinColor
+        });
+        break;
+      case 'hair':
+        setMToonColors(object.material as MToonMaterial, {
+          litColor: customization.hairColor
+        });
+        break;
+      case 'eye':
+        setMToonColors(object.material as MToonMaterial, {
+          litColor: customization.eyeColor
+        });
+        break;
+      // Don't modify unknown materials
+    }
+  });
+}
+```
+
+---
+
+#### **Pitfall 7: React Native / Expo GL Specific Issues**
+
+**Problem:** Three.js behaves differently in React Native with expo-gl.
+
+✅ **CORRECT - React Native specific handling:**
+```typescript
+// React Native specific imports
+import { ExpoWebGLRenderingContext, GLView } from 'expo-gl';
+import { Renderer, THREE } from 'expo-three';
+
+// PITFALL: Don't use standard WebGLRenderer
+// ❌ const renderer = new THREE.WebGLRenderer();
+
+// ✅ Use Expo's Renderer wrapper
+const onContextCreate = async (gl: ExpoWebGLRenderingContext) => {
+  const renderer = new Renderer({ gl });
+  
+  // IMPORTANT: Set pixel ratio for mobile
+  renderer.setPixelRatio(PixelRatio.get());
+  renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
+  
+  // IMPORTANT: For VRM/MToon, ensure proper color space
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  
+  // ... rest of setup
+};
+
+// PITFALL: Texture loading needs special handling in RN
+async function loadTextureForRN(uri: string): Promise<THREE.Texture> {
+  // Use expo-asset for local files
+  const asset = Asset.fromModule(require('./texture.png'));
+  await asset.downloadAsync();
+  
+  const texture = new THREE.Texture();
+  // Load image using RN's Image component
+  const image = await loadImageAsync(asset.localUri);
+  texture.image = image;
+  texture.needsUpdate = true;
+  
+  return texture;
+}
+```
+
+---
+
+### **📦 PRODUCTION-READY VRM CUSTOMIZATION SERVICE**
+
+Complete implementation combining all lessons learned:
+
+```typescript
+// mobile/src/services/vrmCustomizationService.ts
+
+import * as THREE from 'three';
+import { VRM } from '@pixiv/three-vrm';
+
+// ============================================================
+// TYPES
+// ============================================================
+
+export interface AvatarCustomization {
+  skinColor: string;
+  hairColor: string;
+  eyeColor: string;
+  outlineColor?: string;
+  outlineWidth?: number;
+}
+
+export interface CustomizationResult {
+  success: boolean;
+  modifiedMaterials: number;
+  errors: string[];
+}
+
+// ============================================================
+// CONSTANTS
+// ============================================================
+
+// Pre-tested skin tones that look good with MToon shader
+export const SKIN_TONE_PRESETS = {
+  light1: { lit: '#FFE4D0', shade: '#E8C4AA' },
+  light2: { lit: '#FFDCB8', shade: '#E0BC98' },
+  medium1: { lit: '#D4A574', shade: '#B48554' },
+  medium2: { lit: '#C68642', shade: '#A66622' },
+  dark1: { lit: '#8D5524', shade: '#6D3504' },
+  dark2: { lit: '#5C3317', shade: '#3C1307' },
+};
+
+// Hair colors optimized for anime style
+export const HAIR_COLOR_PRESETS = {
+  black: { lit: '#1A1A2E', shade: '#0A0A1E' },
+  brown: { lit: '#4A3728', shade: '#2A1708' },
+  blonde: { lit: '#E8D4B8', shade: '#C8B498' },
+  red: { lit: '#8B2500', shade: '#5B0500' },
+  blue: { lit: '#4169E1', shade: '#2149C1' },
+  pink: { lit: '#FF69B4', shade: '#DF4994' },
+  purple: { lit: '#9370DB', shade: '#7350BB' },
+  green: { lit: '#228B22', shade: '#026B02' },
+};
+
+// ============================================================
+// MATERIAL IDENTIFICATION
+// ============================================================
+
+type MaterialType = 'skin' | 'hair' | 'eye' | 'eyebrow' | 'cloth' | 'unknown';
+
+const MATERIAL_PATTERNS: Record<MaterialType, string[]> = {
+  skin: ['skin', 'body', 'face', 'hand', 'arm', 'leg', 'neck', 'hada', 'flesh'],
+  hair: ['hair', 'kami', 'bangs', 'hairfront', 'hairback', 'ahoge'],
+  eye: ['eye', 'iris', 'pupil', 'me', 'hitomi'],
+  eyebrow: ['eyebrow', 'brow', 'mayu'],
+  cloth: ['cloth', 'shirt', 'pants', 'dress', 'outfit', 'fuku', 'wear'],
+  unknown: [],
+};
+
+function identifyMaterial(meshName: string, materialName: string): MaterialType {
+  const searchText = `${meshName} ${materialName}`.toLowerCase();
+  
+  // Check each type
+  for (const [type, patterns] of Object.entries(MATERIAL_PATTERNS)) {
+    if (type === 'unknown') continue;
+    
+    for (const pattern of patterns) {
+      if (searchText.includes(pattern.toLowerCase())) {
+        // Special case: don't match "eyebrow" when looking for "eye"
+        if (type === 'eye' && searchText.includes('eyebrow')) {
+          continue;
+        }
+        return type as MaterialType;
+      }
+    }
+  }
+  
+  return 'unknown';
+}
+
+// ============================================================
+// COLOR APPLICATION
+// ============================================================
+
+interface MToonMaterialExtended extends THREE.Material {
+  color?: THREE.Color;
+  shadeColor?: THREE.Color;
+  shadingShiftFactor?: number;
+  shadingToonyFactor?: number;
+  outlineColorFactor?: THREE.Color;
+  outlineWidthFactor?: number;
+  uniforms?: Record<string, { value: any }>;
+}
+
+function applyColorToMToon(
+  material: MToonMaterialExtended,
+  litColor: string,
+  shadeColor?: string
+): boolean {
+  try {
+    const lit = new THREE.Color(litColor);
+    const shade = shadeColor 
+      ? new THREE.Color(shadeColor) 
+      : lit.clone().multiplyScalar(0.7);
+    
+    // Set lit color
+    if (material.color) {
+      material.color.copy(lit);
+    }
+    
+    // Set shade color
+    if (material.shadeColor) {
+      material.shadeColor.copy(shade);
+    }
+    
+    // Also update uniforms if present (some MToon versions)
+    if (material.uniforms) {
+      if (material.uniforms.litFactor) {
+        material.uniforms.litFactor.value.copy(lit);
+      }
+      if (material.uniforms.shadeColorFactor) {
+        material.uniforms.shadeColorFactor.value.copy(shade);
+      }
+    }
+    
+    material.needsUpdate = true;
+    return true;
+  } catch (error) {
+    console.error('Failed to apply color:', error);
+    return false;
+  }
+}
+
+// ============================================================
+// MAIN CUSTOMIZATION FUNCTION
+// ============================================================
+
+export function applyCustomizationToVRM(
+  vrm: VRM,
+  customization: AvatarCustomization
+): CustomizationResult {
+  const result: CustomizationResult = {
+    success: true,
+    modifiedMaterials: 0,
+    errors: [],
+  };
+  
+  const processedMaterials = new Set<string>();
+  
+  vrm.scene.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    
+    const materials = Array.isArray(object.material) 
+      ? object.material 
+      : [object.material];
+    
+    for (const material of materials) {
+      // Skip if already processed (materials can be shared)
+      const materialId = material.uuid;
+      if (processedMaterials.has(materialId)) continue;
+      processedMaterials.add(materialId);
+      
+      const materialType = identifyMaterial(
+        object.name,
+        material.name || ''
+      );
+      
+      let success = false;
+      
+      switch (materialType) {
+        case 'skin':
+          success = applyColorToMToon(
+            material as MToonMaterialExtended,
+            customization.skinColor
+          );
+          break;
+          
+        case 'hair':
+          success = applyColorToMToon(
+            material as MToonMaterialExtended,
+            customization.hairColor
+          );
+          break;
+          
+        case 'eye':
+          success = applyColorToMToon(
+            material as MToonMaterialExtended,
+            customization.eyeColor
+          );
+          break;
+          
+        case 'unknown':
+          // Don't modify unknown materials
+          continue;
+          
+        default:
+          continue;
+      }
+      
+      if (success) {
+        result.modifiedMaterials++;
+      } else {
+        result.errors.push(`Failed to modify ${materialType}: ${object.name}`);
+      }
+    }
+  });
+  
+  // Apply outline settings if provided
+  if (customization.outlineColor || customization.outlineWidth !== undefined) {
+    applyOutlineSettings(vrm, customization);
+  }
+  
+  result.success = result.errors.length === 0;
+  return result;
+}
+
+// ============================================================
+// OUTLINE CUSTOMIZATION
+// ============================================================
+
+function applyOutlineSettings(vrm: VRM, customization: AvatarCustomization) {
+  vrm.scene.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    
+    const material = object.material as MToonMaterialExtended;
+    
+    if (customization.outlineColor && material.outlineColorFactor) {
+      material.outlineColorFactor.set(new THREE.Color(customization.outlineColor));
+    }
+    
+    if (customization.outlineWidth !== undefined && material.outlineWidthFactor !== undefined) {
+      material.outlineWidthFactor = customization.outlineWidth;
+    }
+    
+    material.needsUpdate = true;
+  });
+}
+
+// ============================================================
+// DISPOSAL UTILITY
+// ============================================================
+
+export function disposeVRM(vrm: VRM): void {
+  vrm.scene.traverse((object) => {
+    if (object instanceof THREE.Mesh) {
+      // Dispose geometry
+      object.geometry?.dispose();
+      
+      // Dispose materials
+      const materials = Array.isArray(object.material) 
+        ? object.material 
+        : [object.material];
+      
+      for (const material of materials) {
+        // Dispose all textures in material
+        for (const key of Object.keys(material)) {
+          const value = (material as any)[key];
+          if (value instanceof THREE.Texture) {
+            value.dispose();
+          }
+        }
+        material.dispose();
+      }
+    }
+  });
+  
+  // Call VRM's built-in dispose
+  vrm.dispose();
+}
+
+// ============================================================
+// CUSTOMIZATION PREVIEW (for UI)
+// ============================================================
+
+export function previewCustomization(
+  vrm: VRM,
+  type: 'skin' | 'hair' | 'eye',
+  color: string
+): void {
+  const tempCustomization: AvatarCustomization = {
+    skinColor: type === 'skin' ? color : '#FFFFFF',
+    hairColor: type === 'hair' ? color : '#FFFFFF', 
+    eyeColor: type === 'eye' ? color : '#FFFFFF',
+  };
+  
+  // Only apply the one type being previewed
+  vrm.scene.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    
+    const materialType = identifyMaterial(object.name, object.material.name || '');
+    
+    if (materialType === type) {
+      applyColorToMToon(
+        object.material as MToonMaterialExtended,
+        color
+      );
+    }
+  });
+}
+```
+
+---
+
+### **🧪 TESTING CHECKLIST**
+
+Before deploying avatar customization:
+
+**Material Tests:**
+- [ ] Skin color changes correctly on face, body, hands
+- [ ] Hair color changes without affecting skin
+- [ ] Eye color changes without affecting eyebrows
+- [ ] Shade color auto-calculates properly
+- [ ] Colors look correct under different lighting
+
+**Performance Tests:**
+- [ ] Color change takes <16ms (60fps budget)
+- [ ] No memory leak after 10+ model switches
+- [ ] Works on low-end devices (2GB RAM)
+
+**Edge Cases:**
+- [ ] Models with shared materials
+- [ ] Models with non-standard naming
+- [ ] Very bright/dark color extremes
+- [ ] Rapid color changes (slider dragging)
+
+**Platform Tests:**
+- [ ] Works on iOS (expo-gl)
+- [ ] Works on Android (expo-gl)
+- [ ] Works in web preview
+
+---
+
+# PHASE 3.2: USER WELLBEING & SAFETY SYSTEMS
+
+**Duration:** 2 weeks (Weeks 26-27)
+**Goal:** Implement research-backed user wellbeing tracking and safety policy enforcement
+**Purpose:** Protect users through proactive monitoring, age-appropriate restrictions, and intervention systems
+
+---
+
+## 📚 RESEARCH FOUNDATION
+
+### **Key Research Findings Informing This Phase**
+
+| Finding | Source | SeeMe Implementation |
+|---------|--------|---------------------|
+| r = 0.454 correlation between social comparison and body image harm | Body Image Journal (2024), 55,440 participants | Comparison behavior tracking & intervention |
+| 31% of teens feel ashamed about body image on social media | Ballard Brief (2023) | Age-appropriate restrictions for 15-17 |
+| >3 hours/day doubles risk of depression symptoms | U.S. Surgeon General (2023) | Usage time limits & break reminders |
+| Avatar customization enhances self-affirmation | Computers in Human Behavior (2020) | Positive reinforcement for customization |
+| Anonymity increases self-esteem and prosocial behavior | Behavior Research Methods (1999) | Visual anonymity via avatars |
+
+---
+
+## WORKSTREAM 3.2.1: USER WELLBEING TRACKER
+
+**Agent:** Backend Agent
+**Duration:** Week 26
+**Dependencies:** Phase 2 (User system, Post system)
+**Output:** Real-time wellbeing monitoring with intervention triggers
+
+---
+
+### **Task 3.2.1.1: Wellbeing Metrics Data Model**
+
+**Conditions:**
+- [ ] Track all user engagement patterns
+- [ ] Calculate wellbeing scores in real-time
+- [ ] Store historical data for trend analysis
+- [ ] Support mood check-in feature
+- [ ] Enable safety flag triggers
+
+**Type Definitions:**
+
+```typescript
+// backend/src/types/wellbeing.ts
+
+/**
+ * Safety flag triggered by concerning user behavior
+ */
+export interface SafetyFlag {
+  id: string;
+  type: 
+    | 'comparison-behavior'      // Excessive profile browsing
+    | 'excessive-usage'          // Too much time on app
+    | 'isolation'                // No reciprocal connections
+    | 'negative-interactions'    // Receiving/giving negative content
+    | 'rapid-mood-decline'       // Quick drop in mood check-ins
+    | 'crisis-language'          // Detected concerning language
+    | 'screenshot-abuse';        // Excessive screenshot attempts
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  triggeredAt: Date;
+  triggeredBy: string;           // Which metric triggered this
+  threshold: number;             // What threshold was exceeded
+  actualValue: number;           // User's actual value
+  acknowledged: boolean;
+  acknowledgedAt?: Date;
+  resolvedAt?: Date;
+  resolutionMethod?: string;
+}
+
+/**
+ * Record of an intervention shown to user
+ */
+export interface InterventionRecord {
+  id: string;
+  type: 
+    | 'positive-reinforcement'   // "Great job customizing your avatar!"
+    | 'gentle-nudge'             // "Focus on connection, not comparison"
+    | 'break-suggestion'         // "Time for a break?"
+    | 'resource-offer'           // "Would you like to see some resources?"
+    | 'usage-limit'              // "You've been on for 3 hours"
+    | 'cool-down'                // Temporary feature restriction
+    | 'crisis-resource';         // Immediate crisis support
+  triggeredAt: Date;
+  triggeredBy: string;
+  messageShown: string;
+  userResponse?: 'accepted' | 'dismissed' | 'ignored' | 'clicked-resource';
+  responseAt?: Date;
+  followUpScheduled?: Date;
+  effectivenessScore?: number;   // Did behavior improve? -1 to 1
+}
+
+/**
+ * Mood check-in entry
+ */
+export interface MoodCheckIn {
+  id: string;
+  timestamp: Date;
+  score: number;                 // 1-10
+  selectedEmotions: string[];    // ['happy', 'anxious', 'calm', etc.]
+  context?: string;              // Optional user note
+  triggeredIntervention: boolean;
+}
+
+/**
+ * Comprehensive user wellbeing metrics
+ */
+export interface UserWellbeingMetrics {
+  userId: string;
+  userAge: number;
+  
+  // Temporal data
+  accountCreatedAt: Date;
+  lastActiveAt: Date;
+  currentSessionStartedAt?: Date;
+  
+  // Session metrics
+  totalSessionsCount: number;
+  totalTimeSpentMinutes: number;
+  averageSessionDurationMinutes: number;
+  longestSessionMinutes: number;
+  sessionsToday: number;
+  timeSpentTodayMinutes: number;
+  
+  // Engagement metrics
+  postsCreated: number;
+  postsCreatedToday: number;
+  likesGiven: number;
+  likesReceived: number;
+  commentsGiven: number;
+  commentsReceived: number;
+  
+  // Social graph
+  followersCount: number;
+  followingCount: number;
+  reciprocalConnections: number;
+  messagesSent: number;
+  messagesReceived: number;
+  
+  // Avatar customization (positive indicator)
+  avatarCustomizationSessions: number;
+  avatarStyleChanges: number;
+  uniqueAvatarElementsUsed: number;
+  lastAvatarChangeAt?: Date;
+  timeSpentCustomizingMinutes: number;
+  
+  // Comparison behavior (negative indicator)
+  profileViewsOfOthers: number;
+  profileViewsOfOthersToday: number;
+  profileViewsPerSession: number;
+  timeSpentOnOtherProfilesSeconds: number;
+  feedScrollDepthAverage: number;
+  screenshotAttempts: number;
+  screenshotAttemptsToday: number;
+  
+  // Mood tracking
+  moodCheckIns: MoodCheckIn[];
+  lastMoodScore?: number;
+  moodTrend: 'improving' | 'stable' | 'declining' | 'unknown';
+  
+  // Interaction quality
+  positiveInteractionsCount: number;
+  negativeInteractionsCount: number;
+  positiveInteractionsRatio: number;
+  
+  // Computed scores (0-100)
+  wellbeingScore: number;
+  engagementHealthScore: number;
+  comparisonRiskScore: number;
+  socialConnectionScore: number;
+  
+  // Flags & interventions
+  activeFlags: SafetyFlag[];
+  flagHistory: SafetyFlag[];
+  interventionHistory: InterventionRecord[];
+  lastInterventionAt?: Date;
+  interventionCooldownUntil?: Date;
+}
+
+/**
+ * Wellbeing recommendation to display
+ */
+export interface WellbeingRecommendation {
+  id: string;
+  type: 'positive-reinforcement' | 'gentle-nudge' | 'concern' | 'intervention' | 'crisis';
+  priority: number;              // 1-10, higher = more urgent
+  title: string;
+  message: string;
+  actions?: {
+    label: string;
+    actionType: 'dismiss' | 'navigate' | 'external-link' | 'set-reminder' | 'contact-support';
+    actionData?: string;
+    isPrimary: boolean;
+  }[];
+  showAfterDismissHours?: number;
+  requiresAcknowledgment: boolean;
+  blocksAppUsage: boolean;
+  researchRationale?: string;
+}
+
+/**
+ * Activity types for recording
+ */
+export type UserActivityType = 
+  | 'session_start'
+  | 'session_end'
+  | 'post_created'
+  | 'like_given'
+  | 'like_received'
+  | 'comment_given'
+  | 'comment_received'
+  | 'follow'
+  | 'follower_gained'
+  | 'profile_view'
+  | 'avatar_customize'
+  | 'avatar_style_change'
+  | 'screenshot_attempt'
+  | 'feed_scroll'
+  | 'mood_checkin'
+  | 'negative_interaction'
+  | 'message_sent'
+  | 'message_received';
+
+export interface UserActivity {
+  type: UserActivityType;
+  data?: Record<string, unknown>;
+}
+```
+
+---
+
+### **Task 3.2.1.2: Research-Backed Thresholds**
+
+**Conditions:**
+- [ ] Thresholds based on academic research
+- [ ] Configurable per-age-group
+- [ ] Easily adjustable for A/B testing
+
+**Implementation:**
+
+```typescript
+// backend/src/config/wellbeingThresholds.ts
+
+/**
+ * Research-backed thresholds for concerning behavior
+ * 
+ * Sources:
+ * - U.S. Surgeon General Advisory (2023): >3 hours/day doubles depression risk
+ * - Body Image Journal (2024): r=0.454 correlation comparison → body image harm
+ * - Computers in Human Behavior (2020): Avatar customization → self-affirmation
+ */
+export const WELLBEING_THRESHOLDS = {
+  // === COMPARISON BEHAVIOR ===
+  // Research: Appearance comparison is primary harm mechanism
+  PROFILE_VIEWS_PER_DAY_WARNING: 15,
+  PROFILE_VIEWS_PER_DAY_CRITICAL: 30,
+  PROFILE_VIEWS_PER_SESSION_WARNING: 10,
+  TIME_ON_OTHER_PROFILES_WARNING_SECONDS: 300,   // 5 min per session
+  TIME_ON_OTHER_PROFILES_CRITICAL_SECONDS: 600,  // 10 min per session
+  
+  // === USAGE PATTERNS ===
+  // Research: >3 hours/day = double risk of depression symptoms
+  SESSION_DURATION_WARNING_MINUTES: 90,
+  SESSION_DURATION_CRITICAL_MINUTES: 180,        // 3 hours
+  DAILY_TIME_WARNING_MINUTES: 120,
+  DAILY_TIME_CRITICAL_MINUTES: 180,
+  SESSIONS_PER_DAY_WARNING: 10,
+  
+  // === POSTING BEHAVIOR ===
+  POSTS_PER_DAY_WARNING: 10,
+  POSTS_PER_DAY_CRITICAL: 20,
+  
+  // === SOCIAL HEALTH ===
+  RECIPROCAL_RATIO_HEALTHY: 0.3,                 // 30%+ mutual follows
+  POSITIVE_INTERACTION_RATIO_WARNING: 0.5,
+  
+  // === AVATAR CUSTOMIZATION (POSITIVE) ===
+  // Research: Customization = self-affirmation
+  AVATAR_SESSIONS_POSITIVE_THRESHOLD: 3,
+  
+  // === MOOD ===
+  MOOD_SCORE_WARNING: 4,                         // Out of 10
+  MOOD_SCORE_CRITICAL: 2,
+  MOOD_DECLINE_THRESHOLD: 3,                     // Points dropped over 3 check-ins
+  
+  // === SCREENSHOT BEHAVIOR ===
+  SCREENSHOTS_PER_DAY_WARNING: 5,
+  SCREENSHOTS_PER_DAY_CRITICAL: 15,
+  
+  // === INTERVENTION TIMING ===
+  MIN_HOURS_BETWEEN_INTERVENTIONS: 4,
+  MIN_HOURS_BETWEEN_SAME_INTERVENTION: 48,
+} as const;
+
+/**
+ * Age-specific threshold adjustments
+ * Stricter limits for younger users (15-17)
+ */
+export const AGE_THRESHOLD_MULTIPLIERS = {
+  '15-17': {
+    DAILY_TIME_CRITICAL_MINUTES: 0.67,           // 2 hours instead of 3
+    SESSION_DURATION_CRITICAL_MINUTES: 0.67,
+    PROFILE_VIEWS_PER_DAY_WARNING: 0.67,
+    MOOD_SCORE_WARNING: 1.25,                    // More sensitive (5 instead of 4)
+  },
+  '18+': {
+    // Default thresholds apply
+  }
+} as const;
+```
+
+---
+
+### **Task 3.2.1.3: Wellbeing Tracker Service**
+
+**Conditions:**
+- [ ] Initialize tracking for new users
+- [ ] Record all user activities
+- [ ] Calculate scores in real-time
+- [ ] Trigger safety flags automatically
+- [ ] Generate appropriate recommendations
+- [ ] Emit events for monitoring
+
+**Implementation:**
+
+```typescript
+// backend/src/services/WellbeingTrackerService.ts
+
+import { EventEmitter } from 'events';
+import crypto from 'crypto';
+import { 
+  UserWellbeingMetrics, 
+  SafetyFlag, 
+  InterventionRecord,
+  WellbeingRecommendation,
+  UserActivity,
+  MoodCheckIn
+} from '../types/wellbeing';
+import { WELLBEING_THRESHOLDS, AGE_THRESHOLD_MULTIPLIERS } from '../config/wellbeingThresholds';
+
+export class WellbeingTrackerService extends EventEmitter {
+  private metrics: Map<string, UserWellbeingMetrics> = new Map();
+  
+  /**
+   * Initialize tracking for a new user
+   */
+  initializeUser(userId: string, userAge: number): UserWellbeingMetrics {
+    const now = new Date();
+    
+    const metrics: UserWellbeingMetrics = {
+      userId,
+      userAge,
+      accountCreatedAt: now,
+      lastActiveAt: now,
+      
+      // Session metrics
+      totalSessionsCount: 0,
+      totalTimeSpentMinutes: 0,
+      averageSessionDurationMinutes: 0,
+      longestSessionMinutes: 0,
+      sessionsToday: 0,
+      timeSpentTodayMinutes: 0,
+      
+      // Engagement
+      postsCreated: 0,
+      postsCreatedToday: 0,
+      likesGiven: 0,
+      likesReceived: 0,
+      commentsGiven: 0,
+      commentsReceived: 0,
+      
+      // Social
+      followersCount: 0,
+      followingCount: 0,
+      reciprocalConnections: 0,
+      messagesSent: 0,
+      messagesReceived: 0,
+      
+      // Avatar (positive)
+      avatarCustomizationSessions: 0,
+      avatarStyleChanges: 0,
+      uniqueAvatarElementsUsed: 0,
+      timeSpentCustomizingMinutes: 0,
+      
+      // Comparison (negative)
+      profileViewsOfOthers: 0,
+      profileViewsOfOthersToday: 0,
+      profileViewsPerSession: 0,
+      timeSpentOnOtherProfilesSeconds: 0,
+      feedScrollDepthAverage: 0,
+      screenshotAttempts: 0,
+      screenshotAttemptsToday: 0,
+      
+      // Mood
+      moodCheckIns: [],
+      moodTrend: 'unknown',
+      
+      // Interactions
+      positiveInteractionsCount: 0,
+      negativeInteractionsCount: 0,
+      positiveInteractionsRatio: 1.0,
+      
+      // Scores
+      wellbeingScore: 50,
+      engagementHealthScore: 50,
+      comparisonRiskScore: 0,
+      socialConnectionScore: 50,
+      
+      // Flags
+      activeFlags: [],
+      flagHistory: [],
+      interventionHistory: [],
+    };
+    
+    this.metrics.set(userId, metrics);
+    this.emit('user-initialized', { userId, metrics });
+    
+    return metrics;
+  }
+
+  /**
+   * Record user activity and update metrics
+   */
+  recordActivity(
+    userId: string, 
+    activity: UserActivity
+  ): { 
+    metrics: UserWellbeingMetrics; 
+    triggeredFlags: SafetyFlag[]; 
+    recommendation?: WellbeingRecommendation 
+  } {
+    let metrics = this.metrics.get(userId);
+    if (!metrics) {
+      throw new Error(`User ${userId} not initialized`);
+    }
+    
+    const previousMetrics = { ...metrics };
+    metrics.lastActiveAt = new Date();
+    
+    // Process the activity
+    this.processActivity(metrics, activity);
+    
+    // Recalculate scores
+    this.recalculateScores(metrics);
+    
+    // Check for safety flags
+    const triggeredFlags = this.evaluateSafetyFlags(metrics, previousMetrics);
+    
+    // Generate recommendation if needed
+    const recommendation = this.generateRecommendation(metrics, triggeredFlags);
+    
+    this.metrics.set(userId, metrics);
+    
+    // Emit events
+    if (triggeredFlags.length > 0) {
+      triggeredFlags.forEach(flag => {
+        this.emit('safety-flag-triggered', { userId, flag, metrics });
+      });
+    }
+    
+    if (recommendation) {
+      this.emit('recommendation-generated', { userId, recommendation, metrics });
+    }
+    
+    return { metrics, triggeredFlags, recommendation };
+  }
+
+  /**
+   * Process activity and update metrics
+   */
+  private processActivity(metrics: UserWellbeingMetrics, activity: UserActivity): void {
+    switch (activity.type) {
+      case 'session_start':
+        metrics.totalSessionsCount++;
+        metrics.sessionsToday++;
+        metrics.currentSessionStartedAt = new Date();
+        metrics.profileViewsPerSession = 0;
+        break;
+        
+      case 'session_end':
+        if (metrics.currentSessionStartedAt) {
+          const duration = (Date.now() - metrics.currentSessionStartedAt.getTime()) / 60000;
+          metrics.totalTimeSpentMinutes += duration;
+          metrics.timeSpentTodayMinutes += duration;
+          metrics.averageSessionDurationMinutes = 
+            metrics.totalTimeSpentMinutes / metrics.totalSessionsCount;
+          if (duration > metrics.longestSessionMinutes) {
+            metrics.longestSessionMinutes = duration;
+          }
+          metrics.currentSessionStartedAt = undefined;
+        }
+        break;
+        
+      case 'post_created':
+        metrics.postsCreated++;
+        metrics.postsCreatedToday++;
+        break;
+        
+      case 'like_given':
+        metrics.likesGiven++;
+        break;
+        
+      case 'like_received':
+        metrics.likesReceived++;
+        metrics.positiveInteractionsCount++;
+        break;
+        
+      case 'comment_given':
+        metrics.commentsGiven++;
+        break;
+        
+      case 'comment_received':
+        metrics.commentsReceived++;
+        metrics.positiveInteractionsCount++;
+        break;
+        
+      case 'follow':
+        metrics.followingCount++;
+        break;
+        
+      case 'follower_gained':
+        metrics.followersCount++;
+        if (activity.data?.isReciprocal) {
+          metrics.reciprocalConnections++;
+        }
+        break;
+        
+      case 'profile_view':
+        metrics.profileViewsOfOthers++;
+        metrics.profileViewsOfOthersToday++;
+        metrics.profileViewsPerSession++;
+        if (activity.data?.durationSeconds) {
+          metrics.timeSpentOnOtherProfilesSeconds += activity.data.durationSeconds as number;
+        }
+        break;
+        
+      case 'avatar_customize':
+        metrics.avatarCustomizationSessions++;
+        metrics.lastAvatarChangeAt = new Date();
+        if (activity.data?.durationMinutes) {
+          metrics.timeSpentCustomizingMinutes += activity.data.durationMinutes as number;
+        }
+        if (activity.data?.elementsChanged) {
+          metrics.uniqueAvatarElementsUsed += activity.data.elementsChanged as number;
+        }
+        break;
+        
+      case 'screenshot_attempt':
+        metrics.screenshotAttempts++;
+        metrics.screenshotAttemptsToday++;
+        break;
+        
+      case 'mood_checkin':
+        const moodCheckIn: MoodCheckIn = {
+          id: crypto.randomUUID(),
+          timestamp: new Date(),
+          score: activity.data?.score as number || 5,
+          selectedEmotions: activity.data?.emotions as string[] || [],
+          context: activity.data?.context as string,
+          triggeredIntervention: false
+        };
+        metrics.moodCheckIns.push(moodCheckIn);
+        metrics.lastMoodScore = moodCheckIn.score;
+        this.calculateMoodTrend(metrics);
+        break;
+        
+      case 'negative_interaction':
+        metrics.negativeInteractionsCount++;
+        break;
+        
+      case 'message_sent':
+        metrics.messagesSent++;
+        break;
+        
+      case 'message_received':
+        metrics.messagesReceived++;
+        break;
+    }
+    
+    // Update positive interaction ratio
+    const totalInteractions = metrics.positiveInteractionsCount + metrics.negativeInteractionsCount;
+    if (totalInteractions > 0) {
+      metrics.positiveInteractionsRatio = metrics.positiveInteractionsCount / totalInteractions;
+    }
+  }
+
+  /**
+   * Calculate mood trend from recent check-ins
+   */
+  private calculateMoodTrend(metrics: UserWellbeingMetrics): void {
+    const recentCheckIns = metrics.moodCheckIns.slice(-5);
+    
+    if (recentCheckIns.length < 3) {
+      metrics.moodTrend = 'unknown';
+      return;
+    }
+    
+    const scores = recentCheckIns.map(c => c.score);
+    const firstHalf = scores.slice(0, Math.floor(scores.length / 2));
+    const secondHalf = scores.slice(Math.floor(scores.length / 2));
+    
+    const firstAvg = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
+    const secondAvg = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
+    
+    const diff = secondAvg - firstAvg;
+    
+    if (diff > 1) metrics.moodTrend = 'improving';
+    else if (diff < -1) metrics.moodTrend = 'declining';
+    else metrics.moodTrend = 'stable';
+  }
+
+  /**
+   * Recalculate all wellbeing scores
+   */
+  private recalculateScores(metrics: UserWellbeingMetrics): void {
+    const T = WELLBEING_THRESHOLDS;
+    
+    // === ENGAGEMENT HEALTH SCORE (0-100) ===
+    let engagementScore = 50;
+    
+    const daysSinceSignup = Math.max(1, 
+      Math.ceil((Date.now() - metrics.accountCreatedAt.getTime()) / (1000 * 60 * 60 * 24))
+    );
+    const postsPerDay = metrics.postsCreated / daysSinceSignup;
+    
+    // Moderate posting is healthy
+    if (postsPerDay >= 0.5 && postsPerDay <= 3) engagementScore += 15;
+    else if (postsPerDay > T.POSTS_PER_DAY_WARNING) engagementScore -= 15;
+    else if (postsPerDay > T.POSTS_PER_DAY_CRITICAL) engagementScore -= 25;
+    
+    // Giving engagement is prosocial
+    if (metrics.likesGiven > 0 && metrics.likesGiven >= metrics.likesReceived * 0.5) {
+      engagementScore += 10;
+    }
+    
+    // Commenting shows deeper engagement
+    if (metrics.commentsGiven > 5) engagementScore += 10;
+    
+    // Excessive usage is concerning
+    if (metrics.timeSpentTodayMinutes > T.DAILY_TIME_WARNING_MINUTES) engagementScore -= 15;
+    if (metrics.timeSpentTodayMinutes > T.DAILY_TIME_CRITICAL_MINUTES) engagementScore -= 15;
+    
+    metrics.engagementHealthScore = Math.max(0, Math.min(100, engagementScore));
+
+    // === COMPARISON RISK SCORE (0-100, higher = worse) ===
+    let comparisonScore = 0;
+    
+    if (metrics.profileViewsOfOthersToday > T.PROFILE_VIEWS_PER_DAY_WARNING) comparisonScore += 25;
+    if (metrics.profileViewsOfOthersToday > T.PROFILE_VIEWS_PER_DAY_CRITICAL) comparisonScore += 25;
+    if (metrics.profileViewsPerSession > T.PROFILE_VIEWS_PER_SESSION_WARNING) comparisonScore += 20;
+    if (metrics.timeSpentOnOtherProfilesSeconds > T.TIME_ON_OTHER_PROFILES_WARNING_SECONDS) {
+      comparisonScore += 15;
+    }
+    if (metrics.screenshotAttemptsToday > T.SCREENSHOTS_PER_DAY_WARNING) comparisonScore += 15;
+    
+    metrics.comparisonRiskScore = Math.min(100, comparisonScore);
+
+    // === SOCIAL CONNECTION SCORE (0-100) ===
+    let socialScore = 50;
+    
+    if (metrics.followingCount > 0) {
+      const reciprocalRatio = metrics.reciprocalConnections / metrics.followingCount;
+      if (reciprocalRatio >= T.RECIPROCAL_RATIO_HEALTHY) socialScore += 20;
+      else if (reciprocalRatio < 0.1) socialScore -= 15;
+    }
+    
+    if (metrics.messagesSent > 0 && metrics.messagesReceived > 0) socialScore += 15;
+    
+    if (metrics.positiveInteractionsRatio >= 0.8) socialScore += 15;
+    else if (metrics.positiveInteractionsRatio < T.POSITIVE_INTERACTION_RATIO_WARNING) {
+      socialScore -= 20;
+    }
+    
+    metrics.socialConnectionScore = Math.max(0, Math.min(100, socialScore));
+
+    // === OVERALL WELLBEING SCORE (0-100) ===
+    let wellbeing = 50;
+    
+    // Avatar customization is positive (research: self-affirmation)
+    if (metrics.avatarCustomizationSessions >= T.AVATAR_SESSIONS_POSITIVE_THRESHOLD) {
+      wellbeing += 15;
+    }
+    
+    // Factor in other scores
+    wellbeing += (metrics.engagementHealthScore - 50) * 0.25;
+    wellbeing += (metrics.socialConnectionScore - 50) * 0.25;
+    wellbeing -= metrics.comparisonRiskScore * 0.3;
+    
+    // Mood factor
+    if (metrics.lastMoodScore !== undefined) {
+      if (metrics.lastMoodScore >= 7) wellbeing += 10;
+      else if (metrics.lastMoodScore <= T.MOOD_SCORE_WARNING) wellbeing -= 15;
+      else if (metrics.lastMoodScore <= T.MOOD_SCORE_CRITICAL) wellbeing -= 25;
+    }
+    
+    if (metrics.moodTrend === 'improving') wellbeing += 5;
+    else if (metrics.moodTrend === 'declining') wellbeing -= 15;
+    
+    metrics.wellbeingScore = Math.max(0, Math.min(100, wellbeing));
+  }
+
+  /**
+   * Evaluate and trigger safety flags
+   */
+  private evaluateSafetyFlags(
+    metrics: UserWellbeingMetrics, 
+    _previousMetrics: UserWellbeingMetrics
+  ): SafetyFlag[] {
+    const newFlags: SafetyFlag[] = [];
+    const now = new Date();
+    const T = WELLBEING_THRESHOLDS;
+
+    const hasActiveFlag = (type: SafetyFlag['type']) => 
+      metrics.activeFlags.some(f => f.type === type && !f.resolvedAt);
+
+    // Comparison behavior
+    if (metrics.comparisonRiskScore > 50 && !hasActiveFlag('comparison-behavior')) {
+      const severity = metrics.comparisonRiskScore > 80 ? 'high' : 'medium';
+      const flag: SafetyFlag = {
+        id: crypto.randomUUID(),
+        type: 'comparison-behavior',
+        severity,
+        triggeredAt: now,
+        triggeredBy: 'comparisonRiskScore',
+        threshold: 50,
+        actualValue: metrics.comparisonRiskScore,
+        acknowledged: false
+      };
+      newFlags.push(flag);
+      metrics.activeFlags.push(flag);
+    }
+
+    // Excessive usage
+    if (metrics.timeSpentTodayMinutes > T.DAILY_TIME_CRITICAL_MINUTES && 
+        !hasActiveFlag('excessive-usage')) {
+      const flag: SafetyFlag = {
+        id: crypto.randomUUID(),
+        type: 'excessive-usage',
+        severity: 'high',
+        triggeredAt: now,
+        triggeredBy: 'timeSpentTodayMinutes',
+        threshold: T.DAILY_TIME_CRITICAL_MINUTES,
+        actualValue: metrics.timeSpentTodayMinutes,
+        acknowledged: false
+      };
+      newFlags.push(flag);
+      metrics.activeFlags.push(flag);
+    }
+
+    // Isolation
+    if (metrics.followingCount > 10 && 
+        metrics.reciprocalConnections === 0 && 
+        !hasActiveFlag('isolation')) {
+      const flag: SafetyFlag = {
+        id: crypto.randomUUID(),
+        type: 'isolation',
+        severity: 'medium',
+        triggeredAt: now,
+        triggeredBy: 'reciprocalConnections',
+        threshold: 1,
+        actualValue: 0,
+        acknowledged: false
+      };
+      newFlags.push(flag);
+      metrics.activeFlags.push(flag);
+    }
+
+    // Mood decline
+    if (metrics.moodTrend === 'declining' && 
+        metrics.lastMoodScore !== undefined &&
+        metrics.lastMoodScore <= T.MOOD_SCORE_WARNING &&
+        !hasActiveFlag('rapid-mood-decline')) {
+      const severity = metrics.lastMoodScore <= T.MOOD_SCORE_CRITICAL ? 'critical' : 'high';
+      const flag: SafetyFlag = {
+        id: crypto.randomUUID(),
+        type: 'rapid-mood-decline',
+        severity,
+        triggeredAt: now,
+        triggeredBy: 'moodTrend + lastMoodScore',
+        threshold: T.MOOD_SCORE_WARNING,
+        actualValue: metrics.lastMoodScore,
+        acknowledged: false
+      };
+      newFlags.push(flag);
+      metrics.activeFlags.push(flag);
+    }
+
+    // Screenshot abuse
+    if (metrics.screenshotAttemptsToday > T.SCREENSHOTS_PER_DAY_CRITICAL &&
+        !hasActiveFlag('screenshot-abuse')) {
+      const flag: SafetyFlag = {
+        id: crypto.randomUUID(),
+        type: 'screenshot-abuse',
+        severity: 'high',
+        triggeredAt: now,
+        triggeredBy: 'screenshotAttemptsToday',
+        threshold: T.SCREENSHOTS_PER_DAY_CRITICAL,
+        actualValue: metrics.screenshotAttemptsToday,
+        acknowledged: false
+      };
+      newFlags.push(flag);
+      metrics.activeFlags.push(flag);
+    }
+
+    return newFlags;
+  }
+
+  /**
+   * Generate appropriate recommendation
+   */
+  private generateRecommendation(
+    metrics: UserWellbeingMetrics, 
+    triggeredFlags: SafetyFlag[]
+  ): WellbeingRecommendation | undefined {
+    const T = WELLBEING_THRESHOLDS;
+    
+    // Check cooldown
+    if (metrics.interventionCooldownUntil && new Date() < metrics.interventionCooldownUntil) {
+      return undefined;
+    }
+
+    // CRISIS (highest priority)
+    const criticalFlag = triggeredFlags.find(f => f.severity === 'critical');
+    if (criticalFlag || metrics.wellbeingScore < 20) {
+      return {
+        id: crypto.randomUUID(),
+        type: 'crisis',
+        priority: 10,
+        title: "We're Here For You",
+        message: "It seems like you might be going through a difficult time. Support is available.",
+        actions: [
+          { label: 'Talk to Someone', actionType: 'external-link', actionData: 'crisis-resources', isPrimary: true },
+          { label: "I'm Okay", actionType: 'dismiss', isPrimary: false }
+        ],
+        requiresAcknowledgment: true,
+        blocksAppUsage: false,
+        researchRationale: 'Early intervention is crucial for mental health support.'
+      };
+    }
+
+    // COMPARISON BEHAVIOR
+    const comparisonFlag = triggeredFlags.find(f => f.type === 'comparison-behavior');
+    if (comparisonFlag) {
+      return {
+        id: crypto.randomUUID(),
+        type: comparisonFlag.severity === 'high' ? 'concern' : 'gentle-nudge',
+        priority: comparisonFlag.severity === 'high' ? 7 : 5,
+        title: 'Focus on Connection',
+        message: "You've been browsing lots of profiles. SeeMe is for connection, not comparison.",
+        actions: [
+          { label: "See Friends' Posts", actionType: 'navigate', actionData: 'feed', isPrimary: true },
+          { label: 'Got It', actionType: 'dismiss', isPrimary: false }
+        ],
+        showAfterDismissHours: 48,
+        requiresAcknowledgment: false,
+        blocksAppUsage: false,
+        researchRationale: 'r=0.454 correlation between comparison and body image harm.'
+      };
+    }
+
+    // EXCESSIVE USAGE
+    const usageFlag = triggeredFlags.find(f => f.type === 'excessive-usage');
+    if (usageFlag) {
+      const hours = Math.round(metrics.timeSpentTodayMinutes / 60);
+      return {
+        id: crypto.randomUUID(),
+        type: 'concern',
+        priority: 6,
+        title: 'Time for a Break?',
+        message: `You've been on SeeMe for ${hours}+ hours. Taking breaks is important for wellbeing.`,
+        actions: [
+          { label: 'Set Break Reminder', actionType: 'set-reminder', actionData: '30', isPrimary: true },
+          { label: 'Continue', actionType: 'dismiss', isPrimary: false }
+        ],
+        showAfterDismissHours: 24,
+        requiresAcknowledgment: false,
+        blocksAppUsage: false,
+        researchRationale: '>3 hours/day doubles risk of depression symptoms.'
+      };
+    }
+
+    // POSITIVE REINFORCEMENT (avatar customization)
+    if (metrics.avatarCustomizationSessions >= T.AVATAR_SESSIONS_POSITIVE_THRESHOLD &&
+        metrics.avatarCustomizationSessions <= T.AVATAR_SESSIONS_POSITIVE_THRESHOLD + 1) {
+      return {
+        id: crypto.randomUUID(),
+        type: 'positive-reinforcement',
+        priority: 2,
+        title: 'Great Self-Expression! 🎨',
+        message: "Customizing your avatar boosts wellbeing through self-affirmation!",
+        actions: [
+          { label: 'Awesome!', actionType: 'dismiss', isPrimary: true }
+        ],
+        requiresAcknowledgment: false,
+        blocksAppUsage: false,
+        researchRationale: 'Avatar customization → self-affirmation (Computers in Human Behavior, 2020)'
+      };
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Get metrics for a user
+   */
+  getMetrics(userId: string): UserWellbeingMetrics | undefined {
+    return this.metrics.get(userId);
+  }
+
+  /**
+   * Reset daily counters (call at midnight)
+   */
+  resetDailyCounters(userId: string): void {
+    const metrics = this.metrics.get(userId);
+    if (!metrics) return;
+
+    metrics.sessionsToday = 0;
+    metrics.timeSpentTodayMinutes = 0;
+    metrics.postsCreatedToday = 0;
+    metrics.profileViewsOfOthersToday = 0;
+    metrics.screenshotAttemptsToday = 0;
+  }
+
+  /**
+   * Get users needing attention (admin dashboard)
+   */
+  getUsersNeedingAttention(): { userId: string; reason: string; wellbeingScore: number }[] {
+    const results: { userId: string; reason: string; wellbeingScore: number }[] = [];
+    
+    this.metrics.forEach((metrics, userId) => {
+      if (metrics.wellbeingScore < 30) {
+        results.push({ userId, reason: 'Low wellbeing score', wellbeingScore: metrics.wellbeingScore });
+      } else if (metrics.activeFlags.some(f => f.severity === 'critical' || f.severity === 'high')) {
+        results.push({ userId, reason: 'High severity flag', wellbeingScore: metrics.wellbeingScore });
+      } else if (metrics.moodTrend === 'declining' && metrics.lastMoodScore && metrics.lastMoodScore <= 3) {
+        results.push({ userId, reason: 'Declining mood', wellbeingScore: metrics.wellbeingScore });
+      }
+    });
+    
+    return results.sort((a, b) => a.wellbeingScore - b.wellbeingScore);
+  }
+}
+
+// Singleton export
+export const wellbeingTracker = new WellbeingTrackerService();
+```
+
+**Quality Checks:**
+- [ ] All activity types properly update metrics
+- [ ] Scores calculate correctly (0-100 range)
+- [ ] Safety flags trigger at correct thresholds
+- [ ] Recommendations match flag severity
+- [ ] Events emit for monitoring
+- [ ] Daily reset works correctly
+
+---
+
+## WORKSTREAM 3.2.2: SAFETY POLICY SYSTEM
+
+**Agent:** Backend Agent
+**Duration:** Week 26-27
+**Dependencies:** Task 3.2.1 (Wellbeing Tracker)
+**Output:** Research-backed safety policies with enforcement
+
+---
+
+### **Task 3.2.2.1: Safety Policy Definitions**
+
+**Conditions:**
+- [ ] Policies based on research findings
+- [ ] ML-assisted enforcement where applicable
+- [ ] Escalation paths for violations
+- [ ] Appeal process for users
+
+**Implementation:**
+
+```typescript
+// backend/src/types/safety.ts
+
+export interface SafetyPolicy {
+  id: string;
+  name: string;
+  description: string;
+  rationale: string;                   // Why this policy exists (research basis)
+  
+  // Who it applies to
+  appliesTo: {
+    allUsers: boolean;
+    ageRange?: { min: number; max?: number };
+    userFlags?: string[];
+  };
+  
+  // Enforcement configuration
+  enforcement: {
+    type: 'automated' | 'ml-assisted' | 'human-review' | 'hybrid';
+    mlModelId?: string;
+    confidenceThreshold?: number;      // 0-1 for ML
+    checkFrequency: 'real-time' | 'per-session' | 'daily' | 'on-upload';
+  };
+  
+  // Actions on violation
+  violationActions: {
+    severity: 'minor' | 'moderate' | 'severe' | 'critical';
+    action: 'log' | 'warn' | 'filter' | 'remove' | 'restrict' | 'suspend' | 'ban';
+    notifyUser: boolean;
+    notifyParent: boolean;             // For users 15-17
+    appealable: boolean;
+    cooldownHours?: number;
+    escalateTo?: string;
+  }[];
+  
+  // Metrics
+  isActive: boolean;
+  createdAt: Date;
+  lastUpdatedAt: Date;
+  enforcements: number;
+  appeals: number;
+  overturned: number;
+}
+
+export interface AgeContentFlag {
+  id: string;
+  contentType: 
+    | 'mature-themes'
+    | 'sensitive-topics'
+    | 'external-links'
+    | 'marketplace-purchases'
+    | 'direct-messages'
+    | 'location-sharing'
+    | 'public-posting'
+    | 'avatar-revealing';
+  
+  ageRestriction: {
+    minimumAge: number;
+    requiresParentalConsent?: boolean;
+    parentalConsentAge?: number;
+  };
+  
+  action: 'block' | 'warn' | 'filter' | 'require-consent' | 'log-only';
+  warningMessage?: string;
+  parentNotification: boolean;
+}
+```
+
+---
+
+### **Task 3.2.2.2: Safety Policy Service**
+
+**Conditions:**
+- [ ] Initialize all core policies
+- [ ] Check content against policies
+- [ ] Enforce age-appropriate restrictions
+- [ ] Track enforcement metrics
+- [ ] Generate transparency reports
+
+**Implementation:**
+
+```typescript
+// backend/src/services/SafetyPolicyService.ts
+
+import { SafetyPolicy, AgeContentFlag } from '../types/safety';
+
+export class SafetyPolicyService {
+  private policies: Map<string, SafetyPolicy> = new Map();
+  private ageContentFlags: Map<string, AgeContentFlag> = new Map();
+
+  constructor() {
+    this.initializePolicies();
+    this.initializeAgeContentFlags();
+  }
+
+  /**
+   * Initialize core safety policies
+   */
+  private initializePolicies(): void {
+    const policies: SafetyPolicy[] = [
+      // NO REAL FACES
+      {
+        id: 'no-real-faces',
+        name: 'No Real Faces Policy',
+        description: 'Real human faces cannot be posted. All content must use avatars.',
+        rationale: 'Research: r=0.454 correlation between appearance comparison and body image harm.',
+        appliesTo: { allUsers: true },
+        enforcement: {
+          type: 'ml-assisted',
+          mlModelId: 'face-detection-v2',
+          confidenceThreshold: 0.95,
+          checkFrequency: 'on-upload'
+        },
+        violationActions: [
+          { severity: 'minor', action: 'filter', notifyUser: true, notifyParent: false, appealable: true },
+          { severity: 'moderate', action: 'remove', notifyUser: true, notifyParent: true, appealable: true },
+          { severity: 'severe', action: 'restrict', notifyUser: true, notifyParent: true, appealable: true, cooldownHours: 24 }
+        ],
+        isActive: true,
+        createdAt: new Date(),
+        lastUpdatedAt: new Date(),
+        enforcements: 0,
+        appeals: 0,
+        overturned: 0
+      },
+
+      // AGE VERIFICATION
+      {
+        id: 'age-verification-15plus',
+        name: 'Age Requirement (15+)',
+        description: 'Users must be at least 15 years old.',
+        rationale: 'U.S. Surgeon General: Youth most vulnerable to social media harm.',
+        appliesTo: { allUsers: true },
+        enforcement: {
+          type: 'hybrid',
+          checkFrequency: 'real-time'
+        },
+        violationActions: [
+          { severity: 'critical', action: 'suspend', notifyUser: true, notifyParent: true, appealable: false }
+        ],
+        isActive: true,
+        createdAt: new Date(),
+        lastUpdatedAt: new Date(),
+        enforcements: 0,
+        appeals: 0,
+        overturned: 0
+      },
+
+      // MINOR USAGE LIMITS
+      {
+        id: 'minor-usage-limits',
+        name: 'Usage Limits for 15-17',
+        description: 'Daily usage limits and break reminders for minor users.',
+        rationale: 'Research: >3 hours/day doubles depression risk. Stricter for minors.',
+        appliesTo: { 
+          allUsers: false, 
+          ageRange: { min: 15, max: 17 }
+        },
+        enforcement: {
+          type: 'automated',
+          checkFrequency: 'real-time'
+        },
+        violationActions: [
+          { severity: 'minor', action: 'warn', notifyUser: true, notifyParent: false, appealable: false },
+          { severity: 'moderate', action: 'restrict', notifyUser: true, notifyParent: true, appealable: false, cooldownHours: 12 }
+        ],
+        isActive: true,
+        createdAt: new Date(),
+        lastUpdatedAt: new Date(),
+        enforcements: 0,
+        appeals: 0,
+        overturned: 0
+      },
+
+      // CRISIS LANGUAGE DETECTION
+      {
+        id: 'crisis-language-detection',
+        name: 'Crisis Language Detection',
+        description: 'Detect and respond to crisis or self-harm language.',
+        rationale: 'Early intervention is crucial for mental health support.',
+        appliesTo: { allUsers: true },
+        enforcement: {
+          type: 'ml-assisted',
+          mlModelId: 'crisis-language-detector',
+          confidenceThreshold: 0.7,
+          checkFrequency: 'real-time'
+        },
+        violationActions: [
+          { severity: 'critical', action: 'log', notifyUser: false, notifyParent: false, appealable: false, escalateTo: 'crisis-response-team' }
+        ],
+        isActive: true,
+        createdAt: new Date(),
+        lastUpdatedAt: new Date(),
+        enforcements: 0,
+        appeals: 0,
+        overturned: 0
+      },
+
+      // PHOTO DELETION
+      {
+        id: 'photo-deletion',
+        name: 'Original Photo Deletion',
+        description: 'Original photos deleted after avatar processing.',
+        rationale: 'Privacy-first approach. Users control their data.',
+        appliesTo: { allUsers: true },
+        enforcement: {
+          type: 'automated',
+          checkFrequency: 'real-time'
+        },
+        violationActions: [],
+        isActive: true,
+        createdAt: new Date(),
+        lastUpdatedAt: new Date(),
+        enforcements: 0,
+        appeals: 0,
+        overturned: 0
+      }
+    ];
+
+    policies.forEach(policy => this.policies.set(policy.id, policy));
+  }
+
+  /**
+   * Initialize age-appropriate content flags
+   */
+  private initializeAgeContentFlags(): void {
+    const flags: AgeContentFlag[] = [
+      {
+        id: 'mature-themes',
+        contentType: 'mature-themes',
+        ageRestriction: { minimumAge: 18, requiresParentalConsent: true, parentalConsentAge: 17 },
+        action: 'block',
+        warningMessage: 'This content is not available for users under 18.',
+        parentNotification: true
+      },
+      {
+        id: 'sensitive-topics',
+        contentType: 'sensitive-topics',
+        ageRestriction: { minimumAge: 15 },
+        action: 'warn',
+        warningMessage: 'This content discusses sensitive topics. Continue?',
+        parentNotification: false
+      },
+      {
+        id: 'external-links',
+        contentType: 'external-links',
+        ageRestriction: { minimumAge: 15, requiresParentalConsent: true, parentalConsentAge: 16 },
+        action: 'warn',
+        warningMessage: 'This link will take you outside SeeMe.',
+        parentNotification: true
+      },
+      {
+        id: 'marketplace-purchases',
+        contentType: 'marketplace-purchases',
+        ageRestriction: { minimumAge: 15, requiresParentalConsent: true, parentalConsentAge: 18 },
+        action: 'require-consent',
+        warningMessage: 'Purchases require parental consent for users under 18.',
+        parentNotification: true
+      },
+      {
+        id: 'dm-non-friends',
+        contentType: 'direct-messages',
+        ageRestriction: { minimumAge: 15 },
+        action: 'filter',
+        warningMessage: 'Message requests from non-friends are filtered.',
+        parentNotification: false
+      },
+      {
+        id: 'location-sharing',
+        contentType: 'location-sharing',
+        ageRestriction: { minimumAge: 18, requiresParentalConsent: true, parentalConsentAge: 18 },
+        action: 'block',
+        warningMessage: 'Location sharing is not available for users under 18.',
+        parentNotification: true
+      },
+      {
+        id: 'public-posting',
+        contentType: 'public-posting',
+        ageRestriction: { minimumAge: 15, requiresParentalConsent: true, parentalConsentAge: 16 },
+        action: 'require-consent',
+        warningMessage: 'Public posts are visible to all SeeMe users.',
+        parentNotification: true
+      },
+      {
+        id: 'revealing-avatar',
+        contentType: 'avatar-revealing',
+        ageRestriction: { minimumAge: 18 },
+        action: 'block',
+        warningMessage: 'Some avatar options are only available for users 18+.',
+        parentNotification: false
+      }
+    ];
+
+    flags.forEach(flag => this.ageContentFlags.set(flag.id, flag));
+  }
+
+  /**
+   * Get policies applicable to a user
+   */
+  getPoliciesForUser(userAge: number): SafetyPolicy[] {
+    return Array.from(this.policies.values()).filter(policy => {
+      if (!policy.isActive) return false;
+      if (policy.appliesTo.allUsers) return true;
+      if (policy.appliesTo.ageRange) {
+        const { min, max } = policy.appliesTo.ageRange;
+        if (userAge < min) return false;
+        if (max && userAge > max) return false;
+      }
+      return true;
+    });
+  }
+
+  /**
+   * Check content against age-appropriate flags
+   */
+  checkAgeAppropriate(
+    contentType: AgeContentFlag['contentType'],
+    userAge: number,
+    hasParentalConsent: boolean = false
+  ): {
+    allowed: boolean;
+    action: AgeContentFlag['action'];
+    warningMessage?: string;
+    requiresParentNotification: boolean;
+  } {
+    const flag = Array.from(this.ageContentFlags.values())
+      .find(f => f.contentType === contentType);
+    
+    if (!flag) {
+      return { allowed: true, action: 'log-only', requiresParentNotification: false };
+    }
+
+    const { minimumAge, requiresParentalConsent, parentalConsentAge } = flag.ageRestriction;
+
+    // Under minimum age - blocked
+    if (userAge < minimumAge) {
+      return {
+        allowed: false,
+        action: 'block',
+        warningMessage: flag.warningMessage,
+        requiresParentNotification: flag.parentNotification
+      };
+    }
+
+    // Needs parental consent
+    if (requiresParentalConsent && 
+        parentalConsentAge && 
+        userAge < parentalConsentAge && 
+        !hasParentalConsent) {
+      return {
+        allowed: false,
+        action: 'require-consent',
+        warningMessage: flag.warningMessage,
+        requiresParentNotification: flag.parentNotification
+      };
+    }
+
+    // Allowed (may need warning)
+    return {
+      allowed: true,
+      action: flag.action,
+      warningMessage: flag.action === 'warn' ? flag.warningMessage : undefined,
+      requiresParentNotification: false
+    };
+  }
+
+  /**
+   * Get content restrictions summary for an age
+   */
+  getContentRestrictionsForAge(userAge: number): {
+    blocked: string[];
+    requiresConsent: string[];
+    warned: string[];
+    allowed: string[];
+  } {
+    const result = {
+      blocked: [] as string[],
+      requiresConsent: [] as string[],
+      warned: [] as string[],
+      allowed: [] as string[]
+    };
+
+    this.ageContentFlags.forEach(flag => {
+      const check = this.checkAgeAppropriate(flag.contentType, userAge, false);
+      
+      if (!check.allowed && check.action === 'block') {
+        result.blocked.push(flag.contentType);
+      } else if (!check.allowed && check.action === 'require-consent') {
+        result.requiresConsent.push(flag.contentType);
+      } else if (check.allowed && check.action === 'warn') {
+        result.warned.push(flag.contentType);
+      } else {
+        result.allowed.push(flag.contentType);
+      }
+    });
+
+    return result;
+  }
+
+  /**
+   * Get usage limits for an age
+   */
+  getUsageLimitsForAge(userAge: number): {
+    dailyTimeLimitMinutes?: number;
+    sessionTimeLimitMinutes?: number;
+    breakReminders: boolean;
+    parentalNotifications: boolean;
+  } {
+    if (userAge >= 18) {
+      return {
+        breakReminders: true,
+        parentalNotifications: false
+      };
+    } else if (userAge >= 15) {
+      return {
+        dailyTimeLimitMinutes: 120,        // 2 hours for minors
+        sessionTimeLimitMinutes: 60,       // 1 hour sessions
+        breakReminders: true,
+        parentalNotifications: true
+      };
+    } else {
+      // Shouldn't happen (15+ requirement)
+      return {
+        dailyTimeLimitMinutes: 60,
+        sessionTimeLimitMinutes: 30,
+        breakReminders: true,
+        parentalNotifications: true
+      };
+    }
+  }
+
+  /**
+   * Record policy enforcement
+   */
+  recordEnforcement(policyId: string, action: 'enforce' | 'appeal' | 'overturn'): void {
+    const policy = this.policies.get(policyId);
+    if (!policy) return;
+
+    switch (action) {
+      case 'enforce': policy.enforcements++; break;
+      case 'appeal': policy.appeals++; break;
+      case 'overturn': policy.overturned++; break;
+    }
+    policy.lastUpdatedAt = new Date();
+  }
+
+  /**
+   * Get policy metrics
+   */
+  getPolicyMetrics(policyId: string): {
+    enforcements: number;
+    appeals: number;
+    appealRate: number;
+    overturnRate: number;
+  } | null {
+    const policy = this.policies.get(policyId);
+    if (!policy) return null;
+
+    return {
+      enforcements: policy.enforcements,
+      appeals: policy.appeals,
+      appealRate: policy.enforcements > 0 ? policy.appeals / policy.enforcements : 0,
+      overturnRate: policy.appeals > 0 ? policy.overturned / policy.appeals : 0
+    };
+  }
+
+  /**
+   * Get all policies
+   */
+  getAllPolicies(): SafetyPolicy[] {
+    return Array.from(this.policies.values());
+  }
+
+  /**
+   * Get all age content flags
+   */
+  getAgeContentFlags(): AgeContentFlag[] {
+    return Array.from(this.ageContentFlags.values());
+  }
+}
+
+// Singleton export
+export const safetyPolicyService = new SafetyPolicyService();
+```
+
+**Quality Checks:**
+- [ ] All policies initialized correctly
+- [ ] Age restrictions enforce properly
+- [ ] Parental consent checks work
+- [ ] Enforcement metrics track accurately
+- [ ] Usage limits apply to correct age groups
+
+---
+
+### **Task 3.2.2.3: API Routes for Wellbeing & Safety**
+
+**Conditions:**
+- [ ] Record user activities
+- [ ] Get wellbeing metrics
+- [ ] Check content permissions
+- [ ] Admin dashboard endpoints
+
+**Implementation:**
+
+```typescript
+// backend/src/routes/wellbeing.ts
+
+import { Router } from 'express';
+import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { wellbeingTracker } from '../services/WellbeingTrackerService';
+import { safetyPolicyService } from '../services/SafetyPolicyService';
+import { Response } from 'express';
+
+const router = Router();
+
+/**
+ * Record user activity
+ * POST /api/wellbeing/activity
+ */
+router.post('/activity', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const { type, data } = req.body;
+    
+    const result = wellbeingTracker.recordActivity(userId, { type, data });
+    
+    res.json({
+      success: true,
+      wellbeingScore: result.metrics.wellbeingScore,
+      triggeredFlags: result.triggeredFlags.map(f => f.type),
+      recommendation: result.recommendation ? {
+        id: result.recommendation.id,
+        type: result.recommendation.type,
+        title: result.recommendation.title,
+        message: result.recommendation.message,
+        actions: result.recommendation.actions
+      } : null
+    });
+  } catch (error) {
+    console.error('Error recording activity:', error);
+    res.status(500).json({ error: 'Failed to record activity' });
+  }
+});
+
+/**
+ * Get user's wellbeing metrics
+ * GET /api/wellbeing/metrics
+ */
+router.get('/metrics', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const metrics = wellbeingTracker.getMetrics(userId);
+    
+    if (!metrics) {
+      return res.status(404).json({ error: 'Metrics not found' });
+    }
+    
+    // Return safe subset for user
+    res.json({
+      wellbeingScore: metrics.wellbeingScore,
+      engagementHealthScore: metrics.engagementHealthScore,
+      socialConnectionScore: metrics.socialConnectionScore,
+      moodTrend: metrics.moodTrend,
+      lastMoodScore: metrics.lastMoodScore,
+      avatarCustomizationSessions: metrics.avatarCustomizationSessions,
+      timeSpentTodayMinutes: metrics.timeSpentTodayMinutes,
+      activeFlags: metrics.activeFlags.map(f => ({
+        type: f.type,
+        severity: f.severity,
+        acknowledged: f.acknowledged
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get metrics' });
+  }
+});
+
+/**
+ * Submit mood check-in
+ * POST /api/wellbeing/mood
+ */
+router.post('/mood', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const { score, emotions, context } = req.body;
+    
+    if (score < 1 || score > 10) {
+      return res.status(400).json({ error: 'Score must be 1-10' });
+    }
+    
+    const result = wellbeingTracker.recordActivity(userId, {
+      type: 'mood_checkin',
+      data: { score, emotions, context }
+    });
+    
+    res.json({
+      success: true,
+      moodTrend: result.metrics.moodTrend,
+      recommendation: result.recommendation
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to record mood' });
+  }
+});
+
+/**
+ * Check if content is allowed for user's age
+ * POST /api/wellbeing/check-content
+ */
+router.post('/check-content', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const userAge = req.user!.age;
+    const hasParentalConsent = req.user!.hasParentalConsent || false;
+    const { contentType } = req.body;
+    
+    const result = safetyPolicyService.checkAgeAppropriate(
+      contentType,
+      userAge,
+      hasParentalConsent
+    );
+    
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to check content' });
+  }
+});
+
+/**
+ * Get user's content restrictions
+ * GET /api/wellbeing/restrictions
+ */
+router.get('/restrictions', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const userAge = req.user!.age;
+    
+    const restrictions = safetyPolicyService.getContentRestrictionsForAge(userAge);
+    const usageLimits = safetyPolicyService.getUsageLimitsForAge(userAge);
+    
+    res.json({
+      restrictions,
+      usageLimits
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get restrictions' });
+  }
+});
+
+/**
+ * Acknowledge a safety flag
+ * POST /api/wellbeing/acknowledge-flag
+ */
+router.post('/acknowledge-flag', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const { flagId } = req.body;
+    
+    const metrics = wellbeingTracker.getMetrics(userId);
+    if (!metrics) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const flag = metrics.activeFlags.find(f => f.id === flagId);
+    if (!flag) {
+      return res.status(404).json({ error: 'Flag not found' });
+    }
+    
+    flag.acknowledged = true;
+    flag.acknowledgedAt = new Date();
+    
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to acknowledge flag' });
+  }
+});
+
+export default router;
+```
+
+**Quality Checks:**
+- [ ] All endpoints authenticated
+- [ ] Activity recording works
+- [ ] Mood check-in validates input
+- [ ] Content restrictions return correctly
+- [ ] Error handling complete
+
+---
+
+## 🎯 PHASE 3.2 COMPLETION CRITERIA
+
+### **User Wellbeing Tracker:**
+- [ ] All activity types tracked correctly
+- [ ] Wellbeing scores calculate accurately (0-100)
+- [ ] Safety flags trigger at research-backed thresholds
+- [ ] Recommendations match flag severity levels
+- [ ] Events emit for monitoring dashboard
+- [ ] Daily counter reset works
+
+### **Safety Policy System:**
+- [ ] All core policies implemented
+- [ ] Age-appropriate restrictions enforce correctly
+- [ ] Parental consent checks work for 15-17
+- [ ] Usage limits apply by age group
+- [ ] Policy metrics track enforcements/appeals
+
+### **API Integration:**
+- [ ] Activity recording endpoint works
+- [ ] Metrics endpoint returns correct data
+- [ ] Mood check-in validates and records
+- [ ] Content permission checks accurate
+- [ ] Restriction summaries complete
+
+### **Research Alignment:**
+- [ ] Comparison behavior thresholds based on r=0.454 finding
+- [ ] Usage limits based on Surgeon General 3-hour recommendation
+- [ ] Avatar customization tracked as positive indicator
+- [ ] Youth (15-17) have stricter protections
+
+---
+
+## 📊 ADMIN DASHBOARD METRICS
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    WELLBEING DASHBOARD                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Platform Averages                     Users Needing Attention  │
+│  ─────────────────                     ──────────────────────   │
+│  Wellbeing Score: 62/100               Critical: 12             │
+│  Engagement Health: 58/100             High Priority: 47        │
+│  Comparison Risk: 23/100               Declining Mood: 89       │
+│                                                                 │
+│  Active Flags by Type                  Interventions (24h)      │
+│  ────────────────────                  ───────────────────      │
+│  comparison-behavior: 234              Shown: 1,247             │
+│  excessive-usage: 156                  Accepted: 623 (50%)      │
+│  rapid-mood-decline: 89                Dismissed: 412 (33%)     │
+│  isolation: 67                         Ignored: 212 (17%)       │
+│                                                                 │
+│  Age Distribution                      Policy Enforcements      │
+│  ────────────────                      ───────────────────      │
+│  15-17: 34% (stricter limits)          no-real-faces: 45        │
+│  18-24: 41%                            minor-usage-limits: 234  │
+│  25+: 25%                              crisis-detection: 12     │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 # PHASE 4: POST-MVP IMPROVEMENTS
 
 **Duration:** 6 weeks (Weeks 22-27)

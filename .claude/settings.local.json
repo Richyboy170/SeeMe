@@ -99,7 +99,16 @@
       "Bash(ping:*)",
       "Bash(git -C \"C:/Users/HP/Desktop/Richy-coding-hub-2026/SeeMe\" status --short)",
       "Bash(git commit:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(find:*)",
+      "Bash(npx expo export --platform web --output-dir /tmp/expo-test-build --no-minify)",
+      "Bash(../venv/Scripts/python.exe -m uvicorn:*)",
+      "Bash(npx expo prebuild:*)",
+      "Bash(npx expo run:android)",
+      "Bash(npm uninstall:*)",
+      "Bash(npm ls:*)",
+      "Bash(npx jest:*)"
     ]
   }
 }

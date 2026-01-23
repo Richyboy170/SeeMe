@@ -65,6 +65,10 @@ export const connectPostgreSQL = async (): Promise<void> => {
     const { setupAssociations } = await import('../models/associations');
     setupAssociations();
 
+    // Run database migrations to apply any schema changes
+    const { runMigrations } = await import('../utils/runMigrations');
+    await runMigrations();
+
     if (useSQLiteFallback) {
       logger.info('SQLite database connected successfully', {
         storage: path.join(process.cwd(), 'data', 'seeme.db')

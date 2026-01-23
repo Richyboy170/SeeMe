@@ -6,6 +6,7 @@ export { Post } from './Post';
 export { Like } from './Like';
 export { Comment } from './Comment';
 export { Follow } from './Follow';
+export { FollowRequest } from './FollowRequest';
 
 // Coins Models
 export { PositivityCoins } from './PositivityCoins';
@@ -16,3 +17,10 @@ export { CoinGivingActivity } from './CoinGivingActivity';
 export { Conversation } from './Conversation';
 export { Message } from './Message';
 export { BlockedUser } from './BlockedUser';
+
+// Algorithm/Analytics Models
+export { UserInteraction } from './UserInteraction';
+
+// Avatar Models
+export { AvatarConfigSQL } from './AvatarConfigSQL';
+export { FullBodyAvatar } from './FullBodyAvatar';

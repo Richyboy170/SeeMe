@@ -7,21 +7,31 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  Image,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, CommonActions } from '@react-navigation/native';
-import { api, getImageUrl } from '../../services/api';
+import { api } from '../../services/api';
+import Avatar from '../../components/Avatar';
+import { AvatarCustomizations } from '../../components/AvatarRenderer';
+
+interface ActiveAvatar {
+  id: string;
+  style: 'cartoon' | 'anime' | 'minimalist';
+  customizations: AvatarCustomizations;
+}
 
 interface SearchUser {
   id: string;
   username: string;
   activeAvatarId?: string;
+  activeAvatar?: ActiveAvatar | null;
   avatarUrl?: string;
   positivityGiveCounter?: number;
   positivityRank?: string;
   isFollowing: boolean;
+  followRequestStatus?: 'pending' | 'approved' | 'rejected' | null;
+  recommendationReason?: string;
 }
 
 interface SearchUsersScreenProps {
@@ -32,16 +42,19 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
   const [searchQuery, setSearchQuery] = useState('');
   const [users, setUsers] = useState<SearchUser[]>([]);
   const [followingUsers, setFollowingUsers] = useState<SearchUser[]>([]);
+  const [recommendedUsers, setRecommendedUsers] = useState<SearchUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingFollowing, setLoadingFollowing] = useState(true);
+  const [loadingRecommendations, setLoadingRecommendations] = useState(false);
   const [followingLoading, setFollowingLoading] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [messageLoading, setMessageLoading] = useState<string | null>(null);
 
-  // Load following users when screen focuses
+  // Load following users and recommendations when screen focuses
   useFocusEffect(
     useCallback(() => {
       loadFollowingUsers();
+      loadRecommendations();
     }, [])
   );
 
@@ -61,6 +74,7 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
         id: f.id,
         username: f.username,
         activeAvatarId: f.activeAvatarId,
+        activeAvatar: f.activeAvatar || null,
         avatarUrl: f.avatarUrl,
         positivityGiveCounter: f.positivityGiveCounter,
         positivityRank: f.positivityRank,
@@ -72,6 +86,33 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
       console.error('Error loading following users:', error);
     } finally {
       setLoadingFollowing(false);
+    }
+  };
+
+  const loadRecommendations = async () => {
+    setLoadingRecommendations(true);
+    try {
+      const response = await api.getRecommendedUsers(20);
+      const recommendations = response.recommendations || [];
+
+      // Map to SearchUser format
+      const mappedUsers: SearchUser[] = recommendations.map((r: any) => ({
+        id: r.id,
+        username: r.username,
+        activeAvatarId: r.activeAvatarId,
+        activeAvatar: r.activeAvatar || null,
+        avatarUrl: r.avatarUrl,
+        positivityGiveCounter: r.positivityGiveCounter,
+        positivityRank: r.positivityRank,
+        isFollowing: false,
+        recommendationReason: r.recommendationReason,
+      }));
+
+      setRecommendedUsers(mappedUsers);
+    } catch (error) {
+      console.error('Error loading recommendations:', error);
+    } finally {
+      setLoadingRecommendations(false);
     }
   };
 
@@ -117,6 +158,13 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
         // Was not following, now following - add to followingUsers
         setFollowingUsers(prev => [...prev, { ...user, isFollowing: true }]);
       }
+
+      // Update recommended users list
+      setRecommendedUsers(prev =>
+        prev.map(u =>
+          u.id === user.id ? { ...u, isFollowing: !u.isFollowing } : u
+        )
+      );
     } catch (error: any) {
       const errorMessage = error.response?.data?.error || 'Failed to update follow status';
       Alert.alert('Error', errorMessage);
@@ -165,8 +213,7 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
     navigation.navigate('UserProfile', { userId: user.id, username: user.username });
   };
 
-  const renderUserItem = ({ item, showMessage = false }: { item: SearchUser; showMessage?: boolean }) => {
-    const avatarUri = item.avatarUrl ? getImageUrl(item.avatarUrl) : null;
+  const renderUserItem = ({ item, showMessage = false, showReason = false }: { item: SearchUser; showMessage?: boolean; showReason?: boolean }) => {
     const isLoadingFollow = followingLoading === item.id;
     const isLoadingMessage = messageLoading === item.id;
 
@@ -177,20 +224,34 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
         activeOpacity={0.7}
       >
         {/* Avatar */}
-        {avatarUri ? (
-          <Image source={{ uri: avatarUri }} style={styles.avatar} />
-        ) : (
-          <View style={[styles.avatar, styles.avatarPlaceholder]}>
-            <Ionicons name="person" size={24} color="#C7C7CC" />
-          </View>
-        )}
+        <Avatar
+          size={50}
+          avatarUrl={!item.activeAvatar ? item.avatarUrl : undefined}
+          username={item.username}
+          style={styles.avatar}
+          customizations={item.activeAvatar?.customizations}
+          avatarStyle={item.activeAvatar?.style}
+        />
 
         {/* User Info */}
         <View style={styles.userInfo}>
           <Text style={styles.username}>{item.username}</Text>
-          {item.positivityRank && (
+          {showReason && item.recommendationReason ? (
+            <View style={styles.reasonBadge}>
+              <Ionicons
+                name={
+                  item.recommendationReason === 'Popular' ? 'star' :
+                  item.recommendationReason === 'Active' ? 'flash' :
+                  item.recommendationReason === 'New' ? 'sparkles' : 'person'
+                }
+                size={12}
+                color="#FBBF24"
+              />
+              <Text style={styles.reasonText}>{item.recommendationReason}</Text>
+            </View>
+          ) : item.positivityRank ? (
             <Text style={styles.rank}>{item.positivityRank}</Text>
-          )}
+          ) : null}
         </View>
 
         {/* Message Button (for following users) */}
@@ -234,6 +295,10 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
 
   const renderFollowingItem = ({ item }: { item: SearchUser }) => {
     return renderUserItem({ item, showMessage: true });
+  };
+
+  const renderRecommendedItem = ({ item }: { item: SearchUser }) => {
+    return renderUserItem({ item, showReason: true });
   };
 
   return (
@@ -316,6 +381,28 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
             data={followingUsers}
             keyExtractor={(item) => item.id}
             renderItem={renderFollowingItem}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+          />
+        </View>
+      ) : loadingRecommendations ? (
+        <View style={styles.centerContent}>
+          <ActivityIndicator size="large" color="#3897F0" />
+        </View>
+      ) : recommendedUsers.length > 0 ? (
+        // Show recommended users when user has no following
+        <View style={styles.container}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="sparkles" size={20} color="#FBBF24" style={styles.sectionIcon} />
+            <View>
+              <Text style={styles.sectionTitle}>Suggested for You</Text>
+              <Text style={styles.sectionSubtitle}>People you might want to follow</Text>
+            </View>
+          </View>
+          <FlatList
+            data={recommendedUsers}
+            keyExtractor={(item) => item.id}
+            renderItem={renderRecommendedItem}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
           />
@@ -450,10 +537,15 @@ const styles = StyleSheet.create({
     color: '#000',
   },
   sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 8,
     backgroundColor: '#FFF',
+  },
+  sectionIcon: {
+    marginRight: 10,
   },
   sectionTitle: {
     fontSize: 18,
@@ -464,6 +556,22 @@ const styles = StyleSheet.create({
   sectionSubtitle: {
     fontSize: 13,
     color: '#8E8E93',
+  },
+  reasonBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    alignSelf: 'flex-start',
+    marginTop: 2,
+  },
+  reasonText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#92400E',
+    marginLeft: 4,
   },
 
   // Empty State

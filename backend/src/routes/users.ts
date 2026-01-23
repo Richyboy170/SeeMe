@@ -1,8 +1,16 @@
 import { Router } from 'express';
 import { authenticateToken } from '../middleware/auth';
 import { UserController } from '../controllers/UserController';
+import { UserRecommendationController } from '../controllers/UserRecommendationController';
 
 const router = Router();
+
+/**
+ * @route   GET /api/users/recommendations
+ * @desc    Get recommended users to follow
+ * @access  Private
+ */
+router.get('/recommendations', authenticateToken, UserRecommendationController.getRecommendedUsers);
 
 /**
  * @route   GET /api/users/search
@@ -45,6 +53,20 @@ router.get('/notification-settings', authenticateToken, UserController.getNotifi
  * @access  Private
  */
 router.patch('/notification-settings', authenticateToken, UserController.updateNotificationSettings);
+
+/**
+ * @route   GET /api/users/privacy-settings
+ * @desc    Get privacy settings for authenticated user
+ * @access  Private
+ */
+router.get('/privacy-settings', authenticateToken, UserController.getPrivacySettings);
+
+/**
+ * @route   PATCH /api/users/privacy-settings
+ * @desc    Update privacy settings
+ * @access  Private
+ */
+router.patch('/privacy-settings', authenticateToken, UserController.updatePrivacySettings);
 
 /**
  * @route   GET /api/users/:userId

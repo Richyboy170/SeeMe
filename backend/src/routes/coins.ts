@@ -33,6 +33,13 @@ router.post('/give', authenticateToken, CoinsController.giveCoins);
 router.get('/history', authenticateToken, CoinsController.getHistory);
 
 /**
+ * @route   GET /api/coins/received
+ * @desc    Get recent coins received from other users (notifications)
+ * @access  Private
+ */
+router.get('/received', authenticateToken, CoinsController.getReceivedCoins);
+
+/**
  * @route   GET /api/coins/leaderboard
  * @desc    Get leaderboard of top givers
  * @access  Public

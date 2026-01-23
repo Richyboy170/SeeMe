@@ -3,9 +3,42 @@ import Conversation from '../models/Conversation';
 import Message from '../models/Message';
 import User from '../models/User';
 import BlockedUser from '../models/BlockedUser';
+import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
 import { redisClient, redisAvailable } from '../config/redis';
 import { logger } from '../utils/logger';
 import { PushNotificationService } from './PushNotificationService';
+
+// Helper to format avatar data for API response
+function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
+  if (!avatar) return null;
+  return {
+    id: avatar.id,
+    style: avatar.style,
+    customizations: {
+      skinTone: avatar.skinTone,
+      eyeColor: avatar.eyeColor,
+      eyeSize: avatar.eyeSize,
+      hairColor: avatar.hairColor,
+      hairStyle: avatar.hairStyle,
+      accessories: {
+        glasses: avatar.glasses,
+        hat: avatar.hat,
+        earrings: avatar.earrings,
+      },
+    },
+  };
+}
+
+// Helper to add avatar data to user objects
+async function addAvatarToUsers(userIds: string[]): Promise<Map<string, any>> {
+  const avatars = await AvatarConfigSQL.findAll({
+    where: {
+      userId: userIds,
+      isActive: true,
+    },
+  });
+  return new Map(avatars.map(a => [a.userId, formatAvatarForResponse(a)]));
+}
 
 /**
  * Service class for chat-related business logic
@@ -41,7 +74,15 @@ export class ChatService {
         limit
       });
 
-      // Get unread counts for each conversation
+      // Collect all user IDs for avatar lookup
+      const userIds = new Set<string>();
+      conversations.forEach(conv => {
+        if (conv.user1Id) userIds.add(conv.user1Id);
+        if (conv.user2Id) userIds.add(conv.user2Id);
+      });
+      const avatarsByUserId = await addAvatarToUsers([...userIds]);
+
+      // Get unread counts for each conversation and add avatar data
       const conversationsWithUnread = await Promise.all(
         conversations.map(async (conv) => {
           const unreadCount = await Message.count({
@@ -52,8 +93,17 @@ export class ChatService {
             }
           });
 
+          const convJson = conv.toJSON() as any;
+          // Add avatar data to users
+          if (convJson.user1) {
+            convJson.user1.activeAvatar = avatarsByUserId.get(convJson.user1.id) || null;
+          }
+          if (convJson.user2) {
+            convJson.user2.activeAvatar = avatarsByUserId.get(convJson.user2.id) || null;
+          }
+
           return {
-            ...conv.toJSON(),
+            ...convJson,
             unreadCount
           };
         })
@@ -119,6 +169,19 @@ export class ChatService {
             }
           ]
         });
+      }
+
+      // Add avatar data to users
+      if (conversation) {
+        const avatarsByUserId = await addAvatarToUsers([user1Id, user2Id]);
+        const convJson = conversation.toJSON() as any;
+        if (convJson.user1) {
+          convJson.user1.activeAvatar = avatarsByUserId.get(convJson.user1.id) || null;
+        }
+        if (convJson.user2) {
+          convJson.user2.activeAvatar = avatarsByUserId.get(convJson.user2.id) || null;
+        }
+        return convJson;
       }
 
       return conversation;
@@ -468,6 +531,164 @@ export class ChatService {
     } catch (error) {
       logger.error('Failed to check block status', { userId, otherUserId, error });
       return false;
+    }
+  }
+
+  /**
+   * Send image message with view mode
+   */
+  static async sendImageMessage(
+    conversationId: string,
+    senderId: string,
+    receiverId: string,
+    mediaUrl: string,
+    imageViewMode: 'keep' | 'view_once' | 'time_bomb',
+    expiresAt?: Date
+  ) {
+    try {
+      const conversation = await Conversation.findByPk(conversationId);
+      if (!conversation) {
+        throw new Error('Conversation not found');
+      }
+
+      // Create message with image view mode
+      const message = await Message.create({
+        conversationId,
+        senderId,
+        receiverId,
+        messageType: 'image',
+        content: null,
+        mediaUrl,
+        imageViewMode,
+        expiresAt: expiresAt || null
+      });
+
+      // Update conversation last message
+      await conversation.update({
+        lastMessageId: message.id,
+        lastMessageAt: message.createdAt
+      });
+
+      // Reload with associations
+      const messageWithSender = await Message.findByPk(message.id, {
+        include: [
+          {
+            model: User,
+            as: 'sender',
+            attributes: ['id', 'username', 'activeAvatarId']
+          }
+        ]
+      });
+
+      // Send push notification
+      try {
+        const sender = await User.findByPk(senderId, {
+          attributes: ['username']
+        });
+
+        if (sender) {
+          const notificationContent = imageViewMode === 'view_once'
+            ? '📷 Sent a view once photo'
+            : imageViewMode === 'time_bomb'
+              ? '💣 Sent a timed photo'
+              : '📷 Sent an image';
+
+          await PushNotificationService.sendMessageNotification(
+            receiverId,
+            sender.username,
+            notificationContent,
+            conversationId,
+            'image'
+          );
+        }
+      } catch (notifError) {
+        logger.error('Failed to send push notification for image message', {
+          messageId: message.id,
+          error: notifError
+        });
+      }
+
+      logger.info('Image message sent', {
+        messageId: message.id,
+        conversationId,
+        imageViewMode
+      });
+
+      return messageWithSender;
+    } catch (error) {
+      logger.error('Failed to send image message', { conversationId, senderId, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Mark image message as viewed
+   */
+  static async markImageViewed(messageId: string, userId: string) {
+    try {
+      const message = await Message.findByPk(messageId);
+
+      if (!message) {
+        throw new Error('Message not found');
+      }
+
+      // Only the receiver can mark it as viewed
+      if (message.receiverId !== userId) {
+        throw new Error('Only the receiver can mark image as viewed');
+      }
+
+      // Only mark view_once messages
+      if (message.imageViewMode !== 'view_once') {
+        return message;
+      }
+
+      await message.update({
+        viewedAt: new Date(),
+        isExpired: true // Mark as expired for view_once
+      });
+
+      logger.info('Image message marked as viewed', { messageId, userId });
+
+      return message;
+    } catch (error) {
+      logger.error('Failed to mark image as viewed', { messageId, userId, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Get total unread message count for user
+   */
+  static async getTotalUnreadCount(userId: string): Promise<number> {
+    try {
+      // Get all conversations for the user
+      const conversations = await Conversation.findAll({
+        where: {
+          [Op.or]: [{ user1Id: userId }, { user2Id: userId }]
+        },
+        attributes: ['id']
+      });
+
+      const conversationIds = conversations.map(c => c.id);
+
+      if (conversationIds.length === 0) {
+        return 0;
+      }
+
+      // Count unread messages (where user is receiver and message is not read)
+      const count = await Message.count({
+        where: {
+          conversationId: { [Op.in]: conversationIds },
+          receiverId: userId,
+          isRead: false,
+          isDeletedByReceiver: false
+        }
+      });
+
+      return count;
+    } catch (error) {
+      logger.error('Failed to get total unread count', { userId, error });
+      return 0;
     }
   }
 }

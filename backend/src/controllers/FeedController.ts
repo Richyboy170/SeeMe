@@ -3,9 +3,33 @@ import { Post, PostStatus } from '../models/Post';
 import { User } from '../models/User';
 import { Follow } from '../models/Follow';
 import { Like } from '../models/Like';
+import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
 import { AuthRequest } from '../middleware/auth';
 import { redisClient, redisAvailable } from '../config/redis';
 import { logger } from '../utils/logger';
+import { FeedAlgorithmService } from '../services/FeedAlgorithmService';
+import { InteractionType } from '../models/UserInteraction';
+
+// Helper to format avatar data for API response
+function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
+  if (!avatar) return null;
+  return {
+    id: avatar.id,
+    style: avatar.style,
+    customizations: {
+      skinTone: avatar.skinTone,
+      eyeColor: avatar.eyeColor,
+      eyeSize: avatar.eyeSize,
+      hairColor: avatar.hairColor,
+      hairStyle: avatar.hairStyle,
+      accessories: {
+        glasses: avatar.glasses,
+        hat: avatar.hat,
+        earrings: avatar.earrings,
+      },
+    },
+  };
+}
 
 /**
  * Feed Controller
@@ -102,18 +126,35 @@ export class FeedController {
 
       const likedPostIds = new Set(likes.map(like => like.postId));
 
+      // Fetch active avatars for all post authors
+      const authorIds = [...new Set(posts.map(p => p.userId))];
+      const avatars = await AvatarConfigSQL.findAll({
+        where: {
+          userId: authorIds,
+          isActive: true,
+        },
+      });
+      const avatarsByUserId = new Map(avatars.map(a => [a.userId, a]));
+
       const response = {
-        posts: posts.map(post => ({
-          id: post.id,
-          user: post.get('user'),
-          imageUrl: post.processedImageUrl,
-          thumbnailUrl: post.thumbnailUrl,
-          caption: post.caption,
-          likesCount: post.likesCount,
-          commentsCount: post.commentsCount,
-          createdAt: post.createdAt,
-          likedByMe: likedPostIds.has(post.id)
-        })),
+        posts: posts.map(post => {
+          const user = post.get('user') as any;
+          const avatar = avatarsByUserId.get(post.userId);
+          return {
+            id: post.id,
+            user: {
+              ...user,
+              activeAvatar: formatAvatarForResponse(avatar || null),
+            },
+            imageUrl: post.processedImageUrl,
+            thumbnailUrl: post.thumbnailUrl,
+            caption: post.caption,
+            likesCount: post.likesCount,
+            commentsCount: post.commentsCount,
+            createdAt: post.createdAt,
+            likedByMe: likedPostIds.has(post.id),
+          };
+        }),
         pagination: {
           page,
           limit,
@@ -207,18 +248,35 @@ export class FeedController {
         likedPostIds = new Set(likes.map(like => like.postId));
       }
 
+      // Fetch active avatars for all post authors
+      const authorIds = [...new Set(posts.map(p => p.userId))];
+      const avatars = await AvatarConfigSQL.findAll({
+        where: {
+          userId: authorIds,
+          isActive: true,
+        },
+      });
+      const avatarsByUserId = new Map(avatars.map(a => [a.userId, a]));
+
       const response = {
-        posts: posts.map(post => ({
-          id: post.id,
-          user: post.get('user'),
-          imageUrl: post.processedImageUrl,
-          thumbnailUrl: post.thumbnailUrl,
-          caption: post.caption,
-          likesCount: post.likesCount,
-          commentsCount: post.commentsCount,
-          createdAt: post.createdAt,
-          likedByMe: likedPostIds.has(post.id)
-        })),
+        posts: posts.map(post => {
+          const user = post.get('user') as any;
+          const avatar = avatarsByUserId.get(post.userId);
+          return {
+            id: post.id,
+            user: {
+              ...user,
+              activeAvatar: formatAvatarForResponse(avatar || null),
+            },
+            imageUrl: post.processedImageUrl,
+            thumbnailUrl: post.thumbnailUrl,
+            caption: post.caption,
+            likesCount: post.likesCount,
+            commentsCount: post.commentsCount,
+            createdAt: post.createdAt,
+            likedByMe: likedPostIds.has(post.id),
+          };
+        }),
         pagination: {
           page,
           limit,
@@ -280,6 +338,90 @@ export class FeedController {
       }
     } catch (error) {
       logger.error('Error invalidating discover cache', { error });
+    }
+  }
+
+  /**
+   * Get algorithmically ranked feed for authenticated user
+   * Uses engagement data to personalize the feed order
+   */
+  static async getAlgorithmicFeed(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.id;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 20;
+
+      // Check cache first (shorter TTL for algorithmic feed)
+      const cacheKey = `algo_feed:${userId}:page:${page}`;
+
+      if (redisAvailable && redisClient) {
+        try {
+          const cached = await redisClient.get(cacheKey);
+          if (cached) {
+            logger.debug('Algorithmic feed cache hit', { userId, page });
+            res.json(JSON.parse(cached));
+            return;
+          }
+        } catch (error) {
+          logger.warn('Redis cache read failed, continuing without cache', { error });
+        }
+      }
+
+      // Get algorithmically ranked feed
+      const response = await FeedAlgorithmService.getAlgorithmicFeed(userId, page, limit);
+
+      // Cache for 30 seconds (shorter than regular feed due to dynamic nature)
+      if (redisAvailable && redisClient) {
+        try {
+          await redisClient.setEx(cacheKey, 30, JSON.stringify(response));
+          logger.debug('Algorithmic feed cached', { userId, page });
+        } catch (error) {
+          logger.warn('Redis cache write failed', { error });
+        }
+      }
+
+      res.json(response);
+
+    } catch (error) {
+      logger.error('Error getting algorithmic feed', { error, userId: req.user?.id });
+      res.status(500).json({ error: 'Failed to load feed' });
+    }
+  }
+
+  /**
+   * Track user interaction for the feed algorithm
+   * Called by the mobile app when users view, like, comment, etc.
+   */
+  static async trackInteraction(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.id;
+      const { targetId, interactionType, metadata } = req.body;
+
+      if (!targetId || !interactionType) {
+        res.status(400).json({ error: 'targetId and interactionType are required' });
+        return;
+      }
+
+      // Validate interaction type
+      const validTypes = Object.values(InteractionType);
+      if (!validTypes.includes(interactionType)) {
+        res.status(400).json({ error: 'Invalid interaction type' });
+        return;
+      }
+
+      // Track the interaction (fire and forget - don't wait)
+      FeedAlgorithmService.trackInteraction(
+        userId,
+        targetId,
+        interactionType as InteractionType,
+        metadata
+      ).catch(err => logger.warn('Failed to track interaction', { err }));
+
+      res.json({ success: true });
+
+    } catch (error) {
+      logger.error('Error tracking interaction', { error, userId: req.user?.id });
+      res.status(500).json({ error: 'Failed to track interaction' });
     }
   }
 }
