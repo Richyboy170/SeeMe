@@ -68,10 +68,12 @@ venv.bak/
 *.pt
 *.onnx
 *.pb
+*.task
 checkpoints/
 models/weights/
 training_data/
 datasets/
+sandbox-3d/cv-service/models/
 
 # Jupyter
 .ipynb_checkpoints
