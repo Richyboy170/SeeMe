@@ -118,7 +118,8 @@
       "Bash(\"C:\\\\Users\\\\HP\\\\Desktop\\\\Richy-coding-hub-2026\\\\SeeMe\\\\sandbox-3d\\\\cv-service\\\\venv\\\\Scripts\\\\python.exe\" --version)",
       "Bash(\"C:\\\\Users\\\\HP\\\\Desktop\\\\Richy-coding-hub-2026\\\\SeeMe\\\\sandbox-3d\\\\cv-service\\\\venv\\\\Scripts\\\\python.exe\":*)",
       "Bash(venvScriptspython -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload)",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "Bash(git reset:*)"
     ]
   }
 }
