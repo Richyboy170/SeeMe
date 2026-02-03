@@ -7,6 +7,8 @@ export { Like } from './Like';
 export { Comment } from './Comment';
 export { Follow } from './Follow';
 export { FollowRequest } from './FollowRequest';
+export { SavedPost } from './SavedPost';
+export { Repost } from './Repost';
 
 // Coins Models
 export { PositivityCoins } from './PositivityCoins';
@@ -24,3 +26,17 @@ export { UserInteraction } from './UserInteraction';
 // Avatar Models
 export { AvatarConfigSQL } from './AvatarConfigSQL';
 export { FullBodyAvatar } from './FullBodyAvatar';
+
+// Community/Topic Models (Phase 3.3)
+export { Topic } from './Topic';
+export { TopicFollow } from './TopicFollow';
+export { PostTopic } from './PostTopic';
+export { UserFavorite } from './UserFavorite';
+export { UserTopicStatus } from './UserTopicStatus';
+export { EncouragementStreak } from './EncouragementStreak';
+export { UserCommunityMedal } from './UserCommunityMedal';
+export { UserGlobalMedal } from './UserGlobalMedal';
+
+// Trust Score Models
+export { FriendTrust } from './FriendTrust';
+export { FriendTrustDailyLog } from './FriendTrustDailyLog';

@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
-import { Post, PostStatus } from '../models/Post';
+import { Post, PostStatus, PostVisibility } from '../models/Post';
 import { User } from '../models/User';
+import { Topic } from '../models/Topic';
+import { PostTopic } from '../models/PostTopic';
 import { S3Service } from '../services/S3Service';
 import { CoinsService } from '../services/CoinsService';
 import { AuthRequest } from '../middleware/auth';
@@ -20,8 +22,29 @@ export class PostController {
    */
   static async createPost(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const { caption } = req.body;
+      const { caption, visibility, topicIds } = req.body;
       const userId = req.user!.id;
+
+      // Validate visibility
+      const validVisibility = visibility && Object.values(PostVisibility).includes(visibility)
+        ? visibility as PostVisibility
+        : PostVisibility.FRIENDS_ONLY;
+
+      // Parse topicIds if it's a string (from FormData)
+      let parsedTopicIds: string[] = [];
+      if (topicIds) {
+        try {
+          parsedTopicIds = typeof topicIds === 'string' ? JSON.parse(topicIds) : topicIds;
+        } catch {
+          parsedTopicIds = [];
+        }
+      }
+
+      // Validate that topics are selected when visibility requires them
+      if (validVisibility !== PostVisibility.FRIENDS_ONLY && parsedTopicIds.length === 0) {
+        res.status(400).json({ error: 'Please select at least one topic for community posts' });
+        return;
+      }
 
       if (!req.file) {
         res.status(400).json({ error: 'Image file required' });
@@ -61,13 +84,31 @@ export class PostController {
         originalImageUrl: originalUrl,
         caption: caption || null,
         status: PostStatus.PROCESSING,
+        visibility: validVisibility,
         avatarId,
         imageWidth,
         imageHeight,
         processingStartedAt: new Date()
       });
 
-      logger.info('Post created', { postId: post.id, userId });
+      logger.info('Post created', { postId: post.id, userId, visibility: validVisibility });
+
+      // Create PostTopic associations if topics are selected
+      if (parsedTopicIds.length > 0) {
+        const postTopicRecords = parsedTopicIds.map(topicId => ({
+          postId: post.id,
+          topicId
+        }));
+        await PostTopic.bulkCreate(postTopicRecords);
+
+        // Update topic post counts
+        await Topic.increment('postCount', {
+          by: 1,
+          where: { id: parsedTopicIds }
+        });
+
+        logger.info('Post associated with topics', { postId: post.id, topicIds: parsedTopicIds });
+      }
 
       // Check if post is "meaningful" (has caption with >20 chars) and award coins
       let coinsEarned = 0;

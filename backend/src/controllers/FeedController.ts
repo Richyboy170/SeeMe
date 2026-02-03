@@ -1,5 +1,6 @@
 import { Response } from 'express';
-import { Post, PostStatus } from '../models/Post';
+import { Op } from 'sequelize';
+import { Post, PostStatus, PostVisibility } from '../models/Post';
 import { User } from '../models/User';
 import { Follow } from '../models/Follow';
 import { Like } from '../models/Like';
@@ -72,28 +73,19 @@ export class FeedController {
 
       const followingIds = following.map(f => f.followingId);
 
-      if (followingIds.length === 0) {
-        // No follows yet, return empty feed
-        const response = {
-          posts: [],
-          pagination: {
-            page,
-            limit,
-            total: 0,
-            totalPages: 0,
-            hasMore: false
-          }
-        };
-
-        res.json(response);
-        return;
-      }
-
-      // Get posts from followed users
+      // Get posts from followed users AND the user's own posts
+      // Only show posts with visibility that includes friends (friends_only or topics_and_friends)
+      // Exclude topics_only posts as they should only appear in topic feeds
+      // Also include posts with null visibility for backwards compatibility (treated as friends_only)
+      const feedUserIds = [...followingIds, userId]; // Include own posts
       const { rows: posts, count } = await Post.findAndCountAll({
         where: {
-          userId: followingIds,
-          status: PostStatus.COMPLETED
+          userId: feedUserIds,
+          status: PostStatus.COMPLETED,
+          [Op.or]: [
+            { visibility: { [Op.in]: [PostVisibility.FRIENDS_ONLY, PostVisibility.TOPICS_AND_FRIENDS] } },
+            { visibility: null }  // Backwards compatibility for older posts
+          ]
         },
         include: [{
           model: User,
@@ -211,9 +203,15 @@ export class FeedController {
         }
       }
 
+      // For discover feed, only show public posts (topics_and_friends)
+      // or older posts without visibility set (backwards compatibility)
       const { rows: posts, count } = await Post.findAndCountAll({
         where: {
-          status: PostStatus.COMPLETED
+          status: PostStatus.COMPLETED,
+          [Op.or]: [
+            { visibility: PostVisibility.TOPICS_AND_FRIENDS },
+            { visibility: null }  // Backwards compatibility
+          ]
         },
         include: [{
           model: User,

@@ -5,6 +5,7 @@ import { CoinTransaction } from '../models/CoinTransaction';
 import { CoinGivingActivity } from '../models/CoinGivingActivity';
 import { User } from '../models/User';
 import { logger } from '../utils/logger';
+import { TrustScoreService } from './TrustScoreService';
 
 const COOLDOWN_DURATION_MS = 3 * 60 * 60 * 1000; // 3 hours
 const MAX_COOLDOWN_COINS = 3;
@@ -407,142 +408,54 @@ export class CoinsService {
       throw new Error('Amount must be at least 1 coin');
     }
 
+    // Initialize receiver coins outside of main transaction if needed
+    let receiverCoins = await PositivityCoins.findByPk(toUserId);
+    if (!receiverCoins) {
+      receiverCoins = await this.initializeUserCoins(toUserId);
+    }
+
+    // Initialize sender coins if needed
+    let senderCoins = await PositivityCoins.findByPk(fromUserId);
+    if (!senderCoins) {
+      senderCoins = await this.initializeUserCoins(fromUserId);
+    }
+
+    // Check balance before starting transaction
+    if (senderCoins.totalCoins < amount) {
+      throw new Error(`Insufficient coins. You have ${senderCoins.totalCoins}, need ${amount}`);
+    }
+
     const transaction = await sequelize.transaction();
 
     try {
-      // Get sender coins
-      const senderCoins = await PositivityCoins.findByPk(fromUserId, { transaction });
-      if (!senderCoins) {
-        await transaction.rollback();
-        throw new Error('Sender coins not initialized');
+      // Re-fetch within transaction for consistency
+      const senderCoinsInTx = await PositivityCoins.findByPk(fromUserId, { transaction });
+      const receiverCoinsInTx = await PositivityCoins.findByPk(toUserId, { transaction });
+
+      if (!senderCoinsInTx || !receiverCoinsInTx) {
+        throw new Error('Failed to fetch coin records');
       }
 
-      // Check balance
-      if (senderCoins.totalCoins < amount) {
-        await transaction.rollback();
-        throw new Error(`Insufficient coins. You have ${senderCoins.totalCoins}, need ${amount}`);
+      // Re-check balance within transaction
+      if (senderCoinsInTx.totalCoins < amount) {
+        throw new Error(`Insufficient coins. You have ${senderCoinsInTx.totalCoins}, need ${amount}`);
       }
 
-      // Get or create receiver coins
-      let receiverCoins = await PositivityCoins.findByPk(toUserId, { transaction });
-      if (!receiverCoins) {
-        // Initialize coins for receiver if needed (outside transaction, then refetch)
-        await transaction.rollback();
-        receiverCoins = await this.initializeUserCoins(toUserId);
-        // Restart transaction
-        const newTransaction = await sequelize.transaction();
-        const senderCoinsRefresh = await PositivityCoins.findByPk(fromUserId, { transaction: newTransaction });
-        receiverCoins = await PositivityCoins.findByPk(toUserId, { transaction: newTransaction });
-
-        if (!senderCoinsRefresh || !receiverCoins) {
-          await newTransaction.rollback();
-          throw new Error('Failed to initialize receiver coins');
-        }
-
-        // Re-check balance after re-fetch
-        if (senderCoinsRefresh.totalCoins < amount) {
-          await newTransaction.rollback();
-          throw new Error(`Insufficient coins. You have ${senderCoinsRefresh.totalCoins}, need ${amount}`);
-        }
-
-        // Update sender (deduct coins, increment lifetime given)
-        await senderCoinsRefresh.update(
-          {
-            totalCoins: senderCoinsRefresh.totalCoins - amount,
-            lifetimeGiven: senderCoinsRefresh.lifetimeGiven + amount
-          },
-          { transaction: newTransaction }
-        );
-
-        // Update receiver (add coins, increment lifetime earned)
-        await receiverCoins.update(
-          {
-            totalCoins: receiverCoins.totalCoins + amount,
-            lifetimeEarned: receiverCoins.lifetimeEarned + amount,
-            coinsFromOther: receiverCoins.coinsFromOther + amount
-          },
-          { transaction: newTransaction }
-        );
-
-        // Record transaction for sender
-        await CoinTransaction.create(
-          {
-            fromUserId,
-            toUserId,
-            amount,
-            transactionType: 'given_to_user',
-            message
-          },
-          { transaction: newTransaction }
-        );
-
-        // Record transaction for receiver
-        await CoinTransaction.create(
-          {
-            fromUserId,
-            toUserId,
-            amount,
-            transactionType: 'received_from_user',
-            message
-          },
-          { transaction: newTransaction }
-        );
-
-        // Record giving activity
-        await CoinGivingActivity.create(
-          {
-            giverId: fromUserId,
-            receiverId: toUserId,
-            coinsAmount: amount,
-            message: message || null,
-            contextType: contextType || null,
-            contextId: contextId || null
-          },
-          { transaction: newTransaction }
-        );
-
-        // Update sender's give counter and rank
-        const sender = await User.findByPk(fromUserId, { transaction: newTransaction });
-        if (sender) {
-          const newGiveCounter = sender.positivityGiveCounter + amount;
-          const newRank = this.calculateRank(senderCoinsRefresh.lifetimeGiven + amount);
-
-          await sender.update(
-            {
-              positivityGiveCounter: newGiveCounter,
-              positivityRank: newRank
-            },
-            { transaction: newTransaction }
-          );
-        }
-
-        await newTransaction.commit();
-
-        logger.info('Coins given', { fromUserId, toUserId, amount });
-
-        return {
-          success: true,
-          newBalance: senderCoinsRefresh.totalCoins - amount,
-          receiverNewBalance: receiverCoins.totalCoins + amount
-        };
-      }
-
-      // Normal flow (both users have coins initialized)
       // Update sender (deduct coins, increment lifetime given)
-      await senderCoins.update(
+      await senderCoinsInTx.update(
         {
-          totalCoins: senderCoins.totalCoins - amount,
-          lifetimeGiven: senderCoins.lifetimeGiven + amount
+          totalCoins: senderCoinsInTx.totalCoins - amount,
+          lifetimeGiven: senderCoinsInTx.lifetimeGiven + amount
         },
         { transaction }
       );
 
       // Update receiver (add coins, increment lifetime earned)
-      await receiverCoins.update(
+      await receiverCoinsInTx.update(
         {
-          totalCoins: receiverCoins.totalCoins + amount,
-          lifetimeEarned: receiverCoins.lifetimeEarned + amount,
-          coinsFromOther: receiverCoins.coinsFromOther + amount
+          totalCoins: receiverCoinsInTx.totalCoins + amount,
+          lifetimeEarned: receiverCoinsInTx.lifetimeEarned + amount,
+          coinsFromOther: receiverCoinsInTx.coinsFromOther + amount
         },
         { transaction }
       );
@@ -588,7 +501,7 @@ export class CoinsService {
       const sender = await User.findByPk(fromUserId, { transaction });
       if (sender) {
         const newGiveCounter = sender.positivityGiveCounter + amount;
-        const newRank = this.calculateRank(senderCoins.lifetimeGiven + amount);
+        const newRank = this.calculateRank(senderCoinsInTx.lifetimeGiven + amount);
 
         await sender.update(
           {
@@ -603,10 +516,18 @@ export class CoinsService {
 
       logger.info('Coins given', { fromUserId, toUserId, amount });
 
+      // Record coin exchange for trust score (after transaction commit)
+      await TrustScoreService.recordCoinExchange({
+        fromUserId,
+        toUserId,
+        amount
+      });
+
+      // The .update() modifies the instance in place, so read the new values directly
       return {
         success: true,
-        newBalance: senderCoins.totalCoins - amount,
-        receiverNewBalance: receiverCoins.totalCoins + amount
+        newBalance: senderCoinsInTx.totalCoins,
+        receiverNewBalance: receiverCoinsInTx.totalCoins
       };
     } catch (error) {
       await transaction.rollback();

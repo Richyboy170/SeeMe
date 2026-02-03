@@ -6,6 +6,10 @@ import * as addUserInteractionsTable from '../migrations/add-user-interactions-t
 import * as addAvatarConfigsTable from '../migrations/add-avatar-configs-table';
 import * as addPrivacySettings from '../migrations/add-privacy-settings';
 import * as addFullBodyAvatarsTable from '../migrations/add-full-body-avatars-table';
+import * as addPhase33CommunityTables from '../migrations/add-phase-3-3-community-tables';
+import * as addSavedPostsTable from '../migrations/add-saved-posts-table';
+import * as addRepostsTable from '../migrations/add-reposts-table';
+import * as addFriendTrustTables from '../migrations/add-friend-trust-tables';
 
 /**
  * Run database migrations
@@ -42,6 +46,26 @@ const migrations = [
     name: 'add-full-body-avatars-table',
     up: addFullBodyAvatarsTable.up,
     down: addFullBodyAvatarsTable.down
+  },
+  {
+    name: 'add-phase-3-3-community-tables',
+    up: addPhase33CommunityTables.up,
+    down: addPhase33CommunityTables.down
+  },
+  {
+    name: 'add-saved-posts-table',
+    up: addSavedPostsTable.up,
+    down: addSavedPostsTable.down
+  },
+  {
+    name: 'add-reposts-table',
+    up: addRepostsTable.up,
+    down: addRepostsTable.down
+  },
+  {
+    name: 'add-friend-trust-tables',
+    up: addFriendTrustTables.up,
+    down: addFriendTrustTables.down
   }
   // Add more migrations here as needed
 ];

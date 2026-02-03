@@ -45,7 +45,10 @@ export class UserRecommendationController {
   static async getRecommendedUsers(req: AuthRequest, res: Response): Promise<void> {
     try {
       const currentUserId = req.user!.id;
+      const currentUsername = req.user!.username;
       const limit = parseInt(req.query.limit as string) || 20;
+
+      logger.info('Getting recommendations for user', { currentUserId, currentUsername });
 
       // Get IDs of users already followed
       const followedUsers = await Follow.findAll({
@@ -68,6 +71,12 @@ export class UserRecommendationController {
 
       // Combine excluded IDs (self, followed, blocked)
       const excludedIds = [...new Set([currentUserId, ...followedIds, ...blockedIds])];
+
+      logger.info('Excluded IDs for recommendations', {
+        currentUserId,
+        excludedCount: excludedIds.length,
+        excludedIds: excludedIds.slice(0, 5) // Log first 5 for debugging
+      });
 
       // Get popular users (by follower count)
       const popularUsers = await User.findAll({
@@ -163,22 +172,29 @@ export class UserRecommendationController {
       });
       const avatarsByUserId = new Map(avatars.map(a => [a.userId, formatAvatarForResponse(a)]));
 
-      // Format response
-      const recommendations = sliced.map(user => {
-        const userData = user.toJSON() as any;
-        return {
-          id: userData.id,
-          username: userData.username,
-          activeAvatarId: userData.activeAvatarId,
-          activeAvatar: avatarsByUserId.get(userData.id) || null,
-          positivityGiveCounter: userData.positivityGiveCounter,
-          positivityRank: userData.positivityRank,
-          followersCount: parseInt(userData.followersCount) || 0,
-          postsCount: parseInt(userData.postsCount) || 0,
-          isFollowing: false,
-          recommendationReason: getRecommendationReason(userData),
-        };
-      });
+      // Format response - with final safety filter to ensure current user is never included
+      const recommendations = sliced
+        .filter(user => user.id !== currentUserId) // Extra safety check
+        .map(user => {
+          const userData = user.toJSON() as any;
+          return {
+            id: userData.id,
+            username: userData.username,
+            activeAvatarId: userData.activeAvatarId,
+            activeAvatar: avatarsByUserId.get(userData.id) || null,
+            positivityGiveCounter: userData.positivityGiveCounter,
+            positivityRank: userData.positivityRank,
+            followersCount: parseInt(userData.followersCount) || 0,
+            postsCount: parseInt(userData.postsCount) || 0,
+            isFollowing: false,
+            recommendationReason: getRecommendationReason(userData),
+          };
+        });
+
+      // Log if self was somehow in the list (should never happen)
+      if (sliced.some(u => u.id === currentUserId)) {
+        logger.warn('Current user was in recommendations before final filter!', { currentUserId });
+      }
 
       logger.info('User recommendations fetched', {
         userId: currentUserId,

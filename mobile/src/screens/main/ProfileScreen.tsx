@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,14 +15,22 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  FlatList,
+  ViewToken,
 } from 'react-native';
+import ViewShot from 'react-native-view-shot';
+import * as MediaLibrary from 'expo-media-library';
 import { useFocusEffect, useNavigation, CommonActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { api, getImageUrl } from '../../services/api';
 import GiveCounterBadge from '../../components/coins/GiveCounterBadge';
 import GiveCoinsModal from '../../components/coins/GiveCoinsModal';
+import PostViewerModal from '../../components/PostViewerModal';
 import Avatar from '../../components/Avatar';
 import { AvatarCustomizations } from '../../components/AvatarRenderer';
+import ProfileMedalsSection from '../../components/profile/ProfileMedalsSection';
+import FavoriteButton from '../../components/favorites/FavoriteButton';
+import TrustGauge from '../../components/TrustGauge';
 
 const { width } = Dimensions.get('window');
 const GRID_GAP = 1;
@@ -63,6 +71,22 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     customizations: AvatarCustomizations;
     style: 'cartoon' | 'anime' | 'minimalist';
   } | null>(null);
+  const [visiblePostIndex, setVisiblePostIndex] = useState(0);
+  const postListRef = useRef<FlatList>(null);
+  const [settingsMenuVisible, setSettingsMenuVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState<'posts' | 'saved'>('posts');
+  const [savedPosts, setSavedPosts] = useState<any[]>([]);
+  const [loadingSaved, setLoadingSaved] = useState(false);
+  const [shareCardVisible, setShareCardVisible] = useState(false);
+  const [savingCard, setSavingCard] = useState(false);
+  const shareCardRef = useRef<ViewShot>(null);
+  const [trustData, setTrustData] = useState<{
+    hasConnection: boolean;
+    trustScore: number;
+    currentStreak: number;
+    longestStreak: number;
+    isMutualFollow: boolean;
+  } | null>(null);
 
   const userId = route?.params?.userId;
   const username = route?.params?.username;
@@ -74,14 +98,29 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
       if (!userId) {
         loadPrivacySettings();
         loadFollowRequestCount();
+        loadSavedPosts();
       }
     }, [userId, username])
   );
 
-  // Check follow status when viewing other profiles
+  const loadSavedPosts = async () => {
+    setLoadingSaved(true);
+    try {
+      const data = await api.getSavedPosts();
+      setSavedPosts(data.posts || []);
+    } catch (error) {
+      console.error('Error loading saved posts:', error);
+      setSavedPosts([]);
+    } finally {
+      setLoadingSaved(false);
+    }
+  };
+
+  // Check follow status and trust score when viewing other profiles
   React.useEffect(() => {
     if (user && !isOwnProfile && user.username) {
       checkFollowStatus();
+      loadTrustScore(user.id);
     }
   }, [user, isOwnProfile]);
 
@@ -130,6 +169,16 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
       setIsPrivateProfile(response.isPrivate || false);
     } catch (error) {
       console.error('Error checking follow status:', error);
+    }
+  };
+
+  const loadTrustScore = async (targetUserId: string) => {
+    try {
+      const response = await api.getTrustScore(targetUserId);
+      setTrustData(response);
+    } catch (error) {
+      console.error('Error loading trust score:', error);
+      setTrustData(null);
     }
   };
 
@@ -283,11 +332,22 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
   const openPost = (post: any, index: number) => {
     setSelectedPost(post);
     setSelectedPostIndex(index);
+    setVisiblePostIndex(index);
   };
 
   const closePost = () => {
     setSelectedPost(null);
   };
+
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    if (viewableItems.length > 0 && viewableItems[0].index !== null) {
+      setVisiblePostIndex(viewableItems[0].index);
+    }
+  }, []);
+
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 50,
+  }).current;
 
   const handleEditProfile = () => {
     setEditUsername(user?.username || '');
@@ -335,36 +395,57 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     }
   };
 
-  const handleShareProfile = async () => {
+  const handleShareProfile = () => {
+    setShareCardVisible(true);
+  };
+
+  const handleSaveCard = async () => {
+    if (savingCard) return;
+
+    setSavingCard(true);
+    try {
+      // Request permissions
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please allow access to save images to your gallery.');
+        setSavingCard(false);
+        return;
+      }
+
+      // Capture the card
+      if (shareCardRef.current?.capture) {
+        const uri = await shareCardRef.current.capture();
+
+        // Save to gallery
+        await MediaLibrary.saveToLibraryAsync(uri);
+
+        Alert.alert('Saved!', 'Profile card saved to your gallery. Share it on social media!');
+      }
+    } catch (error) {
+      console.error('Error saving card:', error);
+      Alert.alert('Error', 'Failed to save card to gallery');
+    } finally {
+      setSavingCard(false);
+    }
+  };
+
+  const handleShareLink = async () => {
     try {
       const profileUrl = `https://seeme.app/@${user?.username}`;
-      const message = `Check out ${user?.username}'s profile on SeeMe!`;
+      const message = `✨ Check out @${user?.username} on SeeMe!\n\n` +
+        `📸 ${posts.length} Posts • 👥 ${user?.followersCount || 0} Followers\n\n` +
+        `${user?.bio ? `"${user.bio}"\n\n` : ''}` +
+        `🔗 ${profileUrl}\n\n` +
+        `📲 Download SeeMe - Where Positivity Shines!`;
 
       await Share.share({
-        message: `${message}\n${profileUrl}`,
-        url: profileUrl, // iOS only
-        title: `${user?.username}'s SeeMe Profile`,
+        message: message,
+        title: `@${user?.username} on SeeMe`,
       });
     } catch (error: any) {
       if (error.message !== 'User did not share') {
         Alert.alert('Error', 'Failed to share profile');
       }
-    }
-  };
-
-  const goToPrevPost = () => {
-    if (selectedPostIndex > 0) {
-      const newIndex = selectedPostIndex - 1;
-      setSelectedPostIndex(newIndex);
-      setSelectedPost(posts[newIndex]);
-    }
-  };
-
-  const goToNextPost = () => {
-    if (selectedPostIndex < posts.length - 1) {
-      const newIndex = selectedPostIndex + 1;
-      setSelectedPostIndex(newIndex);
-      setSelectedPost(posts[newIndex]);
     }
   };
 
@@ -437,59 +518,103 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
   return (
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Profile Header */}
+        {/* Profile Header Card */}
         <View style={styles.profileHeader}>
+          {/* Top Bar with Username and Settings */}
+          <View style={styles.topBar}>
+            <View style={styles.usernameRow}>
+              {isPrivate && (
+                <Ionicons name="lock-closed" size={16} color="#8E8E93" style={{ marginRight: 6 }} />
+              )}
+              <Text style={styles.topUsername}>{user.username}</Text>
+            </View>
+            {isOwnProfile && (
+              <TouchableOpacity
+                style={styles.settingsButton}
+                onPress={() => setSettingsMenuVisible(true)}
+              >
+                <Ionicons name="menu-outline" size={24} color="#262626" />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Avatar and Stats Row */}
           <View style={styles.profileTop}>
-            {/* Avatar */}
-            <View style={styles.avatarContainer}>
-              <Avatar
-                size={86}
-                avatarUrl={!activeAvatar ? user.avatarUrl : undefined}
-                username={user.username}
-                showBorder
-                customizations={activeAvatar?.customizations}
-                avatarStyle={activeAvatar?.style}
-              />
+            {/* Avatar with gradient ring */}
+            <View style={styles.avatarWrapper}>
+              <View style={styles.avatarRing}>
+                <Avatar
+                  size={90}
+                  avatarUrl={!activeAvatar ? user.avatarUrl : undefined}
+                  username={user.username}
+                  showBorder={false}
+                  customizations={activeAvatar?.customizations}
+                  avatarStyle={activeAvatar?.style}
+                />
+              </View>
             </View>
 
-            {/* Stats */}
+            {/* Stats Cards */}
             <View style={styles.statsContainer}>
-              <View style={styles.stat}>
+              <TouchableOpacity style={styles.statCard}>
                 <Text style={styles.statNumber}>{posts.length}</Text>
                 <Text style={styles.statLabel}>Posts</Text>
-              </View>
-              <View style={styles.stat}>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.statCard}>
                 <Text style={styles.statNumber}>{user.followersCount || 0}</Text>
                 <Text style={styles.statLabel}>Followers</Text>
-              </View>
-              <View style={styles.stat}>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.statCard}>
                 <Text style={styles.statNumber}>{user.followingCount || 0}</Text>
                 <Text style={styles.statLabel}>Following</Text>
-              </View>
+              </TouchableOpacity>
             </View>
           </View>
 
-          {/* Username & Bio */}
+          {/* Bio Section */}
           <View style={styles.bioSection}>
             <Text style={styles.displayName}>{user.username}</Text>
-            {user.bio && <Text style={styles.bio}>{user.bio}</Text>}
+            {user.bio ? (
+              <Text style={styles.bio}>{user.bio}</Text>
+            ) : isOwnProfile ? (
+              <Text style={styles.bioPlaceholder}>Add a bio to tell people about yourself</Text>
+            ) : null}
           </View>
+
+          {/* Positivity Counters */}
+          {user.positivityGiveCounter !== undefined && user.positivityRank && (
+            <View style={styles.badgeContainer}>
+              <GiveCounterBadge
+                giveCounter={user.positivityGiveCounter}
+                rank={user.positivityRank}
+              />
+              <View style={styles.receivedMini}>
+                <Ionicons name="heart" size={14} color="#EC4899" />
+                <Text style={styles.receivedMiniText}>
+                  {(user.positivityReceiveCounter || 0).toLocaleString()} received
+                </Text>
+              </View>
+            </View>
+          )}
 
           {/* Action Buttons */}
           <View style={styles.actionButtons}>
             {isOwnProfile ? (
               <>
                 <TouchableOpacity style={styles.editButton} onPress={handleEditProfile}>
-                  <Text style={styles.editButtonText}>Edit profile</Text>
+                  <Ionicons name="person-outline" size={16} color="#262626" style={{ marginRight: 6 }} />
+                  <Text style={styles.editButtonText}>Edit Profile</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.shareButton} onPress={handleShareProfile}>
-                  <Text style={styles.editButtonText}>Share profile</Text>
+                  <Ionicons name="share-outline" size={16} color="#262626" style={{ marginRight: 6 }} />
+                  <Text style={styles.editButtonText}>Share</Text>
                 </TouchableOpacity>
                 {followRequestCount > 0 && (
                   <TouchableOpacity
                     style={styles.requestsButton}
                     onPress={() => navigation.navigate('FollowRequests')}
                   >
+                    <Ionicons name="people" size={16} color="#FFF" />
                     <View style={styles.requestsBadge}>
                       <Text style={styles.requestsBadgeText}>{followRequestCount}</Text>
                     </View>
@@ -504,14 +629,22 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
                   disabled={followLoading}
                 >
                   {followLoading ? (
-                    <ActivityIndicator size="small" color={isFollowing || followRequestStatus === 'pending' ? '#000' : '#FFF'} />
+                    <ActivityIndicator size="small" color={isFollowing || followRequestStatus === 'pending' ? '#262626' : '#FFF'} />
                   ) : (
-                    <Text style={[
-                      styles.followButtonText,
-                      (isFollowing || followRequestStatus === 'pending') && styles.followingButtonText
-                    ]}>
-                      {getFollowButtonText()}
-                    </Text>
+                    <>
+                      <Ionicons
+                        name={isFollowing ? 'checkmark' : followRequestStatus === 'pending' ? 'time-outline' : 'person-add-outline'}
+                        size={16}
+                        color={isFollowing || followRequestStatus === 'pending' ? '#262626' : '#FFF'}
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={[
+                        styles.followButtonText,
+                        (isFollowing || followRequestStatus === 'pending') && styles.followingButtonText
+                      ]}>
+                        {getFollowButtonText()}
+                      </Text>
+                    </>
                   )}
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -520,73 +653,112 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
                   disabled={messageLoading}
                 >
                   {messageLoading ? (
-                    <ActivityIndicator size="small" color="#000" />
+                    <ActivityIndicator size="small" color="#262626" />
                   ) : (
-                    <Ionicons name="chatbubble-outline" size={18} color="#000" />
+                    <Ionicons name="chatbubble-outline" size={20} color="#262626" />
                   )}
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.giveCoinsButton}
                   onPress={() => setGiveModalVisible(true)}
                 >
-                  <Ionicons name="gift" size={18} color="#FFF" />
+                  <Ionicons name="gift" size={20} color="#FFF" />
                 </TouchableOpacity>
+                <FavoriteButton
+                  userId={user.id}
+                  size={20}
+                  style={styles.favoriteButton}
+                />
               </>
             )}
           </View>
 
-          {/* Give Counter Badge */}
-          {user.positivityGiveCounter !== undefined && user.positivityRank && (
-            <View style={styles.badgeContainer}>
-              <GiveCounterBadge
-                giveCounter={user.positivityGiveCounter}
-                rank={user.positivityRank}
+          {/* Trust Score Gauge - Only shown when viewing another user's profile */}
+          {!isOwnProfile && trustData?.hasConnection && (
+            <View style={styles.trustGaugeContainer}>
+              <TrustGauge
+                trustScore={trustData.trustScore}
+                currentStreak={trustData.currentStreak}
+                isMutualFollow={trustData.isMutualFollow}
+                theme="light"
               />
             </View>
           )}
         </View>
 
+        {/* Medals Section */}
+        <ProfileMedalsSection userId={user.id} isOwnProfile={isOwnProfile} />
+
         {/* Grid/Tabs Header */}
         <View style={styles.tabsContainer}>
-          <TouchableOpacity style={[styles.tab, styles.activeTab]}>
-            <Ionicons name="grid" size={24} color="#000" />
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'posts' && styles.activeTab]}
+            onPress={() => setActiveTab('posts')}
+          >
+            <Ionicons name="grid" size={22} color={activeTab === 'posts' ? '#262626' : '#8E8E93'} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.tab}>
-            <Ionicons name="bookmark-outline" size={24} color="#C7C7CC" />
-          </TouchableOpacity>
+          {isOwnProfile && (
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'saved' && styles.activeTab]}
+              onPress={() => setActiveTab('saved')}
+            >
+              <Ionicons name="bookmark" size={22} color={activeTab === 'saved' ? '#262626' : '#8E8E93'} />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Posts Grid */}
-        {loadingPosts ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="small" color="#C7C7CC" />
-          </View>
-        ) : posts.length > 0 ? (
-          <View style={styles.gridContainer}>
-            {posts.map((item, index) => (
-              <View key={item.id}>
-                {renderGridItem({ item, index })}
-              </View>
-            ))}
-          </View>
-        ) : (
-          <View style={styles.emptyState}>
-            <View style={styles.emptyIcon}>
-              <Ionicons name="camera-outline" size={48} color="#C7C7CC" />
+        {activeTab === 'posts' ? (
+          loadingPosts ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#FBBF24" />
             </View>
-            <Text style={styles.emptyTitle}>No Posts Yet</Text>
-            <Text style={styles.emptySubtitle}>
-              {isOwnProfile ? 'Share photos to see them here' : 'No posts to show'}
-            </Text>
-          </View>
+          ) : posts.length > 0 ? (
+            <View style={styles.gridContainer}>
+              {posts.map((item, index) => (
+                <View key={item.id}>
+                  {renderGridItem({ item, index })}
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIcon}>
+                <Ionicons name="camera-outline" size={44} color="#8E8E93" />
+              </View>
+              <Text style={styles.emptyTitle}>No Posts Yet</Text>
+              <Text style={styles.emptySubtitle}>
+                {isOwnProfile ? 'Share your first photo' : 'No posts to show'}
+              </Text>
+            </View>
+          )
+        ) : (
+          /* Saved Posts Tab */
+          loadingSaved ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#FBBF24" />
+            </View>
+          ) : savedPosts.length > 0 ? (
+            <View style={styles.gridContainer}>
+              {savedPosts.map((item, index) => (
+                <View key={item.id}>
+                  {renderGridItem({ item, index })}
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIcon}>
+                <Ionicons name="bookmark-outline" size={44} color="#8E8E93" />
+              </View>
+              <Text style={styles.emptyTitle}>No Saved Posts</Text>
+              <Text style={styles.emptySubtitle}>
+                Save posts you love and they'll appear here
+              </Text>
+            </View>
+          )
         )}
 
-        {/* Logout button for own profile */}
-        {isOwnProfile && (
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Text style={styles.logoutText}>Log Out</Text>
-          </TouchableOpacity>
-        )}
       </ScrollView>
 
       {/* Give Coins Modal */}
@@ -602,153 +774,29 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
         }}
       />
 
-      {/* Instagram-style Post View Modal */}
-      <Modal
+      {/* Post Viewer Modal - Uses shared component for all post interactions */}
+      <PostViewerModal
         visible={!!selectedPost}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={closePost}
-      >
-        <View style={styles.modalContainer}>
-          <StatusBar barStyle="dark-content" />
-
-          {/* Modal Header */}
-          <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={closePost} style={styles.modalBackButton}>
-              <Ionicons name="arrow-back" size={28} color="#000" />
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>Posts</Text>
-            <View style={{ width: 28 }} />
-          </View>
-
-          {selectedPost && (
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Post Card */}
-              <View style={styles.postCard}>
-                {/* Post Header */}
-                <View style={styles.postHeader}>
-                  <View style={styles.postUserInfo}>
-                    <Avatar
-                      size={32}
-                      avatarUrl={user.avatarUrl}
-                      username={user.username}
-                      style={styles.postAvatar}
-                    />
-                    <Text style={styles.postUsername}>{user.username}</Text>
-                  </View>
-                  <TouchableOpacity>
-                    <Ionicons name="ellipsis-horizontal" size={20} color="#000" />
-                  </TouchableOpacity>
-                </View>
-
-                {/* Post Image */}
-                {(() => {
-                  const imageUri = getImageUrl(selectedPost.processedImageUrl) || getImageUrl(selectedPost.originalImageUrl);
-                  return imageUri ? (
-                    <Image
-                      source={{ uri: imageUri }}
-                      style={styles.postImage}
-                      resizeMode="cover"
-                    />
-                  ) : null;
-                })()}
-
-                {/* Action Buttons */}
-                <View style={styles.postActions}>
-                  <View style={styles.postActionsLeft}>
-                    <TouchableOpacity style={styles.actionButton}>
-                      <Ionicons name="heart-outline" size={28} color="#000" />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionButton}>
-                      <Ionicons name="chatbubble-outline" size={26} color="#000" />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionButton}>
-                      <Ionicons name="paper-plane-outline" size={26} color="#000" />
-                    </TouchableOpacity>
-                    {/* Give Coins Button */}
-                    <TouchableOpacity
-                      style={styles.actionButton}
-                      onPress={() => setPostGiveModalVisible(true)}
-                    >
-                      <Ionicons name="gift" size={26} color="#FBBF24" />
-                    </TouchableOpacity>
-                  </View>
-                  <TouchableOpacity>
-                    <Ionicons name="bookmark-outline" size={26} color="#000" />
-                  </TouchableOpacity>
-                </View>
-
-                {/* Likes */}
-                <View style={styles.likesContainer}>
-                  <Text style={styles.likesText}>
-                    {selectedPost.likesCount || 0} likes
-                  </Text>
-                </View>
-
-                {/* Caption */}
-                {selectedPost.caption && (
-                  <View style={styles.captionContainer}>
-                    <Text style={styles.captionText}>
-                      <Text style={styles.captionUsername}>{user.username}</Text>
-                      {'  '}{selectedPost.caption}
-                    </Text>
-                  </View>
-                )}
-
-                {/* Comments Link */}
-                {selectedPost.commentsCount > 0 && (
-                  <TouchableOpacity style={styles.viewComments}>
-                    <Text style={styles.viewCommentsText}>
-                      View all {selectedPost.commentsCount} comments
-                    </Text>
-                  </TouchableOpacity>
-                )}
-
-                {/* Timestamp */}
-                <Text style={styles.postTimestamp}>
-                  {formatTimeAgo(selectedPost.createdAt)}
-                </Text>
-              </View>
-
-              {/* Navigation buttons */}
-              <View style={styles.postNavigation}>
-                <TouchableOpacity
-                  style={[styles.navButton, selectedPostIndex === 0 && styles.navButtonDisabled]}
-                  onPress={goToPrevPost}
-                  disabled={selectedPostIndex === 0}
-                >
-                  <Ionicons name="chevron-back" size={24} color={selectedPostIndex === 0 ? '#C7C7CC' : '#000'} />
-                  <Text style={[styles.navButtonText, selectedPostIndex === 0 && styles.navButtonTextDisabled]}>Previous</Text>
-                </TouchableOpacity>
-                <Text style={styles.postCounter}>{selectedPostIndex + 1} of {posts.length}</Text>
-                <TouchableOpacity
-                  style={[styles.navButton, selectedPostIndex === posts.length - 1 && styles.navButtonDisabled]}
-                  onPress={goToNextPost}
-                  disabled={selectedPostIndex === posts.length - 1}
-                >
-                  <Text style={[styles.navButtonText, selectedPostIndex === posts.length - 1 && styles.navButtonTextDisabled]}>Next</Text>
-                  <Ionicons name="chevron-forward" size={24} color={selectedPostIndex === posts.length - 1 ? '#C7C7CC' : '#000'} />
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          )}
-        </View>
-      </Modal>
-
-      {/* Give Coins Modal for Posts */}
-      {selectedPost && (
-        <GiveCoinsModal
-          visible={postGiveModalVisible}
-          recipientId={user.id}
-          recipientUsername={user.username}
-          contextType="post"
-          contextId={selectedPost.id}
-          onClose={() => setPostGiveModalVisible(false)}
-          onSuccess={() => {
-            setPostGiveModalVisible(false);
-          }}
-        />
-      )}
+        posts={posts.map(post => ({
+          ...post,
+          user: {
+            id: user.id,
+            username: user.username,
+            activeAvatar: activeAvatar,
+          },
+        }))}
+        initialIndex={selectedPostIndex}
+        title="Posts"
+        onClose={closePost}
+        onCommentPress={(postId) => {
+          closePost();
+          navigation.navigate('Comments', { postId });
+        }}
+        onUserPress={(userId, username) => {
+          closePost();
+          navigation.navigate('UserProfile', { userId, username });
+        }}
+      />
 
       {/* Edit Profile Modal */}
       <Modal
@@ -856,6 +904,277 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Settings Menu Modal */}
+      <Modal
+        visible={settingsMenuVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setSettingsMenuVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.settingsOverlay}
+          activeOpacity={1}
+          onPress={() => setSettingsMenuVisible(false)}
+        >
+          <View style={styles.settingsMenu}>
+            <View style={styles.settingsHandle} />
+            <Text style={styles.settingsTitle}>Settings</Text>
+
+            <TouchableOpacity
+              style={styles.settingsItem}
+              onPress={() => {
+                setSettingsMenuVisible(false);
+                handleEditProfile();
+              }}
+            >
+              <View style={styles.settingsItemIcon}>
+                <Ionicons name="person-outline" size={22} color="#262626" />
+              </View>
+              <Text style={styles.settingsItemText}>Edit Profile</Text>
+              <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.settingsItem}
+              onPress={() => {
+                setSettingsMenuVisible(false);
+                navigation.navigate('AvatarCustomization', {});
+              }}
+            >
+              <View style={styles.settingsItemIcon}>
+                <Ionicons name="happy-outline" size={22} color="#262626" />
+              </View>
+              <Text style={styles.settingsItemText}>Customize Avatar</Text>
+              <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.settingsItem}
+              onPress={() => {
+                setSettingsMenuVisible(false);
+                handleTogglePrivacy();
+              }}
+            >
+              <View style={styles.settingsItemIcon}>
+                <Ionicons name={isPrivate ? 'lock-closed-outline' : 'lock-open-outline'} size={22} color="#262626" />
+              </View>
+              <Text style={styles.settingsItemText}>
+                {isPrivate ? 'Private Account' : 'Public Account'}
+              </Text>
+              <View style={[styles.settingsToggle, isPrivate && styles.settingsToggleActive]}>
+                <View style={[styles.settingsToggleKnob, isPrivate && styles.settingsToggleKnobActive]} />
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.settingsItem}
+              onPress={() => {
+                setSettingsMenuVisible(false);
+                setTimeout(() => handleShareProfile(), 300);
+              }}
+            >
+              <View style={styles.settingsItemIcon}>
+                <Ionicons name="share-social-outline" size={22} color="#262626" />
+              </View>
+              <Text style={styles.settingsItemText}>Share Profile</Text>
+              <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
+            </TouchableOpacity>
+
+            {followRequestCount > 0 && (
+              <TouchableOpacity
+                style={styles.settingsItem}
+                onPress={() => {
+                  setSettingsMenuVisible(false);
+                  navigation.navigate('FollowRequests');
+                }}
+              >
+                <View style={styles.settingsItemIcon}>
+                  <Ionicons name="people-outline" size={22} color="#262626" />
+                </View>
+                <Text style={styles.settingsItemText}>Follow Requests</Text>
+                <View style={styles.settingsItemBadge}>
+                  <Text style={styles.settingsItemBadgeText}>{followRequestCount}</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
+            <View style={styles.settingsDivider} />
+
+            <TouchableOpacity
+              style={styles.settingsItem}
+              onPress={() => {
+                setSettingsMenuVisible(false);
+                handleLogout();
+              }}
+            >
+              <View style={[styles.settingsItemIcon, { backgroundColor: '#FEE2E2' }]}>
+                <Ionicons name="log-out-outline" size={22} color="#EF4444" />
+              </View>
+              <Text style={[styles.settingsItemText, { color: '#EF4444' }]}>Log Out</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.settingsCancelButton}
+              onPress={() => setSettingsMenuVisible(false)}
+            >
+              <Text style={styles.settingsCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Share Profile Card Modal */}
+      <Modal
+        visible={shareCardVisible}
+        animationType="fade"
+        transparent={true}
+        statusBarTranslucent={true}
+        onRequestClose={() => setShareCardVisible(false)}
+      >
+        <View style={styles.shareCardOverlay}>
+          {/* Close Button */}
+          <TouchableOpacity
+            style={styles.shareCardClose}
+            onPress={() => setShareCardVisible(false)}
+          >
+            <Ionicons name="close" size={28} color="#FFF" />
+          </TouchableOpacity>
+
+          <ScrollView
+            contentContainerStyle={styles.shareCardScrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* The Card - Wrapped in ViewShot for capture */}
+            <ViewShot
+              ref={shareCardRef}
+              options={{ format: 'png', quality: 1 }}
+              style={styles.shareCardWrapper}
+            >
+              <View style={styles.shareCard}>
+                {/* Gradient Header */}
+                <View style={styles.shareCardHeader}>
+                  <View style={styles.shareCardAvatarContainer}>
+                    <View style={styles.shareCardAvatarRing}>
+                      <Avatar
+                        size={100}
+                        avatarUrl={!activeAvatar ? user?.avatarUrl : undefined}
+                        username={user?.username}
+                        showBorder={false}
+                        customizations={activeAvatar?.customizations}
+                        avatarStyle={activeAvatar?.style}
+                      />
+                    </View>
+                  </View>
+                </View>
+
+                {/* Card Body */}
+                <View style={styles.shareCardBody}>
+                  <Text style={styles.shareCardUsername}>@{user?.username}</Text>
+                  {user?.bio && (
+                    <Text style={styles.shareCardBio} numberOfLines={2}>
+                      "{user.bio}"
+                    </Text>
+                  )}
+
+                  {/* Stats Row */}
+                  <View style={styles.shareCardStats}>
+                    <View style={styles.shareCardStat}>
+                      <Text style={styles.shareCardStatNumber}>{posts.length}</Text>
+                      <Text style={styles.shareCardStatLabel}>Posts</Text>
+                    </View>
+                    <View style={styles.shareCardStatDivider} />
+                    <View style={styles.shareCardStat}>
+                      <Text style={styles.shareCardStatNumber}>{user?.followersCount || 0}</Text>
+                      <Text style={styles.shareCardStatLabel}>Followers</Text>
+                    </View>
+                    <View style={styles.shareCardStatDivider} />
+                    <View style={styles.shareCardStat}>
+                      <Text style={styles.shareCardStatNumber}>{user?.followingCount || 0}</Text>
+                      <Text style={styles.shareCardStatLabel}>Following</Text>
+                    </View>
+                  </View>
+
+                  {/* Posts Preview Grid */}
+                  {posts.length > 0 && (
+                    <View style={styles.shareCardPostsSection}>
+                      <Text style={styles.shareCardPostsTitle}>Recent Posts</Text>
+                      <View style={styles.shareCardPostsGrid}>
+                        {posts.slice(0, 6).map((post, index) => {
+                          const imageUri = getImageUrl(post.processedImageUrl) || getImageUrl(post.thumbnailUrl) || getImageUrl(post.originalImageUrl);
+                          return (
+                            <View key={post.id} style={styles.shareCardPostItem}>
+                              {imageUri ? (
+                                <Image
+                                  source={{ uri: imageUri }}
+                                  style={styles.shareCardPostImage}
+                                  resizeMode="cover"
+                                />
+                              ) : (
+                                <View style={[styles.shareCardPostImage, styles.shareCardPostPlaceholder]}>
+                                  <Ionicons name="image-outline" size={16} color="#C7C7CC" />
+                                </View>
+                              )}
+                            </View>
+                          );
+                        })}
+                        {/* Fill empty slots if less than 6 posts */}
+                        {posts.length < 6 && Array.from({ length: Math.min(6 - posts.length, 6) }).map((_, i) => (
+                          <View key={`empty-${i}`} style={styles.shareCardPostItem}>
+                            <View style={[styles.shareCardPostImage, styles.shareCardPostEmpty]} />
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+
+                  {/* App Branding */}
+                  <View style={styles.shareCardBranding}>
+                    <View style={styles.shareCardLogo}>
+                      <Text style={styles.shareCardLogoText}>S</Text>
+                    </View>
+                    <View style={styles.shareCardBrandText}>
+                      <Text style={styles.shareCardAppName}>SeeMe</Text>
+                      <Text style={styles.shareCardTagline}>Where Positivity Shines</Text>
+                    </View>
+                  </View>
+
+                  {/* Download CTA */}
+                  <View style={styles.shareCardCTA}>
+                    <Text style={styles.shareCardCTAText}>Download the app to connect!</Text>
+                  </View>
+                </View>
+              </View>
+            </ViewShot>
+
+            {/* Action Buttons */}
+            <View style={styles.shareCardActions}>
+              <TouchableOpacity
+                style={styles.shareCardSaveButton}
+                onPress={handleSaveCard}
+                disabled={savingCard}
+              >
+                {savingCard ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <>
+                    <Ionicons name="download-outline" size={22} color="#FFF" />
+                    <Text style={styles.shareCardSaveText}>Save to Gallery</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.shareCardLinkButton}
+                onPress={handleShareLink}
+              >
+                <Ionicons name="link-outline" size={22} color="#FBBF24" />
+                <Text style={styles.shareCardLinkText}>Share Link</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -863,7 +1182,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF',
+    backgroundColor: '#FAFAFA',
   },
   centerContent: {
     justifyContent: 'center',
@@ -876,170 +1195,244 @@ const styles = StyleSheet.create({
 
   // Profile Header
   profileHeader: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
+    backgroundColor: '#FFF',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EFEFEF',
+  },
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  usernameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  topUsername: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#262626',
+  },
+  settingsButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F5F5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   profileTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 20,
   },
-  avatarContainer: {
-    marginRight: 28,
+  avatarWrapper: {
+    marginRight: 24,
   },
-  avatar: {
-    width: 86,
-    height: 86,
-    borderRadius: 43,
-    borderWidth: 0.5,
-    borderColor: '#C7C7CC',
-  },
-  avatarPlaceholder: {
-    backgroundColor: '#F2F2F7',
-    justifyContent: 'center',
-    alignItems: 'center',
+  avatarRing: {
+    padding: 3,
+    borderRadius: 50,
+    borderWidth: 2,
+    borderColor: '#FBBF24',
   },
   statsContainer: {
     flex: 1,
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
   },
-  stat: {
+  statCard: {
+    flex: 1,
     alignItems: 'center',
+    paddingVertical: 8,
   },
   statNumber: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
+    fontWeight: '700',
+    color: '#262626',
+    marginBottom: 2,
   },
   statLabel: {
-    fontSize: 13,
-    color: '#000',
-    marginTop: 2,
+    fontSize: 11,
+    color: '#8E8E93',
+    fontWeight: '400',
   },
 
   // Bio Section
   bioSection: {
-    marginBottom: 12,
+    marginBottom: 16,
   },
   displayName: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#000',
-    marginBottom: 2,
+    color: '#262626',
+    marginBottom: 4,
   },
   bio: {
     fontSize: 14,
-    color: '#000',
-    lineHeight: 18,
+    color: '#262626',
+    lineHeight: 20,
+  },
+  bioPlaceholder: {
+    fontSize: 13,
+    color: '#8E8E93',
+    fontStyle: 'italic',
+  },
+  badgeContainer: {
+    marginBottom: 16,
+  },
+  receivedMini: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingLeft: 4,
+  },
+  receivedMiniText: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginLeft: 4,
   },
 
   // Action Buttons
   actionButtons: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 12,
   },
   editButton: {
     flex: 1,
-    backgroundColor: '#F2F2F7',
-    paddingVertical: 8,
-    borderRadius: 8,
+    flexDirection: 'row',
+    backgroundColor: '#F5F5F5',
+    paddingVertical: 10,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   shareButton: {
-    flex: 1,
-    backgroundColor: '#F2F2F7',
-    paddingVertical: 8,
-    borderRadius: 8,
+    flex: 0.7,
+    flexDirection: 'row',
+    backgroundColor: '#F5F5F5',
+    paddingVertical: 10,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   editButtonText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#000',
+    color: '#262626',
   },
   followButton: {
     flex: 1,
-    backgroundColor: '#3897F0',
-    paddingVertical: 8,
-    borderRadius: 8,
+    flexDirection: 'row',
+    backgroundColor: '#FBBF24',
+    paddingVertical: 10,
+    borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#FBBF24',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   followButtonText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: '#FFF',
   },
   followingButton: {
-    backgroundColor: '#F2F2F7',
-    borderWidth: 1,
-    borderColor: '#C7C7CC',
+    backgroundColor: '#F5F5F5',
+    shadowColor: 'transparent',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   requestedButton: {
     backgroundColor: '#FEF3C7',
-    borderWidth: 1,
-    borderColor: '#FBBF24',
+    shadowColor: 'transparent',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   followingButtonText: {
-    color: '#000',
+    color: '#262626',
   },
   requestsButton: {
     backgroundColor: '#FBBF24',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 6,
   },
   requestsBadge: {
-    minWidth: 24,
-    height: 24,
-    borderRadius: 12,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: '#FFF',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 6,
   },
   requestsBadgeText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     color: '#FBBF24',
   },
   messageButton: {
-    backgroundColor: '#F2F2F7',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
+    backgroundColor: '#F5F5F5',
+    width: 44,
+    height: 44,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
   giveCoinsButton: {
     backgroundColor: '#FBBF24',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#FBBF24',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  favoriteButton: {
+    backgroundColor: '#F5F5F5',
+    width: 44,
+    height: 44,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  badgeContainer: {
-    marginTop: 4,
+
+  // Trust Gauge
+  trustGaugeContainer: {
+    marginTop: 16,
   },
 
   // Tabs
   tabsContainer: {
     flexDirection: 'row',
-    borderTopWidth: 0.5,
-    borderTopColor: '#C7C7CC',
+    backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#EFEFEF',
   },
   tab: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
   },
   activeTab: {
-    borderTopWidth: 1,
-    borderTopColor: '#000',
+    borderBottomColor: '#262626',
   },
 
   // Grid
@@ -1047,6 +1440,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: GRID_GAP,
+    backgroundColor: '#FFF',
   },
   gridItem: {
     width: IMAGE_SIZE,
@@ -1055,19 +1449,21 @@ const styles = StyleSheet.create({
   },
   gridImageContainer: {
     flex: 1,
+    borderRadius: 2,
+    overflow: 'hidden',
   },
   gridImage: {
     width: '100%',
     height: '100%',
   },
   placeholderImage: {
-    backgroundColor: '#F2F2F7',
+    backgroundColor: '#F5F5F5',
     justifyContent: 'center',
     alignItems: 'center',
   },
   processingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1075,6 +1471,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 8,
     right: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 4,
+    padding: 4,
   },
 
   // Empty State
@@ -1082,48 +1481,37 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 60,
     paddingHorizontal: 40,
+    backgroundColor: '#FFF',
   },
   emptyIcon: {
     width: 80,
     height: 80,
     borderRadius: 40,
     borderWidth: 2,
-    borderColor: '#C7C7CC',
+    borderColor: '#E0E0E0',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
+    backgroundColor: '#FAFAFA',
   },
   emptyTitle: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '600',
-    color: '#000',
-    marginBottom: 8,
+    color: '#262626',
+    marginBottom: 6,
   },
   emptySubtitle: {
     fontSize: 14,
     color: '#8E8E93',
     textAlign: 'center',
+    lineHeight: 20,
   },
 
   // Loading
   loadingContainer: {
-    paddingVertical: 40,
+    paddingVertical: 60,
     alignItems: 'center',
-  },
-
-  // Logout
-  logoutButton: {
-    marginHorizontal: 16,
-    marginVertical: 24,
-    paddingVertical: 14,
-    alignItems: 'center',
-    borderTopWidth: 0.5,
-    borderTopColor: '#C7C7CC',
-  },
-  logoutText: {
-    fontSize: 16,
-    color: '#FF3B30',
-    fontWeight: '500',
+    backgroundColor: '#FFF',
   },
 
   // Modal
@@ -1232,33 +1620,31 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
 
+  // Post ScrollView
+  postScrollView: {
+    flex: 1,
+  },
+
+  // Post Separator
+  postSeparator: {
+    height: 8,
+    backgroundColor: '#F2F2F7',
+  },
+
   // Post Navigation
   postNavigation: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingVertical: 12,
     borderTopWidth: 0.5,
     borderTopColor: '#C7C7CC',
-  },
-  navButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  navButtonDisabled: {
-    opacity: 0.5,
-  },
-  navButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#000',
-  },
-  navButtonTextDisabled: {
-    color: '#C7C7CC',
+    backgroundColor: '#FFF',
   },
   postCounter: {
     fontSize: 14,
+    fontWeight: '500',
     color: '#8E8E93',
   },
 
@@ -1413,4 +1799,347 @@ const styles = StyleSheet.create({
   toggleKnobActive: {
     alignSelf: 'flex-end',
   },
+
+  // Settings Menu
+  settingsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  settingsMenu: {
+    backgroundColor: '#FFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+    maxHeight: '80%',
+  },
+  settingsHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginTop: 12,
+    marginBottom: 20,
+  },
+  settingsTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#262626',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  settingsItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  settingsItemIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#F5F5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  settingsItemText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#262626',
+    fontWeight: '500',
+  },
+  settingsItemBadge: {
+    backgroundColor: '#FBBF24',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  settingsItemBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFF',
+  },
+  settingsToggle: {
+    width: 44,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#E5E5EA',
+    padding: 2,
+    justifyContent: 'center',
+  },
+  settingsToggleActive: {
+    backgroundColor: '#FBBF24',
+  },
+  settingsToggleKnob: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#FFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  settingsToggleKnobActive: {
+    alignSelf: 'flex-end',
+  },
+  settingsDivider: {
+    height: 1,
+    backgroundColor: '#F0F0F0',
+    marginVertical: 10,
+  },
+  settingsCancelButton: {
+    backgroundColor: '#F5F5F5',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  settingsCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#262626',
+  },
+
+  // Share Card Modal
+  shareCardOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  shareCardClose: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  shareCardScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 80,
+    paddingHorizontal: 20,
+  },
+  shareCardWrapper: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  shareCard: {
+    width: width - 60,
+    backgroundColor: '#FFF',
+    borderRadius: 24,
+    overflow: 'hidden',
+  },
+  shareCardHeader: {
+    height: 120,
+    backgroundColor: '#FBBF24',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingBottom: 0,
+  },
+  shareCardAvatarContainer: {
+    position: 'absolute',
+    bottom: -50,
+    alignItems: 'center',
+  },
+  shareCardAvatarRing: {
+    padding: 4,
+    borderRadius: 60,
+    backgroundColor: '#FFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  shareCardBody: {
+    paddingTop: 60,
+    paddingHorizontal: 24,
+    paddingBottom: 24,
+    alignItems: 'center',
+  },
+  shareCardUsername: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#262626',
+    marginBottom: 8,
+  },
+  shareCardBio: {
+    fontSize: 14,
+    color: '#8E8E93',
+    textAlign: 'center',
+    fontStyle: 'italic',
+    marginBottom: 20,
+    lineHeight: 20,
+    paddingHorizontal: 10,
+  },
+  shareCardStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F9F9F9',
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    marginBottom: 24,
+    width: '100%',
+  },
+  shareCardStat: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  shareCardStatNumber: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#262626',
+    marginBottom: 2,
+  },
+  shareCardStatLabel: {
+    fontSize: 12,
+    color: '#8E8E93',
+    fontWeight: '500',
+  },
+  shareCardStatDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: '#E0E0E0',
+  },
+  shareCardPostsSection: {
+    width: '100%',
+    marginBottom: 20,
+  },
+  shareCardPostsTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#8E8E93',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  shareCardPostsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    justifyContent: 'center',
+  },
+  shareCardPostItem: {
+    width: (width - 60 - 48 - 8) / 3, // card width - padding - gaps / 3
+    aspectRatio: 1,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  shareCardPostImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+  },
+  shareCardPostPlaceholder: {
+    backgroundColor: '#F5F5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  shareCardPostEmpty: {
+    backgroundColor: '#F9F9F9',
+  },
+  shareCardBranding: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  shareCardLogo: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#FBBF24',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  shareCardLogoText: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#FFF',
+  },
+  shareCardBrandText: {
+    alignItems: 'flex-start',
+  },
+  shareCardAppName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#262626',
+  },
+  shareCardTagline: {
+    fontSize: 12,
+    color: '#FBBF24',
+    fontWeight: '500',
+  },
+  shareCardCTA: {
+    backgroundColor: '#FEF3C7',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+  },
+  shareCardCTAText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#B45309',
+  },
+  shareCardActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 24,
+    width: '100%',
+  },
+  shareCardSaveButton: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#FBBF24',
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: '#FBBF24',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  shareCardSaveText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FFF',
+  },
+  shareCardLinkButton: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: 'rgba(251, 191, 36, 0.15)',
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: '#FBBF24',
+  },
+  shareCardLinkText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FBBF24',
+  },
+
 });

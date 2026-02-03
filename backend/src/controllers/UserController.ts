@@ -3,9 +3,11 @@ import { Op } from 'sequelize';
 import { User } from '../models/User';
 import { Follow } from '../models/Follow';
 import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
+import { PositivityCoins } from '../models/PositivityCoins';
 import { AuthRequest } from '../middleware/auth';
 import { logger } from '../utils/logger';
 import { PushNotificationService } from '../services/PushNotificationService';
+import { sequelize } from '../config/database';
 
 // Helper to format avatar data for API response
 function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
@@ -66,6 +68,10 @@ export class UserController {
         activeAvatar = formatAvatarForResponse(avatar);
       }
 
+      // Fetch coins received from other users
+      const positivityCoins = await PositivityCoins.findByPk(userId);
+      const positivityReceiveCounter = positivityCoins?.coinsFromOther || 0;
+
       res.json({
         user: {
           id: user.id,
@@ -75,6 +81,7 @@ export class UserController {
           activeAvatarId: user.activeAvatarId,
           activeAvatar,
           positivityGiveCounter: user.positivityGiveCounter,
+          positivityReceiveCounter,
           positivityRank: user.positivityRank,
           createdAt: user.createdAt
         }
@@ -87,23 +94,42 @@ export class UserController {
   }
 
   /**
-   * Get user profile by ID
+   * Get user profile by ID or username
    * @route GET /api/users/:userId
    */
   static async getUserById(req: Request, res: Response): Promise<void> {
     try {
       const { userId } = req.params;
 
-      const user = await User.findByPk(userId, {
-        attributes: [
-          'id',
-          'username',
-          'activeAvatarId',
-          'positivityGiveCounter',
-          'positivityRank',
-          'createdAt'
-        ]
-      });
+      // Check if it's a UUID or username
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId);
+
+      let user;
+      if (isUUID) {
+        user = await User.findByPk(userId, {
+          attributes: [
+            'id',
+            'username',
+            'activeAvatarId',
+            'positivityGiveCounter',
+            'positivityRank',
+            'createdAt'
+          ]
+        });
+      } else {
+        // Search by username
+        user = await User.findOne({
+          where: { username: userId },
+          attributes: [
+            'id',
+            'username',
+            'activeAvatarId',
+            'positivityGiveCounter',
+            'positivityRank',
+            'createdAt'
+          ]
+        });
+      }
 
       if (!user) {
         res.status(404).json({ error: 'User not found' });
@@ -117,6 +143,10 @@ export class UserController {
         activeAvatar = formatAvatarForResponse(avatar);
       }
 
+      // Fetch coins received from other users
+      const positivityCoins = await PositivityCoins.findByPk(user.id);
+      const positivityReceiveCounter = positivityCoins?.coinsFromOther || 0;
+
       res.json({
         user: {
           id: user.id,
@@ -124,6 +154,7 @@ export class UserController {
           activeAvatarId: user.activeAvatarId,
           activeAvatar,
           positivityGiveCounter: user.positivityGiveCounter,
+          positivityReceiveCounter,
           positivityRank: user.positivityRank,
           createdAt: user.createdAt
         }
@@ -377,12 +408,16 @@ export class UserController {
       const limitNum = Math.min(parseInt(limit as string) || 20, 50);
       const offsetNum = parseInt(offset as string) || 0;
 
+      // Use iLike for PostgreSQL (case-insensitive), like for SQLite (case-insensitive by default)
+      const dialect = sequelize.getDialect();
+      const likeOp = dialect === 'postgres' ? Op.iLike : Op.like;
+
       // Search users by username (excluding current user)
       const users = await User.findAll({
         where: {
           id: { [Op.ne]: userId },
           username: {
-            [Op.iLike]: `%${searchQuery}%`
+            [likeOp]: `%${searchQuery}%`
           }
         },
         attributes: [

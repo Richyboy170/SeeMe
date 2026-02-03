@@ -48,10 +48,29 @@ export type SearchStackParamList = {
   };
 };
 
+export type DiscoverStackParamList = {
+  DiscoverHome: undefined;
+  UserProfile: {
+    userId: string;
+    username: string;
+  };
+  TopicPage: {
+    topicSlug: string;
+  };
+  CreateTopic: undefined;
+  Comments: {
+    postId: string;
+  };
+};
+
 export type FeedStackParamList = {
   FeedHome: undefined;
   Comments: {
     postId: string;
+  };
+  UserProfile: {
+    userId: string;
+    username: string;
   };
 };
 
@@ -70,11 +89,18 @@ export type CreatePostStackParamList = {
   };
 };
 
+export type TopicsStackParamList = {
+  BrowseTopics: undefined;
+  TopicPage: {
+    topicSlug: string;
+  };
+  CreateTopic: undefined;
+};
+
 export type MainTabParamList = {
   Feed: undefined;
-  Search: undefined;
+  Discover: undefined;
   CreatePost: undefined;
-  Messages: undefined;
   Coins: undefined;
   Profile: undefined;
 };

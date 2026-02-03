@@ -10,7 +10,7 @@
  */
 
 import { api } from './api';
-import * as FileSystem from 'expo-file-system';
+import { Paths, File } from 'expo-file-system';
 
 /**
  * Response from person check endpoint
@@ -392,23 +392,11 @@ export const updateFullBodyAvatar = async (
  * Save a blob response to a local file
  */
 const saveBlobToFile = async (blob: Blob, filename: string): Promise<string> => {
-  const fileUri = `${FileSystem.cacheDirectory}${filename}`;
+  const file = new File(Paths.cache, filename);
 
-  // Convert blob to base64
-  const reader = new FileReader();
-  return new Promise((resolve, reject) => {
-    reader.onloadend = async () => {
-      try {
-        const base64 = (reader.result as string).split(',')[1];
-        await FileSystem.writeAsStringAsync(fileUri, base64, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        resolve(fileUri);
-      } catch (error) {
-        reject(error);
-      }
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
+  // Convert blob to text and write to file
+  const text = await blob.text();
+  await file.write(text);
+
+  return file.uri;
 };

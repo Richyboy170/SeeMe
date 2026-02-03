@@ -13,9 +13,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import GiveCoinsModal from './coins/GiveCoinsModal';
+import SharePostModal from './SharePostModal';
+import PostActionsBar from './PostActionsBar';
 import Avatar from './Avatar';
 import { AvatarCustomizations } from './AvatarRenderer';
-import { getImageUrl } from '../services/api';
+import { getImageUrl, api } from '../services/api';
+import { formatTimeAgo, getPostImageUrl } from '../utils/postHelpers';
 
 const TABLET_BREAKPOINT = 600;
 
@@ -25,9 +28,16 @@ interface ActiveAvatar {
   customizations: AvatarCustomizations;
 }
 
+interface RepostedByUser {
+  id: string;
+  username: string;
+  activeAvatar?: ActiveAvatar | null;
+}
+
 interface PostCardProps {
   post: {
     id: string;
+    feedItemId?: string;
     user: {
       id: string;
       username: string;
@@ -37,15 +47,30 @@ interface PostCardProps {
     imageUrl?: string;
     originalImageUrl?: string;
     thumbnailUrl?: string;
+    processedImageUrl?: string;
     caption?: string;
     likesCount: number;
     commentsCount: number;
+    repostCount?: number;
     likedByMe?: boolean;
+    savedByMe?: boolean;
+    repostedByMe?: boolean;
+    myRepostType?: 'repost' | 'quote' | null;
     createdAt: string;
+    // Repost-specific fields
+    isRepost?: boolean;
+    repostedBy?: RepostedByUser;
+    repostType?: 'repost' | 'quote';
+    repostComment?: string | null;
+    repostCreatedAt?: string;
   };
   onLike?: (postId: string) => void;
   onComment?: (postId: string) => void;
   onUserPress?: (userId: string) => void;
+  onSave?: (postId: string) => void;
+  onShare?: (postId: string) => void;
+  showShareButton?: boolean;
+  showSaveButton?: boolean;
 }
 
 export default function PostCard({
@@ -53,13 +78,19 @@ export default function PostCard({
   onLike,
   onComment,
   onUserPress,
+  onSave,
+  onShare,
+  showShareButton = true,
+  showSaveButton = true,
 }: PostCardProps) {
   const { width } = useWindowDimensions();
   const isTablet = width >= TABLET_BREAKPOINT;
 
   const [liked, setLiked] = useState(post.likedByMe || false);
   const [likesCount, setLikesCount] = useState(post.likesCount);
+  const [saved, setSaved] = useState(post.savedByMe || false);
   const [giveModalVisible, setGiveModalVisible] = useState(false);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [showHeartOverlay, setShowHeartOverlay] = useState(false);
 
@@ -84,6 +115,33 @@ export default function PostCard({
   const handleUserPress = () => {
     if (onUserPress) {
       onUserPress(post.user.id);
+    }
+  };
+
+  const handleSave = async () => {
+    const wasSaved = saved;
+    setSaved(!saved);
+
+    try {
+      if (wasSaved) {
+        await api.delete(`/posts/${post.id}/save`);
+      } else {
+        await api.post(`/posts/${post.id}/save`);
+        api.trackInteraction(post.id, 'save').catch(console.error);
+      }
+      if (onSave) {
+        onSave(post.id);
+      }
+    } catch (error) {
+      console.error('Error toggling save:', error);
+      setSaved(wasSaved); // Revert on error
+    }
+  };
+
+  const handleShare = () => {
+    setShareModalVisible(true);
+    if (onShare) {
+      onShare(post.id);
     }
   };
 
@@ -134,18 +192,6 @@ export default function PostCard({
         }
       }, DOUBLE_TAP_DELAY);
     }
-  };
-
-  const formatTimeAgo = (dateString: string) => {
-    const now = new Date();
-    const postDate = new Date(dateString);
-    const diffInSeconds = Math.floor((now.getTime() - postDate.getTime()) / 1000);
-
-    if (diffInSeconds < 60) return 'Just now';
-    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
-    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
-    if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
-    return `${Math.floor(diffInSeconds / 604800)}w ago`;
   };
 
   // Calculate image dimensions
@@ -261,6 +307,21 @@ export default function PostCard({
           )}
         </TouchableOpacity>
 
+        {showShareButton && (
+          <TouchableOpacity onPress={handleShare} style={styles.actionButton}>
+            <Ionicons
+              name={post.repostedByMe ? 'repeat' : 'repeat-outline'}
+              size={isTablet ? 22 : 26}
+              color={post.repostedByMe ? '#10B981' : '#000'}
+            />
+            {(post.repostCount || 0) > 0 && (
+              <Text style={[styles.actionCount, post.repostedByMe && styles.repostedCount]}>
+                {post.repostCount}
+              </Text>
+            )}
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity
           onPress={() => setGiveModalVisible(true)}
           style={styles.actionButton}
@@ -268,6 +329,16 @@ export default function PostCard({
           <Ionicons name="gift" size={isTablet ? 22 : 26} color="#FBBF24" />
         </TouchableOpacity>
       </View>
+
+      {showSaveButton && (
+        <TouchableOpacity onPress={handleSave} style={styles.saveButton}>
+          <Ionicons
+            name={saved ? 'bookmark' : 'bookmark-outline'}
+            size={isTablet ? 24 : 26}
+            color={saved ? '#FBBF24' : '#000'}
+          />
+        </TouchableOpacity>
+      )}
     </View>
   );
 
@@ -275,7 +346,33 @@ export default function PostCard({
   if (isTablet) {
     return (
       <View style={styles.tabletContainer}>
-        <View style={styles.tabletCard}>
+        {/* Repost Header - Shows who reposted this with their avatar */}
+        {post.isRepost && post.repostedBy && (
+          <TouchableOpacity
+            style={styles.tabletRepostHeader}
+            onPress={() => onUserPress?.(post.repostedBy!.id)}
+          >
+            <Avatar
+              size={24}
+              username={post.repostedBy.username}
+              customizations={post.repostedBy.activeAvatar?.customizations}
+              avatarStyle={post.repostedBy.activeAvatar?.style}
+            />
+            <Ionicons name="repeat" size={16} color="#10B981" />
+            <Text style={styles.repostHeaderText}>
+              <Text style={styles.repostHeaderUsername}>{post.repostedBy.username}</Text> reposted
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Quote Comment - For quote reposts */}
+        {post.isRepost && post.repostType === 'quote' && post.repostComment && (
+          <View style={styles.tabletQuoteContainer}>
+            <Text style={styles.tabletQuoteComment}>"{post.repostComment}"</Text>
+          </View>
+        )}
+
+        <View style={[styles.tabletCard, post.isRepost && styles.tabletRepostedCard]}>
           {/* Image Side */}
           <View style={styles.tabletImageContainer}>
             {renderImage()}
@@ -323,6 +420,14 @@ export default function PostCard({
           onSuccess={() => setGiveModalVisible(false)}
         />
 
+        <SharePostModal
+          visible={shareModalVisible}
+          postId={post.id}
+          postImageUrl={imageUri}
+          onClose={() => setShareModalVisible(false)}
+          onSuccess={() => setShareModalVisible(false)}
+        />
+
         {renderImageViewer()}
       </View>
     );
@@ -331,35 +436,64 @@ export default function PostCard({
   // Phone Layout: Text above image
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <TouchableOpacity style={styles.header} onPress={handleUserPress}>
-        <Avatar
-          size={40}
-          username={post.user.username}
-          style={styles.userAvatar}
-          customizations={post.user.activeAvatar?.customizations}
-          avatarStyle={post.user.activeAvatar?.style}
-        />
-        <View style={styles.userInfo}>
-          <Text style={styles.username}>@{post.user.username}</Text>
-          <Text style={styles.timestamp}>{formatTimeAgo(post.createdAt)}</Text>
-        </View>
-      </TouchableOpacity>
+      {/* Repost Header - Shows who reposted this with their avatar */}
+      {post.isRepost && post.repostedBy && (
+        <TouchableOpacity
+          style={styles.repostHeader}
+          onPress={() => onUserPress?.(post.repostedBy!.id)}
+        >
+          <Avatar
+            size={20}
+            username={post.repostedBy.username}
+            customizations={post.repostedBy.activeAvatar?.customizations}
+            avatarStyle={post.repostedBy.activeAvatar?.style}
+          />
+          <Ionicons name="repeat" size={14} color="#10B981" />
+          <Text style={styles.repostHeaderText}>
+            <Text style={styles.repostHeaderUsername}>{post.repostedBy.username}</Text> reposted
+          </Text>
+        </TouchableOpacity>
+      )}
 
-      {/* Caption - Above image */}
-      {post.caption && (
-        <View style={styles.captionContainer}>
-          <Text style={styles.caption}>{post.caption}</Text>
+      {/* Quote Comment - For quote reposts */}
+      {post.isRepost && post.repostType === 'quote' && post.repostComment && (
+        <View style={styles.quoteCommentContainer}>
+          <Text style={styles.quoteComment}>"{post.repostComment}"</Text>
         </View>
       )}
 
-      {/* Image with padding */}
-      <View style={styles.imageWrapper}>
-        {renderImage()}
-      </View>
+      {/* Original Post Container - Slightly indented for reposts */}
+      <View style={post.isRepost ? styles.repostedPostContainer : undefined}>
+        {/* Header */}
+        <TouchableOpacity style={styles.header} onPress={handleUserPress}>
+          <Avatar
+            size={40}
+            username={post.user.username}
+            style={styles.userAvatar}
+            customizations={post.user.activeAvatar?.customizations}
+            avatarStyle={post.user.activeAvatar?.style}
+          />
+          <View style={styles.userInfo}>
+            <Text style={styles.username}>@{post.user.username}</Text>
+            <Text style={styles.timestamp}>{formatTimeAgo(post.createdAt)}</Text>
+          </View>
+        </TouchableOpacity>
 
-      {/* Actions */}
-      {renderActions()}
+        {/* Caption - Above image */}
+        {post.caption && (
+          <View style={styles.captionContainer}>
+            <Text style={styles.caption}>{post.caption}</Text>
+          </View>
+        )}
+
+        {/* Image with padding */}
+        <View style={styles.imageWrapper}>
+          {renderImage()}
+        </View>
+
+        {/* Actions */}
+        {renderActions()}
+      </View>
 
       {/* Give Coins Modal */}
       <GiveCoinsModal
@@ -372,6 +506,15 @@ export default function PostCard({
         onSuccess={() => setGiveModalVisible(false)}
       />
 
+      {/* Share Post Modal */}
+      <SharePostModal
+        visible={shareModalVisible}
+        postId={post.id}
+        postImageUrl={imageUri}
+        onClose={() => setShareModalVisible(false)}
+        onSuccess={() => setShareModalVisible(false)}
+      />
+
       {renderImageViewer()}
     </View>
   );
@@ -381,6 +524,50 @@ const styles = StyleSheet.create({
   // Phone styles
   container: {
     backgroundColor: '#FFF',
+  },
+  // Repost styles
+  repostHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 8,
+    gap: 8,
+  },
+  repostHeaderText: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '400',
+  },
+  repostHeaderUsername: {
+    fontWeight: '600',
+    color: '#374151',
+  },
+  quoteCommentContainer: {
+    marginHorizontal: 12,
+    marginBottom: 10,
+    paddingLeft: 12,
+    paddingVertical: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#10B981',
+  },
+  quoteComment: {
+    fontSize: 15,
+    color: '#1F2937',
+    lineHeight: 22,
+    fontStyle: 'italic',
+  },
+  repostedPostContainer: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#F9FAFB',
+  },
+  repostedCount: {
+    color: '#10B981',
   },
   header: {
     flexDirection: 'row',
@@ -448,6 +635,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#374151',
   },
+  saveButton: {
+    padding: 4,
+  },
   captionContainer: {
     paddingHorizontal: 12,
     paddingBottom: 12,
@@ -504,6 +694,30 @@ const styles = StyleSheet.create({
     color: '#1F2937',
     lineHeight: 34,
     fontWeight: '400',
+  },
+  tabletRepostHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: 12,
+    gap: 10,
+  },
+  tabletQuoteContainer: {
+    paddingBottom: 12,
+    paddingLeft: 14,
+    borderLeftWidth: 3,
+    borderLeftColor: '#10B981',
+    marginBottom: 8,
+  },
+  tabletQuoteComment: {
+    fontSize: 18,
+    color: '#1F2937',
+    lineHeight: 28,
+    fontStyle: 'italic',
+  },
+  tabletRepostedCard: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#F9FAFB',
   },
   tabletActions: {
     paddingHorizontal: 0,

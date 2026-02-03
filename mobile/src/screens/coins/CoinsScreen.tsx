@@ -9,10 +9,12 @@ import {
     Alert,
     Animated
 } from 'react-native';
+import { CommonActions } from '@react-navigation/native';
 import { api } from '../../services/api';
 import CooldownCoinsWidget from '../../components/coins/CooldownCoinsWidget';
 import CoinsBalance from '../../components/coins/CoinsBalance';
 import GiveCounterBadge from '../../components/coins/GiveCounterBadge';
+import TrustConnectionItem from '../../components/TrustConnectionItem';
 import { Ionicons } from '@expo/vector-icons';
 
 interface ReceivedCoin {
@@ -22,6 +24,21 @@ interface ReceivedCoin {
     amount: number;
     message: string | null;
     createdAt: string;
+}
+
+interface TrustConnection {
+    id: string;
+    otherUser: {
+        id: string;
+        username: string;
+        avatarUrl?: string;
+    };
+    trustScore: number;
+    currentStreak: number;
+    longestStreak: number;
+    isMutualFollow: boolean;
+    totalExchangeDays: number;
+    lastExchangeDate: string;
 }
 
 export default function CoinsScreen({ navigation }: any) {
@@ -37,6 +54,8 @@ export default function CoinsScreen({ navigation }: any) {
     });
     const [receivedCoins, setReceivedCoins] = useState<ReceivedCoin[]>([]);
     const [showAllReceived, setShowAllReceived] = useState(false);
+    const [trustConnections, setTrustConnections] = useState<TrustConnection[]>([]);
+    const [showAllTrust, setShowAllTrust] = useState(false);
 
     // Animation for notification cards
     const notificationAnim = useRef(new Animated.Value(0)).current;
@@ -44,6 +63,7 @@ export default function CoinsScreen({ navigation }: any) {
     useEffect(() => {
         loadCoins();
         loadReceivedCoins();
+        loadTrustConnections();
 
         // Refresh every minute to update cooldown timer
         const interval = setInterval(loadCoins, 60000);
@@ -66,6 +86,15 @@ export default function CoinsScreen({ navigation }: any) {
             }
         } catch (error) {
             console.error('Error loading received coins:', error);
+        }
+    };
+
+    const loadTrustConnections = async () => {
+        try {
+            const response = await api.getTrustConnections(1, 10, 'score');
+            setTrustConnections(response.connections || []);
+        } catch (error) {
+            console.error('Error loading trust connections:', error);
         }
     };
 
@@ -113,6 +142,23 @@ export default function CoinsScreen({ navigation }: any) {
         setRefreshing(true);
         loadCoins();
         loadReceivedCoins();
+        loadTrustConnections();
+    };
+
+    const handleTrustConnectionPress = (connection: TrustConnection) => {
+        // Navigate to Feed stack's UserProfile screen
+        navigation.dispatch(
+            CommonActions.navigate({
+                name: 'Feed',
+                params: {
+                    screen: 'UserProfile',
+                    params: {
+                        userId: connection.otherUser.id,
+                        username: connection.otherUser.username,
+                    },
+                },
+            })
+        );
     };
 
     const formatTimeAgo = (dateString: string) => {
@@ -174,12 +220,6 @@ export default function CoinsScreen({ navigation }: any) {
                 <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
             }
         >
-            {/* Header */}
-            <View style={styles.header}>
-                <Text style={styles.title}>Positivity Coins</Text>
-                <Text style={styles.subtitle}>Spread kindness, earn rewards</Text>
-            </View>
-
             {/* Received Coins Notifications */}
             {receivedCoins.length > 0 && (
                 <View style={styles.notificationsSection}>
@@ -293,6 +333,35 @@ export default function CoinsScreen({ navigation }: any) {
                     <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
                 </TouchableOpacity>
             </View>
+
+            {/* Friendship Consistency Score Section */}
+            {trustConnections.length > 0 && (
+                <View style={styles.trustSection}>
+                    <View style={styles.trustHeader}>
+                        <View style={styles.trustHeaderLeft}>
+                            <Ionicons name="sparkles" size={20} color="#8B5CF6" />
+                            <Text style={styles.trustHeaderTitle}>Friendship Consistency</Text>
+                        </View>
+                        {trustConnections.length > 3 && (
+                            <TouchableOpacity onPress={() => setShowAllTrust(!showAllTrust)}>
+                                <Text style={styles.showMoreText}>
+                                    {showAllTrust ? 'Show less' : `See all (${trustConnections.length})`}
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                    <Text style={styles.trustDescription}>
+                        Consistency builds stronger friendships over time
+                    </Text>
+                    {(showAllTrust ? trustConnections : trustConnections.slice(0, 3)).map((connection) => (
+                        <TrustConnectionItem
+                            key={connection.id}
+                            connection={connection}
+                            onPress={handleTrustConnectionPress}
+                        />
+                    ))}
+                </View>
+            )}
         </ScrollView>
     );
 }
@@ -328,22 +397,6 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#F9FAFB'
-    },
-    header: {
-        padding: 20,
-        backgroundColor: '#FFF',
-        borderBottomWidth: 1,
-        borderBottomColor: '#E5E7EB'
-    },
-    title: {
-        fontSize: 28,
-        fontWeight: 'bold',
-        color: '#111827',
-        marginBottom: 4
-    },
-    subtitle: {
-        fontSize: 16,
-        color: '#6B7280'
     },
     balanceCard: {
         backgroundColor: '#FFF',
@@ -549,5 +602,41 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '700',
         color: '#FFF'
+    },
+
+    // Trust Connections styles
+    trustSection: {
+        backgroundColor: '#FFF',
+        marginHorizontal: 16,
+        marginTop: 8,
+        marginBottom: 24,
+        borderRadius: 16,
+        padding: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3
+    },
+    trustHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 4
+    },
+    trustHeaderLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8
+    },
+    trustHeaderTitle: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#111827'
+    },
+    trustDescription: {
+        fontSize: 13,
+        color: '#6B7280',
+        marginBottom: 12
     }
 });

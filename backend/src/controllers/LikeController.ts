@@ -29,14 +29,19 @@ export class LikeController {
         return;
       }
 
-      // Check if already liked
+      // Check if already liked - make it idempotent
       const existingLike = await Like.findOne({
         where: { userId, postId }
       });
 
       if (existingLike) {
         await transaction.rollback();
-        res.status(400).json({ error: 'Post already liked' });
+        // Return success anyway (idempotent) - already liked is fine
+        res.status(200).json({
+          message: 'Post already liked',
+          liked: true,
+          likesCount: post.likesCount
+        });
         return;
       }
 
@@ -88,7 +93,12 @@ export class LikeController {
 
       if (deleted === 0) {
         await transaction.rollback();
-        res.status(400).json({ error: 'Post not liked' });
+        // Return success anyway (idempotent) - not liked is fine for unlike
+        res.status(200).json({
+          message: 'Post was not liked',
+          liked: false,
+          likesCount: post.likesCount
+        });
         return;
       }
 

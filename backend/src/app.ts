@@ -17,6 +17,19 @@ import followRoutes from './routes/follows';
 import likeRoutes from './routes/likes';
 import commentRoutes from './routes/comments';
 import coinsRoutes from './routes/coins';
+import messagesRoutes from './routes/messages';
+import avatarsRoutes from './routes/avatars';
+import uploadRoutes from './routes/upload';
+import wellbeingRoutes from './routes/wellbeing';
+import fullBodyAvatarRoutes from './routes/fullBodyAvatar';
+// Phase 3.3: Community/Topic routes
+import topicsRoutes from './routes/topics';
+import favoritesRoutes from './routes/favorites';
+import medalsRoutes from './routes/medals';
+import savedPostsRoutes from './routes/savedPosts';
+import repostsRoutes from './routes/reposts';
+// Trust Score routes
+import trustRoutes from './routes/trust';
 
 const app = express();
 
@@ -67,6 +80,21 @@ app.use('/api/internal', internalRoutes);
 app.use('/api', likeRoutes);
 app.use('/api', commentRoutes);
 app.use('/api/coins', coinsRoutes);
+app.use('/api/messages', messagesRoutes);
+app.use('/api/avatars', avatarsRoutes);
+app.use('/api/upload', uploadRoutes);
+app.use('/api/wellbeing', wellbeingRoutes);
+app.use('/api/full-body-avatar', fullBodyAvatarRoutes);
+
+// Phase 3.3: Community/Topic routes
+app.use('/api/topics', topicsRoutes);
+app.use('/api/favorites', favoritesRoutes);
+app.use('/api/medals', medalsRoutes);
+app.use('/api', savedPostsRoutes);
+app.use('/api/reposts', repostsRoutes);
+
+// Trust Score routes
+app.use('/api/trust', trustRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response) => {

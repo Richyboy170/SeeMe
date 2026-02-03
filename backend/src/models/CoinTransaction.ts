@@ -12,6 +12,7 @@ export interface CoinTransactionAttributes {
   transactionType: string;
   relatedPostId: string | null;
   relatedCommentId: string | null;
+  topicId: string | null;  // Phase 3.3: Topic-specific transactions
   message: string | null;
   createdAt: Date;
 }
@@ -21,7 +22,7 @@ export interface CoinTransactionAttributes {
  */
 interface CoinTransactionCreationAttributes extends Optional<
   CoinTransactionAttributes,
-  'id' | 'fromUserId' | 'relatedPostId' | 'relatedCommentId' | 'message' | 'createdAt'
+  'id' | 'fromUserId' | 'relatedPostId' | 'relatedCommentId' | 'topicId' | 'message' | 'createdAt'
 > {}
 
 /**
@@ -45,6 +46,7 @@ export class CoinTransaction extends Model<CoinTransactionAttributes, CoinTransa
   public transactionType!: string;
   public relatedPostId!: string | null;
   public relatedCommentId!: string | null;
+  public topicId!: string | null;
   public message!: string | null;
   public readonly createdAt!: Date;
 }
@@ -100,7 +102,12 @@ CoinTransaction.init(
             'earned_ad',
             'earned_cooldown',
             'given_to_user',
-            'received_from_user'
+            'received_from_user',
+            // Phase 3.3: Community encouragement types
+            'encouragement',
+            'gift',
+            'post_reward',
+            'beginner_bonus'
           ]],
           msg: 'Invalid transaction type'
         }
@@ -126,6 +133,16 @@ CoinTransaction.init(
       },
       onDelete: 'SET NULL',
       comment: 'Related comment if applicable'
+    },
+    topicId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'topics',
+        key: 'id'
+      },
+      onDelete: 'SET NULL',
+      comment: 'Phase 3.3: Topic where coins were given'
     },
     message: {
       type: DataTypes.TEXT,

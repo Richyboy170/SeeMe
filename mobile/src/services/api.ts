@@ -96,11 +96,17 @@ class ApiClient {
       async (error: AxiosError) => {
         if (error.response?.status === 401 || error.response?.status === 403) {
           const errorData = error.response?.data as any;
-          // Check if it's an invalid/expired token error
-          if (errorData?.error?.includes('token') || errorData?.error?.includes('Token')) {
+          const errorMsg = errorData?.error || errorData?.message || '';
+          // Check if it's an invalid/expired token error or user not found
+          if (
+            errorMsg.includes('token') ||
+            errorMsg.includes('Token') ||
+            errorMsg.includes('User not found') ||
+            errorMsg.includes('log in again')
+          ) {
             // Clear token and force re-login
             await AsyncStorage.removeItem('auth_token');
-            console.log('Token invalid/expired - cleared auth token. Please log in again.');
+            console.log('Auth error - cleared auth token. Please log in again.');
           }
         }
         return Promise.reject(error);
@@ -176,7 +182,12 @@ class ApiClient {
     return response.data;
   }
 
-  async createPost(imageUri: string, caption: string) {
+  async createPost(
+    imageUri: string,
+    caption: string,
+    visibility: 'friends_only' | 'topics_only' | 'topics_and_friends' = 'friends_only',
+    topicIds: string[] = []
+  ) {
     try {
       const formData = new FormData();
 
@@ -195,7 +206,13 @@ class ApiClient {
         formData.append('caption', caption);
       }
 
-      console.log('Creating post with image:', filename, 'caption:', caption);
+      // Add visibility and topicIds (Phase 3.3)
+      formData.append('visibility', visibility);
+      if (topicIds.length > 0) {
+        formData.append('topicIds', JSON.stringify(topicIds));
+      }
+
+      console.log('Creating post with image:', filename, 'caption:', caption, 'visibility:', visibility, 'topics:', topicIds);
 
       const response = await this.client.post('/posts', formData, {
         headers: {
@@ -219,6 +236,27 @@ class ApiClient {
   async getUserPosts(username?: string) {
     const endpoint = username ? `/posts/user/${username}` : '/posts/me/posts';
     const response = await this.client.get(endpoint);
+    return response.data;
+  }
+
+  // Saved Posts methods
+  async getSavedPosts(page: number = 1, limit: number = 20) {
+    const response = await this.client.get(`/saved-posts?page=${page}&limit=${limit}`);
+    return response.data;
+  }
+
+  async savePost(postId: string) {
+    const response = await this.client.post(`/posts/${postId}/save`);
+    return response.data;
+  }
+
+  async unsavePost(postId: string) {
+    const response = await this.client.delete(`/posts/${postId}/save`);
+    return response.data;
+  }
+
+  async checkSavedStatus(postId: string) {
+    const response = await this.client.get(`/posts/${postId}/saved`);
     return response.data;
   }
 
@@ -510,6 +548,124 @@ class ApiClient {
 
   async activateAvatar(avatarId: string) {
     const response = await this.client.post(`/avatars/${avatarId}/activate`);
+    return response.data;
+  }
+
+  // Topics/Communities methods
+  async getTopics(category?: string, search?: string) {
+    const params = new URLSearchParams();
+    if (category) params.append('category', category);
+    if (search) params.append('search', search);
+    const response = await this.client.get(`/topics?${params.toString()}`);
+    return response.data;
+  }
+
+  async getTopicCategories() {
+    const response = await this.client.get('/topics/categories');
+    return response.data;
+  }
+
+  async getTopicBySlug(topicSlug: string) {
+    const response = await this.client.get(`/topics/${topicSlug}`);
+    return response.data;
+  }
+
+  async getTopicByInviteCode(inviteCode: string) {
+    const response = await this.client.get(`/topics/invite/${inviteCode}`);
+    return response.data;
+  }
+
+  async createTopic(data: {
+    name: string;
+    description?: string;
+    iconEmoji?: string;
+    category: string;
+  }) {
+    const response = await this.client.post('/topics', data);
+    return response.data;
+  }
+
+  async followTopic(topicId: string) {
+    const response = await this.client.post(`/topics/${topicId}/follow`);
+    return response.data;
+  }
+
+  async unfollowTopic(topicId: string) {
+    const response = await this.client.delete(`/topics/${topicId}/follow`);
+    return response.data;
+  }
+
+  async getTopicLeaderboard(topicId: string, type: 'givers' | 'receivers' = 'givers', period: 'weekly' | 'monthly' | 'all_time' = 'weekly') {
+    const response = await this.client.get(`/topics/${topicId}/leaderboard?type=${type}&period=${period}`);
+    return response.data;
+  }
+
+  async getTopicPosts(topicId: string, page: number = 1) {
+    const response = await this.client.get(`/topics/${topicId}/posts?page=${page}`);
+    return response.data;
+  }
+
+  async getTopicBeginners(topicId: string) {
+    const response = await this.client.get(`/topics/${topicId}/beginners`);
+    return response.data;
+  }
+
+  async getTopicShareLinks(topicId: string) {
+    const response = await this.client.get(`/topics/${topicId}/share`);
+    return response.data;
+  }
+
+  async getMyFollowedTopics() {
+    // Get all topics and filter to only those the user follows
+    const response = await this.client.get('/topics?following=true');
+    return response.data;
+  }
+
+  // Favorites methods
+  async addFavorite(favoriteUserId: string) {
+    const response = await this.client.post(`/favorites/${favoriteUserId}`);
+    return response.data;
+  }
+
+  async removeFavorite(favoriteUserId: string) {
+    const response = await this.client.delete(`/favorites/${favoriteUserId}`);
+    return response.data;
+  }
+
+  async checkFavorite(userId: string) {
+    const response = await this.client.get(`/favorites/${userId}/status`);
+    return response.data;
+  }
+
+  async getMyFavorites() {
+    const response = await this.client.get('/favorites');
+    return response.data;
+  }
+
+  // Medals methods
+  async getUserMedals(userId: string) {
+    const response = await this.client.get(`/medals/user/${userId}`);
+    return response.data;
+  }
+
+  async getMyMedals() {
+    const response = await this.client.get('/medals/me');
+    return response.data;
+  }
+
+  // Trust Score methods
+  async getTrustScore(userId: string) {
+    const response = await this.client.get(`/trust/score/${userId}`);
+    return response.data;
+  }
+
+  async getTrustConnections(page: number = 1, limit: number = 20, sortBy: 'score' | 'streak' | 'recent' = 'score') {
+    const response = await this.client.get(`/trust/connections?page=${page}&limit=${limit}&sortBy=${sortBy}`);
+    return response.data;
+  }
+
+  async getTrustStats() {
+    const response = await this.client.get('/trust/stats');
     return response.data;
   }
 

@@ -11,6 +11,15 @@ export enum PostStatus {
 }
 
 /**
+ * Post visibility enum (Phase 3.3)
+ */
+export enum PostVisibility {
+  FRIENDS_ONLY = 'friends_only',
+  TOPICS_ONLY = 'topics_only',
+  TOPICS_AND_FRIENDS = 'topics_and_friends'
+}
+
+/**
  * Post attributes interface
  */
 export interface PostAttributes {
@@ -21,6 +30,7 @@ export interface PostAttributes {
   thumbnailUrl: string | null;
   caption: string | null;
   status: PostStatus;
+  visibility: PostVisibility;  // Phase 3.3: Post visibility
   processingError: string | null;
   processingStartedAt: Date | null;
   processingCompletedAt: Date | null;
@@ -28,6 +38,7 @@ export interface PostAttributes {
   avatarId: string | null;
   likesCount: number;
   commentsCount: number;
+  repostCount: number;
   imageWidth: number | null;
   imageHeight: number | null;
   facesDetected: number | null;
@@ -45,6 +56,7 @@ interface PostCreationAttributes extends Optional<
   | 'thumbnailUrl'
   | 'caption'
   | 'status'
+  | 'visibility'
   | 'processingError'
   | 'processingStartedAt'
   | 'processingCompletedAt'
@@ -52,6 +64,7 @@ interface PostCreationAttributes extends Optional<
   | 'avatarId'
   | 'likesCount'
   | 'commentsCount'
+  | 'repostCount'
   | 'imageWidth'
   | 'imageHeight'
   | 'facesDetected'
@@ -70,6 +83,7 @@ export class Post extends Model<PostAttributes, PostCreationAttributes> implemen
   public thumbnailUrl!: string | null;
   public caption!: string | null;
   public status!: PostStatus;
+  public visibility!: PostVisibility;
   public processingError!: string | null;
   public processingStartedAt!: Date | null;
   public processingCompletedAt!: Date | null;
@@ -77,6 +91,7 @@ export class Post extends Model<PostAttributes, PostCreationAttributes> implemen
   public avatarId!: string | null;
   public likesCount!: number;
   public commentsCount!: number;
+  public repostCount!: number;
   public imageWidth!: number | null;
   public imageHeight!: number | null;
   public facesDetected!: number | null;
@@ -134,6 +149,18 @@ Post.init(
       },
       comment: 'Current processing status of the post'
     },
+    visibility: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+      defaultValue: PostVisibility.FRIENDS_ONLY,
+      validate: {
+        isIn: {
+          args: [[PostVisibility.FRIENDS_ONLY, PostVisibility.TOPICS_ONLY, PostVisibility.TOPICS_AND_FRIENDS]],
+          msg: 'Visibility must be friends_only, topics_only, or topics_and_friends'
+        }
+      },
+      comment: 'Phase 3.3: Who can see this post in their feed'
+    },
     processingError: {
       type: DataTypes.TEXT,
       allowNull: true,
@@ -170,6 +197,12 @@ Post.init(
       defaultValue: 0,
       allowNull: false,
       comment: 'Number of comments on this post'
+    },
+    repostCount: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: false,
+      comment: 'Number of reposts on this post'
     },
     imageWidth: {
       type: DataTypes.INTEGER,

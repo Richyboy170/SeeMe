@@ -3,12 +3,28 @@ import { Post } from './Post';
 import { Follow } from './Follow';
 import { Like } from './Like';
 import { Comment } from './Comment';
+import { SavedPost } from './SavedPost';
+import { Repost } from './Repost';
 import { PositivityCoins } from './PositivityCoins';
 import { CoinTransaction } from './CoinTransaction';
 import { CoinGivingActivity } from './CoinGivingActivity';
 import { Conversation } from './Conversation';
 import { Message } from './Message';
 import { BlockedUser } from './BlockedUser';
+
+// Phase 3.3: Community/Topic imports
+import { Topic } from './Topic';
+import { TopicFollow } from './TopicFollow';
+import { PostTopic } from './PostTopic';
+import { UserFavorite } from './UserFavorite';
+import { UserTopicStatus } from './UserTopicStatus';
+import { EncouragementStreak } from './EncouragementStreak';
+import { UserCommunityMedal } from './UserCommunityMedal';
+import { UserGlobalMedal } from './UserGlobalMedal';
+
+// Trust Score imports
+import { FriendTrust } from './FriendTrust';
+import { FriendTrustDailyLog } from './FriendTrustDailyLog';
 
 /**
  * Set up model associations
@@ -100,6 +116,64 @@ export const setupAssociations = () => {
   Like.belongsTo(User, {
     foreignKey: 'userId',
     as: 'user'
+  });
+
+  // User -> SavedPost: One-to-Many
+  // A user can save many posts
+  User.hasMany(SavedPost, {
+    foreignKey: 'userId',
+    as: 'savedPosts',
+    onDelete: 'CASCADE'
+  });
+
+  // SavedPost -> User: Many-to-One
+  SavedPost.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user'
+  });
+
+  // Post -> SavedPost: One-to-Many
+  // A post can be saved by many users
+  Post.hasMany(SavedPost, {
+    foreignKey: 'postId',
+    as: 'saves',
+    onDelete: 'CASCADE'
+  });
+
+  // SavedPost -> Post: Many-to-One
+  SavedPost.belongsTo(Post, {
+    foreignKey: 'postId',
+    as: 'post'
+  });
+
+  // ===== REPOST ASSOCIATIONS =====
+
+  // User -> Repost: One-to-Many
+  // A user can repost many posts
+  User.hasMany(Repost, {
+    foreignKey: 'userId',
+    as: 'reposts',
+    onDelete: 'CASCADE'
+  });
+
+  // Repost -> User: Many-to-One
+  Repost.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user'
+  });
+
+  // Post -> Repost: One-to-Many
+  // A post can be reposted many times
+  Post.hasMany(Repost, {
+    foreignKey: 'originalPostId',
+    as: 'reposts',
+    onDelete: 'CASCADE'
+  });
+
+  // Repost -> Post: Many-to-One
+  Repost.belongsTo(Post, {
+    foreignKey: 'originalPostId',
+    as: 'originalPost'
   });
 
   // Post -> Comment: One-to-Many
@@ -327,5 +401,258 @@ export const setupAssociations = () => {
     foreignKey: 'blockedId',
     as: 'blockedByUsers',
     onDelete: 'CASCADE'
+  });
+
+  // ===== PHASE 3.3: COMMUNITY/TOPIC ASSOCIATIONS =====
+
+  // Topic -> User (creator): Many-to-One
+  Topic.belongsTo(User, {
+    foreignKey: 'creatorId',
+    as: 'creator'
+  });
+
+  // User -> Topic (created topics): One-to-Many
+  User.hasMany(Topic, {
+    foreignKey: 'creatorId',
+    as: 'createdTopics',
+    onDelete: 'SET NULL'
+  });
+
+  // TopicFollow -> User: Many-to-One
+  TopicFollow.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user'
+  });
+
+  // TopicFollow -> Topic: Many-to-One
+  TopicFollow.belongsTo(Topic, {
+    foreignKey: 'topicId',
+    as: 'topic'
+  });
+
+  // User -> TopicFollow: One-to-Many
+  User.hasMany(TopicFollow, {
+    foreignKey: 'userId',
+    as: 'topicFollows',
+    onDelete: 'CASCADE'
+  });
+
+  // Topic -> TopicFollow: One-to-Many
+  Topic.hasMany(TopicFollow, {
+    foreignKey: 'topicId',
+    as: 'topicFollows',
+    onDelete: 'CASCADE'
+  });
+
+  // PostTopic -> Post: Many-to-One
+  PostTopic.belongsTo(Post, {
+    foreignKey: 'postId',
+    as: 'post'
+  });
+
+  // PostTopic -> Topic: Many-to-One
+  PostTopic.belongsTo(Topic, {
+    foreignKey: 'topicId',
+    as: 'topic'
+  });
+
+  // Post -> PostTopic: One-to-Many
+  Post.hasMany(PostTopic, {
+    foreignKey: 'postId',
+    as: 'postTopics',
+    onDelete: 'CASCADE'
+  });
+
+  // Topic -> PostTopic: One-to-Many
+  Topic.hasMany(PostTopic, {
+    foreignKey: 'topicId',
+    as: 'postTopics',
+    onDelete: 'CASCADE'
+  });
+
+  // Post <-> Topic: Many-to-Many through PostTopic
+  Post.belongsToMany(Topic, {
+    through: PostTopic,
+    as: 'topics',
+    foreignKey: 'postId',
+    otherKey: 'topicId'
+  });
+
+  Topic.belongsToMany(Post, {
+    through: PostTopic,
+    as: 'posts',
+    foreignKey: 'topicId',
+    otherKey: 'postId'
+  });
+
+  // UserFavorite -> User (who favorites): Many-to-One
+  UserFavorite.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user'
+  });
+
+  // UserFavorite -> User (favorited): Many-to-One
+  UserFavorite.belongsTo(User, {
+    foreignKey: 'favoriteUserId',
+    as: 'favoriteUser'
+  });
+
+  // User -> UserFavorite (my favorites): One-to-Many
+  User.hasMany(UserFavorite, {
+    foreignKey: 'userId',
+    as: 'favorites',
+    onDelete: 'CASCADE'
+  });
+
+  // User -> UserFavorite (favorited by): One-to-Many
+  User.hasMany(UserFavorite, {
+    foreignKey: 'favoriteUserId',
+    as: 'favoritedBy',
+    onDelete: 'CASCADE'
+  });
+
+  // UserTopicStatus -> User: Many-to-One
+  UserTopicStatus.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user'
+  });
+
+  // UserTopicStatus -> Topic: Many-to-One
+  UserTopicStatus.belongsTo(Topic, {
+    foreignKey: 'topicId',
+    as: 'topic'
+  });
+
+  // User -> UserTopicStatus: One-to-Many
+  User.hasMany(UserTopicStatus, {
+    foreignKey: 'userId',
+    as: 'topicStatuses',
+    onDelete: 'CASCADE'
+  });
+
+  // Topic -> UserTopicStatus: One-to-Many
+  Topic.hasMany(UserTopicStatus, {
+    foreignKey: 'topicId',
+    as: 'userStatuses',
+    onDelete: 'CASCADE'
+  });
+
+  // EncouragementStreak -> User: Many-to-One
+  EncouragementStreak.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user'
+  });
+
+  // EncouragementStreak -> Topic: Many-to-One
+  EncouragementStreak.belongsTo(Topic, {
+    foreignKey: 'topicId',
+    as: 'topic'
+  });
+
+  // User -> EncouragementStreak: One-to-Many
+  User.hasMany(EncouragementStreak, {
+    foreignKey: 'userId',
+    as: 'encouragementStreaks',
+    onDelete: 'CASCADE'
+  });
+
+  // Topic -> EncouragementStreak: One-to-Many
+  Topic.hasMany(EncouragementStreak, {
+    foreignKey: 'topicId',
+    as: 'encouragementStreaks',
+    onDelete: 'CASCADE'
+  });
+
+  // UserCommunityMedal -> User: Many-to-One
+  UserCommunityMedal.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user'
+  });
+
+  // UserCommunityMedal -> Topic: Many-to-One
+  UserCommunityMedal.belongsTo(Topic, {
+    foreignKey: 'topicId',
+    as: 'topic'
+  });
+
+  // User -> UserCommunityMedal: One-to-Many
+  User.hasMany(UserCommunityMedal, {
+    foreignKey: 'userId',
+    as: 'communityMedals',
+    onDelete: 'CASCADE'
+  });
+
+  // Topic -> UserCommunityMedal: One-to-Many
+  Topic.hasMany(UserCommunityMedal, {
+    foreignKey: 'topicId',
+    as: 'communityMedals',
+    onDelete: 'CASCADE'
+  });
+
+  // UserGlobalMedal -> User: Many-to-One
+  UserGlobalMedal.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user'
+  });
+
+  // User -> UserGlobalMedal: One-to-Many
+  User.hasMany(UserGlobalMedal, {
+    foreignKey: 'userId',
+    as: 'globalMedals',
+    onDelete: 'CASCADE'
+  });
+
+  // CoinTransaction -> Topic (for topic-specific coins): Many-to-One
+  CoinTransaction.belongsTo(Topic, {
+    foreignKey: 'topicId',
+    as: 'topic'
+  });
+
+  // Topic -> CoinTransaction: One-to-Many
+  Topic.hasMany(CoinTransaction, {
+    foreignKey: 'topicId',
+    as: 'coinTransactions',
+    onDelete: 'SET NULL'
+  });
+
+  // ===== TRUST SCORE ASSOCIATIONS =====
+
+  // FriendTrust -> User (userA): Many-to-One
+  FriendTrust.belongsTo(User, {
+    foreignKey: 'userIdA',
+    as: 'userA'
+  });
+
+  // FriendTrust -> User (userB): Many-to-One
+  FriendTrust.belongsTo(User, {
+    foreignKey: 'userIdB',
+    as: 'userB'
+  });
+
+  // User -> FriendTrust (as userA): One-to-Many
+  User.hasMany(FriendTrust, {
+    foreignKey: 'userIdA',
+    as: 'trustConnectionsAsA',
+    onDelete: 'CASCADE'
+  });
+
+  // User -> FriendTrust (as userB): One-to-Many
+  User.hasMany(FriendTrust, {
+    foreignKey: 'userIdB',
+    as: 'trustConnectionsAsB',
+    onDelete: 'CASCADE'
+  });
+
+  // FriendTrust -> FriendTrustDailyLog: One-to-Many
+  FriendTrust.hasMany(FriendTrustDailyLog, {
+    foreignKey: 'friendTrustId',
+    as: 'dailyLogs',
+    onDelete: 'CASCADE'
+  });
+
+  // FriendTrustDailyLog -> FriendTrust: Many-to-One
+  FriendTrustDailyLog.belongsTo(FriendTrust, {
+    foreignKey: 'friendTrustId',
+    as: 'friendTrust'
   });
 };

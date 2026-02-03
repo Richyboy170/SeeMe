@@ -203,7 +203,11 @@ export class FollowController {
         order: [['createdAt', 'DESC']]
       });
 
-      const followerUsers = follows.map(f => f.get('follower') as any);
+      // Convert Sequelize models to plain objects to ensure proper spreading
+      const followerUsers = follows.map(f => {
+        const user = f.get('follower') as any;
+        return user ? user.get({ plain: true }) : null;
+      }).filter(Boolean);
       const userIds = followerUsers.map((u: any) => u.id);
 
       // Fetch active avatars
@@ -266,7 +270,11 @@ export class FollowController {
         order: [['createdAt', 'DESC']]
       });
 
-      const followingUsers = follows.map(f => f.get('followingUser') as any);
+      // Convert Sequelize models to plain objects to ensure proper spreading
+      const followingUsers = follows.map(f => {
+        const user = f.get('followingUser') as any;
+        return user ? user.get({ plain: true }) : null;
+      }).filter(Boolean);
       const userIds = followingUsers.map((u: any) => u.id);
 
       // Fetch active avatars

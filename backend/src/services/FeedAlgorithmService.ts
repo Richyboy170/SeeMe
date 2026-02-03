@@ -1,9 +1,12 @@
 import { Op } from 'sequelize';
-import { Post, PostStatus } from '../models/Post';
+import { Post, PostStatus, PostVisibility } from '../models/Post';
 import { User } from '../models/User';
 import { Follow } from '../models/Follow';
 import { Like } from '../models/Like';
+import { Repost } from '../models/Repost';
+import { SavedPost } from '../models/SavedPost';
 import { UserInteraction, InteractionType } from '../models/UserInteraction';
+import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
 import { logger } from '../utils/logger';
 
 /**
@@ -13,6 +16,7 @@ import { logger } from '../utils/logger';
  * 2. Post engagement (likes, comments)
  * 3. Recency (newer posts get a boost)
  * 4. Diversity (mix content to avoid filter bubbles)
+ * 5. Reposts from followed users (Twitter-like repost display)
  */
 
 interface ScoredPost {
@@ -21,9 +25,47 @@ interface ScoredPost {
   reasons: string[];
 }
 
+interface FeedItem {
+  id: string;
+  type: 'post' | 'repost';
+  post: any;
+  repostedBy?: {
+    id: string;
+    username: string;
+    activeAvatar?: any;
+  };
+  repostComment?: string | null;
+  repostType?: 'repost' | 'quote';
+  repostCreatedAt?: Date;
+  score: number;
+  reasons: string[];
+}
+
+// Helper to format avatar data for API response
+function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
+  if (!avatar) return null;
+  return {
+    id: avatar.id,
+    style: avatar.style,
+    customizations: {
+      skinTone: avatar.skinTone,
+      eyeColor: avatar.eyeColor,
+      eyeSize: avatar.eyeSize,
+      hairColor: avatar.hairColor,
+      hairStyle: avatar.hairStyle,
+      accessories: {
+        glasses: avatar.glasses,
+        hat: avatar.hat,
+        earrings: avatar.earrings,
+      },
+    },
+  };
+}
+
 export class FeedAlgorithmService {
   /**
    * Get algorithmically ranked feed for a user
+   * Includes both regular posts and reposts from followed users (Twitter-like)
    */
   static async getAlgorithmicFeed(
     userId: string,
@@ -41,20 +83,23 @@ export class FeedAlgorithmService {
 
       const followingIds = following.map(f => f.followingId);
 
-      if (followingIds.length === 0) {
-        // No follows yet - return discover feed with algorithmic ranking
-        return await this.getDiscoverFeedAlgorithmic(userId, page, limit);
-      }
-
       // Get user affinity scores (who they engage with most)
       const userAffinities = await this.calculateUserAffinities(userId, followingIds);
 
-      // Get recent posts from followed users (fetch more to score and rank)
+      // Include user's own posts in the feed
+      const feedUserIds = [...followingIds, userId];
+
+      // Get recent posts from followed users AND own posts (fetch more to score and rank)
+      // Only include posts visible to friends (exclude topics_only)
       const postsToFetch = Math.min(limit * 3, 100);
       const { rows: posts } = await Post.findAndCountAll({
         where: {
-          userId: followingIds,
-          status: PostStatus.COMPLETED
+          userId: feedUserIds,
+          status: PostStatus.COMPLETED,
+          [Op.or]: [
+            { visibility: { [Op.in]: [PostVisibility.FRIENDS_ONLY, PostVisibility.TOPICS_AND_FRIENDS] } },
+            { visibility: null }  // Backwards compatibility
+          ]
         },
         include: [{
           model: User,
@@ -72,57 +117,322 @@ export class FeedAlgorithmService {
           'caption',
           'likesCount',
           'commentsCount',
+          'repostCount',
           'createdAt'
         ]
       });
 
-      // Score and rank posts
-      const scoredPosts = await this.scoreAndRankPosts(posts, userId, userAffinities);
-
-      // Apply pagination to scored posts
-      const paginatedPosts = scoredPosts.slice(offset, offset + limit);
-
-      // Get liked status for paginated posts
-      const postIds = paginatedPosts.map(sp => sp.post.id);
-      const likes = await Like.findAll({
+      // Get reposts from followed users (including the user's own reposts)
+      const reposts = await Repost.findAll({
         where: {
-          userId,
-          postId: postIds
+          userId: feedUserIds
         },
-        attributes: ['postId']
+        include: [
+          {
+            model: User,
+            as: 'user',
+            attributes: ['id', 'username', 'activeAvatarId']
+          },
+          {
+            model: Post,
+            as: 'originalPost',
+            where: {
+              status: PostStatus.COMPLETED
+            },
+            include: [{
+              model: User,
+              as: 'user',
+              attributes: ['id', 'username', 'activeAvatarId']
+            }],
+            attributes: [
+              'id',
+              'userId',
+              'processedImageUrl',
+              'thumbnailUrl',
+              'caption',
+              'likesCount',
+              'commentsCount',
+              'repostCount',
+              'createdAt'
+            ]
+          }
+        ],
+        order: [['createdAt', 'DESC']],
+        limit: postsToFetch
       });
+
+      // Convert posts to feed items
+      const feedItems: FeedItem[] = posts.map(post => ({
+        id: post.id,
+        type: 'post' as const,
+        post,
+        score: 0,
+        reasons: []
+      }));
+
+      // Convert reposts to feed items (avoid duplicating posts already in feed)
+      const existingPostIds = new Set(posts.map(p => p.id));
+
+      for (const repost of reposts) {
+        const originalPost = repost.get('originalPost') as Post;
+        if (!originalPost) continue;
+
+        // Get the reposter's user data as plain object
+        const repostUser = repost.get('user') as User | null;
+        if (!repostUser) continue;
+
+        const repostedByData = {
+          id: repostUser.id,
+          username: repostUser.username,
+          activeAvatarId: repostUser.activeAvatarId,
+        };
+
+        // Add as a repost feed item (shows "User reposted" header)
+        feedItems.push({
+          id: `repost-${repost.id}`,
+          type: 'repost',
+          post: originalPost,
+          repostedBy: repostedByData,
+          repostComment: repost.comment,
+          repostType: repost.type as 'repost' | 'quote',
+          repostCreatedAt: repost.createdAt,
+          score: 0,
+          reasons: []
+        });
+      }
+
+      // Score and rank all feed items
+      const scoredItems = await this.scoreAndRankFeedItems(feedItems, userId, userAffinities);
+
+      // Apply pagination
+      const paginatedItems = scoredItems.slice(offset, offset + limit);
+
+      // Get all unique post IDs for like/save status
+      const postIds = paginatedItems.map(item =>
+        item.type === 'post' ? item.post.id : item.post.id
+      );
+
+      const [likes, savedPosts, userReposts] = await Promise.all([
+        Like.findAll({
+          where: { userId, postId: postIds },
+          attributes: ['postId']
+        }),
+        SavedPost.findAll({
+          where: { userId, postId: postIds },
+          attributes: ['postId']
+        }),
+        Repost.findAll({
+          where: { userId, originalPostId: postIds },
+          attributes: ['originalPostId', 'type']
+        })
+      ]);
+
       const likedPostIds = new Set(likes.map(like => like.postId));
+      const savedPostIds = new Set(savedPosts.map(sp => sp.postId));
+      const repostedPostMap = new Map(userReposts.map(r => [r.originalPostId, r.type]));
+
+      // Fetch active avatars for all users in the feed
+      const allUserIds = new Set<string>();
+      paginatedItems.forEach(item => {
+        const postUser = item.post.get ? item.post.get('user') : item.post.user;
+        if (postUser?.id) allUserIds.add(postUser.id);
+        if (item.repostedBy?.id) allUserIds.add(item.repostedBy.id);
+      });
+
+      const avatars = await AvatarConfigSQL.findAll({
+        where: {
+          userId: Array.from(allUserIds),
+          isActive: true,
+        },
+      });
+      const avatarsByUserId = new Map(avatars.map(a => [a.userId, a]));
 
       // Format response
-      const formattedPosts = paginatedPosts.map(sp => ({
-        id: sp.post.id,
-        user: sp.post.get('user'),
-        imageUrl: sp.post.processedImageUrl,
-        thumbnailUrl: sp.post.thumbnailUrl,
-        caption: sp.post.caption,
-        likesCount: sp.post.likesCount,
-        commentsCount: sp.post.commentsCount,
-        createdAt: sp.post.createdAt,
-        likedByMe: likedPostIds.has(sp.post.id),
-        // Include algorithm metadata for debugging (can be removed in production)
-        _algorithmScore: sp.score,
-        _algorithmReasons: sp.reasons
-      }));
+      const formattedPosts = paginatedItems.map(item => {
+        // Extract post user data as plain object
+        const postUserRaw = item.post.get ? item.post.get('user') : item.post.user;
+        const postUser = postUserRaw ? {
+          id: postUserRaw.id,
+          username: postUserRaw.username,
+          activeAvatarId: postUserRaw.activeAvatarId,
+        } : null;
+        const postAvatar = avatarsByUserId.get(postUser?.id);
+
+        const basePost = {
+          id: item.post.id,
+          user: postUser ? {
+            ...postUser,
+            activeAvatar: formatAvatarForResponse(postAvatar || null),
+          } : null,
+          imageUrl: item.post.processedImageUrl,
+          thumbnailUrl: item.post.thumbnailUrl,
+          caption: item.post.caption,
+          likesCount: item.post.likesCount,
+          commentsCount: item.post.commentsCount,
+          repostCount: item.post.repostCount || 0,
+          createdAt: item.post.createdAt,
+          likedByMe: likedPostIds.has(item.post.id),
+          savedByMe: savedPostIds.has(item.post.id),
+          repostedByMe: repostedPostMap.has(item.post.id),
+          myRepostType: repostedPostMap.get(item.post.id) || null,
+          // Algorithm metadata
+          _algorithmScore: item.score,
+          _algorithmReasons: item.reasons
+        };
+
+        // Add repost information if this is a repost
+        if (item.type === 'repost' && item.repostedBy) {
+          const repostedByAvatar = avatarsByUserId.get(item.repostedBy.id);
+          return {
+            ...basePost,
+            feedItemId: item.id, // Unique feed item ID
+            isRepost: true,
+            repostedBy: {
+              id: item.repostedBy.id,
+              username: item.repostedBy.username,
+              activeAvatar: formatAvatarForResponse(repostedByAvatar || null),
+            },
+            repostType: item.repostType,
+            repostComment: item.repostComment,
+            repostCreatedAt: item.repostCreatedAt,
+          };
+        }
+
+        return {
+          ...basePost,
+          feedItemId: item.id,
+          isRepost: false
+        };
+      });
 
       return {
         posts: formattedPosts,
         pagination: {
           page,
           limit,
-          total: scoredPosts.length,
-          totalPages: Math.ceil(scoredPosts.length / limit),
-          hasMore: offset + limit < scoredPosts.length
+          total: scoredItems.length,
+          totalPages: Math.ceil(scoredItems.length / limit),
+          hasMore: offset + limit < scoredItems.length
         }
       };
     } catch (error) {
       logger.error('Error getting algorithmic feed', { error, userId });
       throw error;
     }
+  }
+
+  /**
+   * Score and rank feed items (posts + reposts)
+   */
+  private static async scoreAndRankFeedItems(
+    items: FeedItem[],
+    _userId: string,
+    userAffinities: Map<string, number>
+  ): Promise<FeedItem[]> {
+    const now = new Date();
+
+    for (const item of items) {
+      let score = 0;
+      const reasons: string[] = [];
+
+      // Get the relevant user ID (reposter for reposts, poster for posts)
+      const relevantUserId = item.type === 'repost' && item.repostedBy
+        ? item.repostedBy.id
+        : item.post.userId;
+
+      // Get the timestamp (repost time for reposts, post time for posts)
+      const relevantTime = item.type === 'repost' && item.repostCreatedAt
+        ? new Date(item.repostCreatedAt)
+        : new Date(item.post.createdAt);
+
+      // 1. User Affinity Score (0-40 points)
+      const affinityScore = (userAffinities.get(relevantUserId) || 0) * 40;
+      score += affinityScore;
+      if (affinityScore > 20) {
+        reasons.push('favorite_friend');
+      }
+
+      // 2. Engagement Score (0-30 points)
+      const likesScore = Math.log10(item.post.likesCount + 1) * 5;
+      const commentsScore = Math.log10(item.post.commentsCount + 1) * 8;
+      const repostScore = Math.log10((item.post.repostCount || 0) + 1) * 3;
+      const engagementScore = Math.min(likesScore + commentsScore + repostScore, 30);
+      score += engagementScore;
+      if (engagementScore > 15) {
+        reasons.push('high_engagement');
+      }
+
+      // 3. Recency Score (0-25 points)
+      const hoursSinceItem = (now.getTime() - relevantTime.getTime()) / (1000 * 60 * 60);
+      const recencyScore = Math.max(0, 25 * (1 - hoursSinceItem / 24));
+      score += recencyScore;
+      if (recencyScore > 20) {
+        reasons.push('recent');
+      }
+
+      // 4. Content Quality Indicators (0-5 points)
+      if (item.post.caption && item.post.caption.length > 20) {
+        score += 3;
+        reasons.push('quality_content');
+      }
+      if (item.post.caption && item.post.caption.length > 100) {
+        score += 2;
+      }
+
+      // 5. Quote posts get a small boost (they have additional context)
+      if (item.type === 'repost' && item.repostType === 'quote' && item.repostComment) {
+        score += 5;
+        reasons.push('quote_post');
+      }
+
+      item.score = score;
+      item.reasons = reasons;
+    }
+
+    // Sort by score descending
+    items.sort((a, b) => b.score - a.score);
+
+    // Apply diversity: ensure we don't show too many items from the same user in a row
+    return this.applyDiversityToFeedItems(items);
+  }
+
+  /**
+   * Apply diversity to feed items
+   */
+  private static applyDiversityToFeedItems(items: FeedItem[]): FeedItem[] {
+    const result: FeedItem[] = [];
+    const recentUsers: string[] = [];
+    const pending: FeedItem[] = [...items];
+
+    while (pending.length > 0 && result.length < items.length) {
+      let selectedIndex = -1;
+
+      for (let i = 0; i < pending.length; i++) {
+        // Get the relevant user (reposter for reposts, poster for posts)
+        const relevantUserId = pending[i].type === 'repost' && pending[i].repostedBy
+          ? pending[i].repostedBy!.id
+          : pending[i].post.userId;
+
+        if (!recentUsers.slice(-3).includes(relevantUserId)) {
+          selectedIndex = i;
+          break;
+        }
+      }
+
+      if (selectedIndex === -1) {
+        selectedIndex = 0;
+      }
+
+      const selected = pending.splice(selectedIndex, 1)[0];
+      result.push(selected);
+
+      const relevantUserId = selected.type === 'repost' && selected.repostedBy
+        ? selected.repostedBy.id
+        : selected.post.userId;
+      recentUsers.push(relevantUserId);
+    }
+
+    return result;
   }
 
   /**
@@ -307,13 +617,19 @@ export class FeedAlgorithmService {
     const offset = (page - 1) * limit;
 
     // Get popular and recent posts
+    // For discover feed, only show posts that are meant to be public (topics_and_friends)
+    // or older posts without visibility set (backwards compatibility)
     const { rows: posts, count } = await Post.findAndCountAll({
       where: {
         status: PostStatus.COMPLETED,
         // Exclude user's own posts
         userId: {
           [Op.ne]: userId
-        }
+        },
+        [Op.or]: [
+          { visibility: PostVisibility.TOPICS_AND_FRIENDS },
+          { visibility: null }  // Backwards compatibility
+        ]
       },
       include: [{
         model: User,

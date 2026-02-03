@@ -1,0 +1,442 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  ScrollView,
+  TouchableOpacity,
+  RefreshControl,
+  ActivityIndicator,
+  Image,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import { api, getImageUrl } from '../../services/api';
+
+interface PreviewPost {
+  id: string;
+  processedImageUrl: string | null;
+  originalImageUrl: string | null;
+  coinsReceived: number;
+}
+
+interface Topic {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  iconEmoji: string | null;
+  category: string;
+  followerCount: number;
+  postCount: number;
+  weeklyPostCount: number;
+  isFollowing: boolean;
+  previewPosts?: PreviewPost[];
+}
+
+interface Category {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+}
+
+interface CommunitiesTabProps {
+  searchQuery: string;
+  navigation: any;
+}
+
+export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesTabProps) {
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [])
+  );
+
+  // Handle search query changes
+  useEffect(() => {
+    loadTopics(selectedCategory || undefined, searchQuery || undefined);
+  }, [searchQuery, selectedCategory]);
+
+  const loadData = async () => {
+    try {
+      const [topicsRes, categoriesRes] = await Promise.all([
+        api.get('/topics'),
+        api.get('/topics/categories'),
+      ]);
+      setTopics(topicsRes.data.topics || []);
+      setCategories(categoriesRes.data.categories || []);
+    } catch (error) {
+      console.error('Error loading topics:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const loadTopics = async (category?: string, search?: string) => {
+    try {
+      const params = new URLSearchParams();
+      if (category) params.append('category', category);
+      if (search) params.append('search', search);
+
+      const response = await api.get(`/topics?${params.toString()}`);
+      setTopics(response.data.topics || []);
+    } catch (error) {
+      console.error('Error loading topics:', error);
+    }
+  };
+
+  const handleCategorySelect = (categoryId: string | null) => {
+    setSelectedCategory(categoryId);
+  };
+
+  const handleFollowTopic = async (topicId: string, isFollowing: boolean) => {
+    try {
+      if (isFollowing) {
+        await api.delete(`/topics/${topicId}/follow`);
+      } else {
+        await api.post(`/topics/${topicId}/follow`);
+      }
+      setTopics(prev =>
+        prev.map(t =>
+          t.id === topicId ? { ...t, isFollowing: !isFollowing } : t
+        )
+      );
+    } catch (error) {
+      console.error('Error toggling follow:', error);
+    }
+  };
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    loadData();
+  };
+
+  const renderCategoriesHeader = () => (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.categoriesList}
+      contentContainerStyle={styles.categoriesContent}
+    >
+      {categories.map((category) => (
+        <TouchableOpacity
+          key={category.id}
+          style={[
+            styles.categoryChip,
+            selectedCategory === category.id && styles.categoryChipActive,
+          ]}
+          onPress={() =>
+            handleCategorySelect(
+              selectedCategory === category.id ? null : category.id
+            )
+          }
+        >
+          <Text style={styles.categoryEmoji}>{category.icon}</Text>
+          <Text
+            style={[
+              styles.categoryText,
+              selectedCategory === category.id && styles.categoryTextActive,
+            ]}
+          >
+            {category.name}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
+  );
+
+  const renderTopic = ({ item }: { item: Topic }) => (
+    <TouchableOpacity
+      style={styles.topicCard}
+      onPress={() => navigation.navigate('TopicPage', { topicSlug: item.slug })}
+    >
+      <View style={styles.topicHeader}>
+        <Text style={styles.topicEmoji}>{item.iconEmoji || '🏷️'}</Text>
+        <View style={styles.topicInfo}>
+          <Text style={styles.topicName}>{item.name}</Text>
+          <Text style={styles.topicStats}>
+            {item.followerCount} members · {item.weeklyPostCount} posts/week
+          </Text>
+        </View>
+        <TouchableOpacity
+          style={[
+            styles.followButton,
+            item.isFollowing && styles.followingButton,
+          ]}
+          onPress={(e) => {
+            e.stopPropagation();
+            handleFollowTopic(item.id, item.isFollowing);
+          }}
+        >
+          <Text
+            style={[
+              styles.followButtonText,
+              item.isFollowing && styles.followingButtonText,
+            ]}
+          >
+            {item.isFollowing ? 'Joined' : 'Join'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+      {item.description && (
+        <Text style={styles.topicDescription} numberOfLines={2}>
+          {item.description}
+        </Text>
+      )}
+      {/* Preview Posts Row - 5 most attractive posts */}
+      {item.previewPosts && item.previewPosts.length > 0 && (
+        <View style={styles.previewPostsContainer}>
+          {item.previewPosts.slice(0, 5).map((post, index) => (
+            <View key={post.id} style={styles.previewPostWrapper}>
+              <Image
+                source={{ uri: getImageUrl(post.processedImageUrl) || getImageUrl(post.originalImageUrl) || '' }}
+                style={styles.previewPostImage}
+              />
+              {post.coinsReceived > 0 && (
+                <View style={styles.previewPostBadge}>
+                  <Text style={styles.previewPostBadgeText}>{post.coinsReceived}</Text>
+                </View>
+              )}
+            </View>
+          ))}
+          {/* Fill empty slots with placeholders */}
+          {Array.from({ length: Math.max(0, 5 - (item.previewPosts?.length || 0)) }).map((_, index) => (
+            <View key={`empty-${index}`} style={[styles.previewPostWrapper, styles.previewPostEmpty]}>
+              <Ionicons name="image-outline" size={20} color="#D1D5DB" />
+            </View>
+          ))}
+        </View>
+      )}
+      {/* Show empty state if no posts */}
+      {(!item.previewPosts || item.previewPosts.length === 0) && (
+        <View style={styles.noPreviewContainer}>
+          <Text style={styles.noPreviewText}>No posts yet - be the first to share!</Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#7C3AED" />
+        <Text style={styles.loadingText}>Loading communities...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <FlatList
+      data={topics}
+      renderItem={renderTopic}
+      keyExtractor={item => item.id}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+      }
+      style={styles.container}
+      contentContainerStyle={styles.topicsList}
+      ListHeaderComponent={renderCategoriesHeader}
+      ListEmptyComponent={
+        <View style={styles.emptyState}>
+          <Ionicons name="compass-outline" size={48} color="#D1D5DB" />
+          <Text style={styles.emptyTitle}>No communities found</Text>
+          <Text style={styles.emptySubtitle}>
+            {searchQuery
+              ? 'Try a different search term'
+              : 'Be the first to create one!'}
+          </Text>
+        </View>
+      }
+    />
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#6B7280',
+  },
+  categoriesList: {
+    maxHeight: 50,
+    marginTop: 8,
+  },
+  categoriesContent: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  categoryChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginRight: 8,
+  },
+  categoryChipActive: {
+    backgroundColor: '#EDE9FE',
+    borderColor: '#7C3AED',
+  },
+  categoryEmoji: {
+    fontSize: 14,
+    marginRight: 4,
+  },
+  categoryText: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  categoryTextActive: {
+    color: '#7C3AED',
+    fontWeight: '600',
+  },
+  topicsList: {
+    padding: 16,
+    paddingTop: 8,
+  },
+  topicCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  topicHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  topicEmoji: {
+    fontSize: 36,
+    marginRight: 12,
+  },
+  topicInfo: {
+    flex: 1,
+  },
+  topicName: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  topicStats: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  followButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#7C3AED',
+    borderRadius: 20,
+  },
+  followingButton: {
+    backgroundColor: '#E5E7EB',
+  },
+  followButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  followingButtonText: {
+    color: '#4B5563',
+  },
+  topicDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 8,
+    lineHeight: 20,
+  },
+  emptyState: {
+    alignItems: 'center',
+    padding: 40,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#374151',
+    marginTop: 16,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  // Preview posts styles
+  previewPostsContainer: {
+    flexDirection: 'row',
+    marginTop: 12,
+    gap: 6,
+  },
+  previewPostWrapper: {
+    flex: 1,
+    aspectRatio: 1,
+    borderRadius: 8,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  previewPostImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#F3F4F6',
+  },
+  previewPostEmpty: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  previewPostBadge: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    backgroundColor: 'rgba(245, 158, 11, 0.9)',
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    minWidth: 16,
+    alignItems: 'center',
+  },
+  previewPostBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  noPreviewContainer: {
+    marginTop: 12,
+    paddingVertical: 16,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  noPreviewText: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    fontStyle: 'italic',
+  },
+});

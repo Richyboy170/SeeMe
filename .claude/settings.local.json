@@ -119,7 +119,16 @@
       "Bash(\"C:\\\\Users\\\\HP\\\\Desktop\\\\Richy-coding-hub-2026\\\\SeeMe\\\\sandbox-3d\\\\cv-service\\\\venv\\\\Scripts\\\\python.exe\":*)",
       "Bash(venvScriptspython -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload)",
       "mcp__ide__getDiagnostics",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(npm view:*)",
+      "Bash(npx expo-doctor)",
+      "Bash(cmd //c \"taskkill /PID 14388 /F\")",
+      "Bash(npx eas build:*)",
+      "Bash(eas build:view:*)",
+      "WebFetch(domain:expo.dev)",
+      "Bash(if not exist data mkdir data)",
+      "Bash(set TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiIxYTVkZmE2My0xN2ZiLTQ1NGYtYTkyMy0zZDU2YmViMDQ2OTIiLCJ1c2VybmFtZSI6InRlc3R1c2VyMSIsImVtYWlsIjoidGVzdHVzZXIxQGV4YW1wbGUuY29tIiwiaWF0IjoxNzY5Nzg2NDg4LCJleHAiOjE3NzAzOTEyODh9.iEIa8bnkwdmUAGfGTrGXfwhIu4iNznvxk2XkUORLp6g:*)",
+      "Bash(cmd.exe /c \"taskkill /F /PID 20564\")"
     ]
   }
 }

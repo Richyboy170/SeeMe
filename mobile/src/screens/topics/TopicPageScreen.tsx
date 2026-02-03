@@ -1,0 +1,933 @@
+import React, { useState, useCallback, useEffect } from 'react';
+import {
+    View, Text, StyleSheet, FlatList, TouchableOpacity,
+    Image, ScrollView, RefreshControl, Share, ActivityIndicator,
+    Dimensions
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import { api, getImageUrl } from '../../services/api';
+import Avatar from '../../components/Avatar';
+import PostViewerModal from '../../components/PostViewerModal';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+interface Topic {
+    id: string;
+    name: string;
+    slug: string;
+    description: string | null;
+    iconEmoji: string | null;
+    coverImageUrl: string | null;
+    category: string;
+    followerCount: number;
+    postCount: number;
+    weeklyPostCount: number;
+    isFollowing: boolean;
+    inviteCode: string;
+    creator?: {
+        id: string;
+        username: string;
+        avatarUrl: string;
+    };
+    recentMembers?: Array<{
+        id: string;
+        username: string;
+        avatarUrl: string;
+    }>;
+}
+
+interface LeaderboardEntry {
+    user: {
+        id: string;
+        username: string;
+        avatarUrl: string;
+    };
+    totalGiven: number;
+    giftCount: number;
+    currentStreak?: number;
+}
+
+type TabType = 'posts' | 'about' | 'encouragers';
+
+export default function TopicPageScreen({ route, navigation }: any) {
+    const { topicSlug } = route.params;
+    const [topic, setTopic] = useState<Topic | null>(null);
+    const [posts, setPosts] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [activeTab, setActiveTab] = useState<TabType>('posts');
+
+    // Leaderboard state
+    const [leaderboardView, setLeaderboardView] = useState<'community' | 'global'>('community');
+    const [communityLeaderboard, setCommunityLeaderboard] = useState<LeaderboardEntry[]>([]);
+    const [globalLeaderboard, setGlobalLeaderboard] = useState<LeaderboardEntry[]>([]);
+    const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+
+    // Post modal state
+    const [selectedPost, setSelectedPost] = useState<any>(null);
+    const [selectedPostIndex, setSelectedPostIndex] = useState(0);
+
+    useFocusEffect(
+        useCallback(() => {
+            loadTopicPage();
+        }, [topicSlug])
+    );
+
+    useEffect(() => {
+        if (topic && activeTab === 'encouragers') {
+            loadLeaderboard();
+        }
+    }, [activeTab, leaderboardView, topic]);
+
+    const loadTopicPage = async () => {
+        try {
+            const response = await api.get(`/topics/${topicSlug}`);
+            setTopic(response.data.topic);
+
+            if (response.data.topic) {
+                const postsRes = await api.get(`/topics/${response.data.topic.id}/posts`);
+                const fetchedPosts = postsRes.data.posts || [];
+                setPosts(fetchedPosts);
+            }
+        } catch (error) {
+            console.error('Error loading topic page:', error);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    };
+
+    const loadLeaderboard = async () => {
+        if (!topic) return;
+        setLoadingLeaderboard(true);
+
+        try {
+            const topicId = leaderboardView === 'community' ? topic.id : 'global';
+            const response = await api.get(`/topics/${topicId}/leaderboard?type=givers&limit=20`);
+
+            if (leaderboardView === 'community') {
+                setCommunityLeaderboard(response.data.leaderboard || []);
+            } else {
+                setGlobalLeaderboard(response.data.leaderboard || []);
+            }
+        } catch (error) {
+            console.error('Error loading leaderboard:', error);
+        } finally {
+            setLoadingLeaderboard(false);
+        }
+    };
+
+    const handleFollow = async () => {
+        if (!topic) return;
+
+        try {
+            if (topic.isFollowing) {
+                await api.delete(`/topics/${topic.id}/follow`);
+            } else {
+                await api.post(`/topics/${topic.id}/follow`);
+            }
+            setTopic(prev => prev ? { ...prev, isFollowing: !prev.isFollowing } : null);
+        } catch (error) {
+            console.error('Error toggling follow:', error);
+        }
+    };
+
+    const handleShare = async () => {
+        if (!topic) return;
+
+        try {
+            await Share.share({
+                message: `Join ${topic.name} on SeeMe! seeme.app/t/${topic.slug}`,
+                title: topic.name
+            });
+        } catch (error) {
+            console.error('Error sharing:', error);
+        }
+    };
+
+    // Post modal functions
+    const openPost = (post: any, index: number) => {
+        setSelectedPost(post);
+        setSelectedPostIndex(index);
+    };
+
+    const closePost = () => {
+        setSelectedPost(null);
+    };
+
+    const currentLeaderboard = leaderboardView === 'community' ? communityLeaderboard : globalLeaderboard;
+
+    const renderHeader = () => (
+        <View>
+            {/* Cover Image */}
+            <View style={styles.coverContainer}>
+                {topic?.coverImageUrl ? (
+                    <Image source={{ uri: topic.coverImageUrl }} style={styles.coverImage} />
+                ) : (
+                    <View style={[styles.coverImage, styles.coverPlaceholder]}>
+                        <Text style={styles.coverEmoji}>{topic?.iconEmoji || '🏷️'}</Text>
+                    </View>
+                )}
+                <View style={styles.coverOverlay} />
+            </View>
+
+            {/* Info Card */}
+            <View style={styles.infoCard}>
+                <View style={styles.emojiContainer}>
+                    <Text style={styles.emoji}>{topic?.iconEmoji || '🏷️'}</Text>
+                </View>
+                <Text style={styles.topicName}>{topic?.name}</Text>
+
+                {/* Stats */}
+                <View style={styles.statsRow}>
+                    <View style={styles.stat}>
+                        <Text style={styles.statNumber}>{topic?.followerCount || 0}</Text>
+                        <Text style={styles.statLabel}>Members</Text>
+                    </View>
+                    <View style={styles.statDivider} />
+                    <View style={styles.stat}>
+                        <Text style={styles.statNumber}>{topic?.postCount || 0}</Text>
+                        <Text style={styles.statLabel}>Posts</Text>
+                    </View>
+                    <View style={styles.statDivider} />
+                    <View style={styles.stat}>
+                        <Text style={styles.statNumber}>{topic?.weeklyPostCount || 0}</Text>
+                        <Text style={styles.statLabel}>This Week</Text>
+                    </View>
+                </View>
+
+                {topic?.description && (
+                    <Text style={styles.description}>{topic.description}</Text>
+                )}
+
+                {/* Actions */}
+                <View style={styles.actionRow}>
+                    <TouchableOpacity
+                        style={[styles.joinButton, topic?.isFollowing && styles.joinedButton]}
+                        onPress={handleFollow}
+                    >
+                        <Ionicons
+                            name={topic?.isFollowing ? 'checkmark' : 'add'}
+                            size={20}
+                            color={topic?.isFollowing ? '#10B981' : '#FFFFFF'}
+                        />
+                        <Text style={[styles.joinButtonText, topic?.isFollowing && styles.joinedButtonText]}>
+                            {topic?.isFollowing ? 'Joined' : 'Join'}
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
+                        <Ionicons name="share-outline" size={24} color="#6B7280" />
+                    </TouchableOpacity>
+                </View>
+
+                {/* Creator */}
+                {topic?.creator && (
+                    <TouchableOpacity
+                        style={styles.creatorRow}
+                        onPress={() => navigation.navigate('Profile', { userId: topic.creator!.id })}
+                    >
+                        <Image
+                            source={{ uri: topic.creator.avatarUrl || 'https://via.placeholder.com/24' }}
+                            style={styles.creatorAvatar}
+                        />
+                        <Text style={styles.creatorText}>
+                            Created by <Text style={styles.creatorName}>@{topic.creator.username}</Text>
+                        </Text>
+                    </TouchableOpacity>
+                )}
+            </View>
+
+            {/* Tabs */}
+            <View style={styles.tabsContainer}>
+                {(['posts', 'about', 'encouragers'] as TabType[]).map((tab) => (
+                    <TouchableOpacity
+                        key={tab}
+                        style={[styles.tab, activeTab === tab && styles.tabActive]}
+                        onPress={() => setActiveTab(tab)}
+                    >
+                        <Ionicons
+                            name={tab === 'posts' ? 'grid' : tab === 'about' ? 'information-circle' : 'heart'}
+                            size={20}
+                            color={activeTab === tab ? '#7C3AED' : '#6B7280'}
+                        />
+                        <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+                            {tab === 'posts' ? 'Posts' : tab === 'about' ? 'About' : 'Top Helpers'}
+                        </Text>
+                    </TouchableOpacity>
+                ))}
+            </View>
+        </View>
+    );
+
+    const renderEncouragersTab = () => (
+        <View style={styles.encouragersContainer}>
+            <Text style={styles.encouragersTitle}>Top Encouragers</Text>
+            <Text style={styles.encouragersSubtitle}>
+                These members help beginners the most!
+            </Text>
+
+            {/* Toggle: Community vs Global */}
+            <View style={styles.leaderboardToggle}>
+                <TouchableOpacity
+                    style={[
+                        styles.leaderboardToggleBtn,
+                        leaderboardView === 'community' && styles.leaderboardToggleBtnActive
+                    ]}
+                    onPress={() => setLeaderboardView('community')}
+                >
+                    <Text style={styles.leaderboardToggleEmoji}>{topic?.iconEmoji}</Text>
+                    <Text style={[
+                        styles.leaderboardToggleText,
+                        leaderboardView === 'community' && styles.leaderboardToggleTextActive
+                    ]}>
+                        This Community
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[
+                        styles.leaderboardToggleBtn,
+                        leaderboardView === 'global' && styles.leaderboardToggleBtnActive
+                    ]}
+                    onPress={() => setLeaderboardView('global')}
+                >
+                    <Ionicons
+                        name="globe"
+                        size={16}
+                        color={leaderboardView === 'global' ? '#7C3AED' : '#6B7280'}
+                    />
+                    <Text style={[
+                        styles.leaderboardToggleText,
+                        leaderboardView === 'global' && styles.leaderboardToggleTextActive
+                    ]}>
+                        Global
+                    </Text>
+                </TouchableOpacity>
+            </View>
+
+            <Text style={styles.leaderboardScopeText}>
+                {leaderboardView === 'community'
+                    ? `Coins given to posts in ${topic?.name}`
+                    : 'Total coins given across all communities'
+                }
+            </Text>
+
+            {loadingLeaderboard ? (
+                <View style={styles.loadingLeaderboard}>
+                    <ActivityIndicator color="#7C3AED" />
+                </View>
+            ) : currentLeaderboard.length > 0 ? (
+                <>
+                    {currentLeaderboard.map((entry, index) => (
+                        <TouchableOpacity
+                            key={entry.user.id}
+                            style={styles.encouragerItem}
+                            onPress={() => navigation.navigate('Profile', { userId: entry.user.id })}
+                        >
+                            <View style={styles.rankContainer}>
+                                {index === 0 && <Text style={styles.medal}>🥇</Text>}
+                                {index === 1 && <Text style={styles.medal}>🥈</Text>}
+                                {index === 2 && <Text style={styles.medal}>🥉</Text>}
+                                {index > 2 && <Text style={styles.encouragerRank}>#{index + 1}</Text>}
+                            </View>
+                            <Image
+                                source={{ uri: entry.user.avatarUrl || 'https://via.placeholder.com/44' }}
+                                style={styles.encouragerAvatar}
+                            />
+                            <View style={styles.encouragerInfo}>
+                                <Text style={styles.encouragerName}>@{entry.user.username}</Text>
+                                <View style={styles.encouragerStats}>
+                                    <Ionicons name="logo-bitcoin" size={14} color="#F59E0B" />
+                                    <Text style={styles.encouragerCoins}>
+                                        {entry.totalGiven} coins
+                                    </Text>
+                                </View>
+                            </View>
+                        </TouchableOpacity>
+                    ))}
+
+                    <TouchableOpacity
+                        style={styles.viewFullLeaderboard}
+                        onPress={() => navigation.navigate('CoinLeaderboard', {
+                            initialTab: 'givers',
+                            topicId: leaderboardView === 'community' ? topic?.id : null
+                        })}
+                    >
+                        <Text style={styles.viewFullLeaderboardText}>
+                            View Full Leaderboard
+                        </Text>
+                        <Ionicons name="chevron-forward" size={16} color="#7C3AED" />
+                    </TouchableOpacity>
+                </>
+            ) : (
+                <View style={styles.emptyEncouragers}>
+                    <Ionicons name="heart-outline" size={48} color="#D1D5DB" />
+                    <Text style={styles.emptyText}>
+                        {leaderboardView === 'community'
+                            ? 'No encouragers in this community yet. Be the first to help beginners!'
+                            : 'No encouragers yet. Start giving coins to climb the leaderboard!'
+                        }
+                    </Text>
+                </View>
+            )}
+        </View>
+    );
+
+    const renderAboutTab = () => (
+        <View style={styles.aboutContainer}>
+            <View style={styles.aboutSection}>
+                <Text style={styles.aboutSectionTitle}>About</Text>
+                <Text style={styles.aboutText}>
+                    {topic?.description || 'No description available.'}
+                </Text>
+            </View>
+
+            <View style={styles.aboutSection}>
+                <Text style={styles.aboutSectionTitle}>Our Values</Text>
+                <View style={styles.valueItem}>
+                    <Text style={styles.valueEmoji}>🌱</Text>
+                    <Text style={styles.valueText}>
+                        <Text style={styles.valueBold}>Beginner-Friendly:</Text> Everyone starts somewhere. Encourage growth!
+                    </Text>
+                </View>
+                <View style={styles.valueItem}>
+                    <Text style={styles.valueEmoji}>💝</Text>
+                    <Text style={styles.valueText}>
+                        <Text style={styles.valueBold}>Encouragement First:</Text> Give coins to uplift, not judge quality.
+                    </Text>
+                </View>
+                <View style={styles.valueItem}>
+                    <Text style={styles.valueEmoji}>🤝</Text>
+                    <Text style={styles.valueText}>
+                        <Text style={styles.valueBold}>Supportive Community:</Text> Help each other improve together.
+                    </Text>
+                </View>
+            </View>
+
+            <View style={styles.aboutSection}>
+                <Text style={styles.aboutSectionTitle}>Invite Link</Text>
+                <View style={styles.inviteLinkBox}>
+                    <Text style={styles.inviteLink}>seeme.app/invite/{topic?.inviteCode}</Text>
+                    <TouchableOpacity style={styles.copyButton} onPress={handleShare}>
+                        <Ionicons name="share" size={16} color="#7C3AED" />
+                        <Text style={styles.copyButtonText}>Share</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </View>
+    );
+
+    const renderPost = ({ item, index }: { item: any; index: number }) => (
+        <TouchableOpacity
+            style={styles.postItem}
+            onPress={() => openPost(item, index)}
+        >
+            <Image
+                source={{ uri: getImageUrl(item.processedImageUrl) || getImageUrl(item.originalImageUrl) || '' }}
+                style={styles.postImage}
+            />
+        </TouchableOpacity>
+    );
+
+    if (loading) {
+        return (
+            <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#7C3AED" />
+                <Text style={styles.loadingText}>Loading community...</Text>
+            </View>
+        );
+    }
+
+    return (
+        <View style={styles.container}>
+            {activeTab === 'posts' ? (
+                <FlatList
+                    data={posts}
+                    renderItem={renderPost}
+                    keyExtractor={item => item.id}
+                    numColumns={3}
+                    ListHeaderComponent={renderHeader}
+                    refreshControl={
+                        <RefreshControl refreshing={refreshing} onRefresh={loadTopicPage} />
+                    }
+                    contentContainerStyle={styles.postsGrid}
+                    ListEmptyComponent={
+                        <View style={styles.emptyPosts}>
+                            <Ionicons name="images-outline" size={48} color="#D1D5DB" />
+                            <Text style={styles.emptyTitle}>No posts yet</Text>
+                            <Text style={styles.emptySubtitle}>
+                                Be the first to share in {topic?.name}!
+                            </Text>
+                        </View>
+                    }
+                />
+            ) : (
+                <ScrollView refreshControl={
+                    <RefreshControl refreshing={refreshing} onRefresh={loadTopicPage} />
+                }>
+                    {renderHeader()}
+                    {activeTab === 'about' && renderAboutTab()}
+                    {activeTab === 'encouragers' && renderEncouragersTab()}
+                </ScrollView>
+            )}
+
+            {/* FAB for creating posts */}
+            {topic?.isFollowing && (
+                <TouchableOpacity
+                    style={styles.fab}
+                    onPress={() => navigation.navigate('CreatePost', { preselectedTopic: topic })}
+                >
+                    <Ionicons name="add" size={28} color="#FFFFFF" />
+                </TouchableOpacity>
+            )}
+
+            {/* Post View Modal - Uses shared component for all post interactions */}
+            <PostViewerModal
+                visible={!!selectedPost}
+                posts={posts}
+                initialIndex={selectedPostIndex}
+                title={topic?.name || 'Posts'}
+                onClose={closePost}
+                onCommentPress={(postId) => {
+                    closePost();
+                    navigation.navigate('Comments', { postId });
+                }}
+                onUserPress={(userId, username) => {
+                    closePost();
+                    navigation.navigate('UserProfile', { userId, username });
+                }}
+            />
+        </View>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#F9FAFB'
+    },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF'
+    },
+    loadingText: {
+        marginTop: 12,
+        fontSize: 16,
+        color: '#6B7280'
+    },
+    coverContainer: {
+        height: 150,
+        position: 'relative'
+    },
+    coverImage: {
+        width: '100%',
+        height: '100%'
+    },
+    coverPlaceholder: {
+        backgroundColor: '#7C3AED',
+        justifyContent: 'center',
+        alignItems: 'center'
+    },
+    coverEmoji: {
+        fontSize: 64,
+        opacity: 0.3
+    },
+    coverOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0,0,0,0.2)'
+    },
+    infoCard: {
+        backgroundColor: '#FFFFFF',
+        marginTop: -40,
+        marginHorizontal: 16,
+        borderRadius: 16,
+        padding: 20,
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 4
+    },
+    emojiContainer: {
+        width: 72,
+        height: 72,
+        borderRadius: 36,
+        backgroundColor: '#F3F4F6',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: -56,
+        borderWidth: 4,
+        borderColor: '#FFFFFF'
+    },
+    emoji: {
+        fontSize: 36
+    },
+    topicName: {
+        fontSize: 24,
+        fontWeight: '700',
+        color: '#1F2937',
+        marginTop: 12,
+        textAlign: 'center'
+    },
+    statsRow: {
+        flexDirection: 'row',
+        marginTop: 16,
+        paddingVertical: 12,
+        borderTopWidth: 1,
+        borderBottomWidth: 1,
+        borderColor: '#F3F4F6'
+    },
+    stat: {
+        flex: 1,
+        alignItems: 'center'
+    },
+    statNumber: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: '#1F2937'
+    },
+    statLabel: {
+        fontSize: 12,
+        color: '#6B7280',
+        marginTop: 2
+    },
+    statDivider: {
+        width: 1,
+        backgroundColor: '#E5E7EB'
+    },
+    description: {
+        fontSize: 14,
+        color: '#4B5563',
+        textAlign: 'center',
+        marginTop: 12,
+        lineHeight: 20
+    },
+    actionRow: {
+        flexDirection: 'row',
+        marginTop: 16,
+        gap: 12,
+        width: '100%'
+    },
+    joinButton: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#7C3AED',
+        paddingVertical: 14,
+        borderRadius: 12,
+        gap: 8
+    },
+    joinedButton: {
+        backgroundColor: '#ECFDF5',
+        borderWidth: 1,
+        borderColor: '#10B981'
+    },
+    joinButtonText: {
+        color: '#FFFFFF',
+        fontSize: 16,
+        fontWeight: '600'
+    },
+    joinedButtonText: {
+        color: '#10B981'
+    },
+    shareButton: {
+        width: 52,
+        height: 52,
+        borderRadius: 12,
+        backgroundColor: '#F3F4F6',
+        justifyContent: 'center',
+        alignItems: 'center'
+    },
+    creatorRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 16,
+        gap: 8
+    },
+    creatorAvatar: {
+        width: 24,
+        height: 24,
+        borderRadius: 12
+    },
+    creatorText: {
+        fontSize: 13,
+        color: '#6B7280'
+    },
+    creatorName: {
+        color: '#7C3AED',
+        fontWeight: '600'
+    },
+    tabsContainer: {
+        flexDirection: 'row',
+        backgroundColor: '#FFFFFF',
+        marginTop: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB'
+    },
+    tab: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 14,
+        gap: 6
+    },
+    tabActive: {
+        borderBottomWidth: 2,
+        borderBottomColor: '#7C3AED'
+    },
+    tabText: {
+        fontSize: 14,
+        color: '#6B7280'
+    },
+    tabTextActive: {
+        color: '#7C3AED',
+        fontWeight: '600'
+    },
+    // Posts tab
+    postsGrid: {
+        paddingBottom: 100
+    },
+    postItem: {
+        flex: 1 / 3,
+        aspectRatio: 1,
+        padding: 1
+    },
+    postImage: {
+        flex: 1,
+        backgroundColor: '#E5E7EB'
+    },
+    emptyPosts: {
+        padding: 40,
+        alignItems: 'center'
+    },
+    emptyTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#374151',
+        marginTop: 16
+    },
+    emptySubtitle: {
+        fontSize: 14,
+        color: '#6B7280',
+        marginTop: 4,
+        textAlign: 'center'
+    },
+    // About tab
+    aboutContainer: {
+        padding: 16
+    },
+    aboutSection: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 12
+    },
+    aboutSectionTitle: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#1F2937',
+        marginBottom: 12
+    },
+    aboutText: {
+        fontSize: 14,
+        color: '#4B5563',
+        lineHeight: 22
+    },
+    valueItem: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        marginBottom: 12,
+        gap: 12
+    },
+    valueEmoji: {
+        fontSize: 20
+    },
+    valueText: {
+        flex: 1,
+        fontSize: 14,
+        color: '#4B5563',
+        lineHeight: 20
+    },
+    valueBold: {
+        fontWeight: '600',
+        color: '#1F2937'
+    },
+    inviteLinkBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F3F4F6',
+        borderRadius: 8,
+        padding: 12
+    },
+    inviteLink: {
+        flex: 1,
+        fontSize: 14,
+        color: '#7C3AED',
+        fontWeight: '500'
+    },
+    copyButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4
+    },
+    copyButtonText: {
+        fontSize: 14,
+        color: '#7C3AED',
+        fontWeight: '600'
+    },
+    // Encouragers tab
+    encouragersContainer: {
+        padding: 16
+    },
+    encouragersTitle: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#1F2937',
+        marginBottom: 4
+    },
+    encouragersSubtitle: {
+        fontSize: 14,
+        color: '#6B7280',
+        marginBottom: 16
+    },
+    leaderboardToggle: {
+        flexDirection: 'row',
+        backgroundColor: '#F3F4F6',
+        borderRadius: 8,
+        padding: 4,
+        marginBottom: 12
+    },
+    leaderboardToggleBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 10,
+        borderRadius: 6,
+        gap: 6
+    },
+    leaderboardToggleBtnActive: {
+        backgroundColor: '#FFFFFF',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 2
+    },
+    leaderboardToggleEmoji: {
+        fontSize: 14
+    },
+    leaderboardToggleText: {
+        fontSize: 14,
+        color: '#6B7280'
+    },
+    leaderboardToggleTextActive: {
+        color: '#7C3AED',
+        fontWeight: '600'
+    },
+    leaderboardScopeText: {
+        fontSize: 13,
+        color: '#6B7280',
+        textAlign: 'center',
+        marginBottom: 12,
+        fontStyle: 'italic'
+    },
+    loadingLeaderboard: {
+        padding: 40,
+        alignItems: 'center'
+    },
+    encouragerItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        padding: 12,
+        marginBottom: 8
+    },
+    rankContainer: {
+        width: 32,
+        alignItems: 'center'
+    },
+    medal: {
+        fontSize: 20
+    },
+    encouragerRank: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#7C3AED'
+    },
+    encouragerAvatar: {
+        width: 44,
+        height: 44,
+        borderRadius: 22
+    },
+    encouragerInfo: {
+        flex: 1,
+        marginLeft: 12
+    },
+    encouragerName: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#1F2937'
+    },
+    encouragerStats: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 2,
+        gap: 4
+    },
+    encouragerCoins: {
+        fontSize: 13,
+        color: '#F59E0B',
+        fontWeight: '600'
+    },
+    viewFullLeaderboard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 16,
+        marginTop: 8,
+        gap: 4
+    },
+    viewFullLeaderboardText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#7C3AED'
+    },
+    emptyEncouragers: {
+        alignItems: 'center',
+        padding: 40
+    },
+    emptyText: {
+        fontSize: 14,
+        color: '#6B7280',
+        textAlign: 'center',
+        marginTop: 12
+    },
+    // FAB
+    fab: {
+        position: 'absolute',
+        bottom: 24,
+        right: 24,
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: '#7C3AED',
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#7C3AED',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 8
+    }
+});

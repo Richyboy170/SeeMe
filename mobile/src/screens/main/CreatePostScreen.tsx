@@ -1,14 +1,20 @@
 /**
  * Create Post Screen
  * Phase 3.1: Updated with Person Detection Policy
+ * Phase 3.3: Updated with Topic/Community Visibility
  *
  * Content Policy:
  * - Real people photos cannot be posted as-is
  * - If person detected: must convert to 3D avatar OR blur faces
  * - Landscapes, food, objects, pets can post directly
+ *
+ * Visibility Options:
+ * - Friends Only: Only your followers see this
+ * - Topics Only: Community members interested in the topic
+ * - Topics + Friends: Both community and your followers
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -24,7 +30,7 @@ import {
   Modal,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { useNavigation, CompositeNavigationProp } from '@react-navigation/native';
+import { useNavigation, CompositeNavigationProp, useFocusEffect } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -35,6 +41,15 @@ import {
   blurFacesInImage,
   PersonCheckResult,
 } from '../../services/contentCheck';
+
+type Visibility = 'friends_only' | 'topics_only' | 'topics_and_friends';
+
+interface Topic {
+  id: string;
+  name: string;
+  iconEmoji: string | null;
+  isFollowing: boolean;
+}
 
 type CreatePostScreenNavigationProp = CompositeNavigationProp<
   StackNavigationProp<CreatePostStackParamList, 'CreatePostHome'>,
@@ -54,6 +69,39 @@ export default function CreatePostScreen() {
   const [contentStatus, setContentStatus] = useState<ContentStatus>('unchecked');
   const [personCheckResult, setPersonCheckResult] = useState<PersonCheckResult | null>(null);
   const [showPersonOptions, setShowPersonOptions] = useState(false);
+
+  // Phase 3.3: Visibility and topic selection
+  const [visibility, setVisibility] = useState<Visibility>('friends_only');
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
+  const [followedTopics, setFollowedTopics] = useState<Topic[]>([]);
+  const [loadingTopics, setLoadingTopics] = useState(false);
+
+  // Load followed topics when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      loadFollowedTopics();
+    }, [])
+  );
+
+  const loadFollowedTopics = async () => {
+    try {
+      setLoadingTopics(true);
+      const response = await api.getMyFollowedTopics();
+      setFollowedTopics(response.topics || []);
+    } catch (error) {
+      console.error('Failed to load followed topics:', error);
+    } finally {
+      setLoadingTopics(false);
+    }
+  };
+
+  const toggleTopic = (topicId: string) => {
+    setSelectedTopics(prev =>
+      prev.includes(topicId)
+        ? prev.filter(id => id !== topicId)
+        : [...prev, topicId]
+    );
+  };
 
   // Handle image selection with person check
   const handleImageSelected = useCallback(async (uri: string) => {
@@ -175,14 +223,22 @@ export default function CreatePostScreen() {
       return;
     }
 
+    // Validate topic selection for community posts
+    if (visibility !== 'friends_only' && selectedTopics.length === 0) {
+      Alert.alert('Select Topics', 'Please select at least one topic for your community post.');
+      return;
+    }
+
     setLoading(true);
     try {
-      await api.createPost(imageUri, caption);
+      await api.createPost(imageUri, caption, visibility, selectedTopics);
       setImageUri(null);
       setOriginalImageUri(null);
       setCaption('');
       setContentStatus('unchecked');
       setPersonCheckResult(null);
+      setVisibility('friends_only');
+      setSelectedTopics([]);
       Alert.alert('Success', 'Post created successfully!', [
         {
           text: 'OK',
@@ -211,8 +267,6 @@ export default function CreatePostScreen() {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.title}>Create Post</Text>
-
         {imageUri ? (
           <View style={styles.imageContainer}>
             <Image source={{ uri: imageUri }} style={styles.image} />
@@ -296,6 +350,143 @@ export default function CreatePostScreen() {
             </Text>
           )}
         </View>
+
+        {/* Phase 3.3: Visibility Options */}
+        <Text style={styles.sectionTitle}>Who can see this?</Text>
+        <View style={styles.visibilityOptions}>
+          <TouchableOpacity
+            style={[
+              styles.visibilityOption,
+              visibility === 'friends_only' && styles.visibilitySelected
+            ]}
+            onPress={() => setVisibility('friends_only')}
+          >
+            <Ionicons
+              name="people"
+              size={22}
+              color={visibility === 'friends_only' ? '#7C3AED' : '#6B7280'}
+            />
+            <View style={styles.visibilityTextContainer}>
+              <Text style={[
+                styles.visibilityLabel,
+                visibility === 'friends_only' && styles.visibilityLabelSelected
+              ]}>Friends Only</Text>
+              <Text style={styles.visibilityDesc}>Only your followers see this</Text>
+            </View>
+            {visibility === 'friends_only' && (
+              <Ionicons name="checkmark-circle" size={20} color="#7C3AED" />
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.visibilityOption,
+              visibility === 'topics_only' && styles.visibilitySelected
+            ]}
+            onPress={() => setVisibility('topics_only')}
+          >
+            <Ionicons
+              name="grid"
+              size={22}
+              color={visibility === 'topics_only' ? '#7C3AED' : '#6B7280'}
+            />
+            <View style={styles.visibilityTextContainer}>
+              <Text style={[
+                styles.visibilityLabel,
+                visibility === 'topics_only' && styles.visibilityLabelSelected
+              ]}>Topics Only</Text>
+              <Text style={styles.visibilityDesc}>Community members interested in the topic</Text>
+            </View>
+            {visibility === 'topics_only' && (
+              <Ionicons name="checkmark-circle" size={20} color="#7C3AED" />
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.visibilityOption,
+              visibility === 'topics_and_friends' && styles.visibilitySelected
+            ]}
+            onPress={() => setVisibility('topics_and_friends')}
+          >
+            <Ionicons
+              name="globe"
+              size={22}
+              color={visibility === 'topics_and_friends' ? '#7C3AED' : '#6B7280'}
+            />
+            <View style={styles.visibilityTextContainer}>
+              <Text style={[
+                styles.visibilityLabel,
+                visibility === 'topics_and_friends' && styles.visibilityLabelSelected
+              ]}>Topics + Friends</Text>
+              <Text style={styles.visibilityDesc}>Both community and your followers</Text>
+            </View>
+            {visibility === 'topics_and_friends' && (
+              <Ionicons name="checkmark-circle" size={20} color="#7C3AED" />
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* Topic Selection (shown when not friends_only) */}
+        {visibility !== 'friends_only' && (
+          <>
+            <Text style={styles.sectionTitle}>Your Communities</Text>
+            <Text style={styles.sectionSubtitle}>
+              Select topics you follow to share with those communities
+            </Text>
+
+            {loadingTopics ? (
+              <ActivityIndicator size="small" color="#7C3AED" style={{ marginVertical: 20 }} />
+            ) : followedTopics.length > 0 ? (
+              <View style={styles.topicsGrid}>
+                {followedTopics.map(topic => (
+                  <TouchableOpacity
+                    key={topic.id}
+                    style={[
+                      styles.topicChip,
+                      selectedTopics.includes(topic.id) && styles.topicSelected
+                    ]}
+                    onPress={() => toggleTopic(topic.id)}
+                  >
+                    <Text style={styles.topicEmoji}>{topic.iconEmoji || '📌'}</Text>
+                    <Text style={[
+                      styles.topicName,
+                      selectedTopics.includes(topic.id) && styles.topicNameSelected
+                    ]}>
+                      {topic.name}
+                    </Text>
+                    {selectedTopics.includes(topic.id) && (
+                      <Ionicons name="checkmark-circle" size={16} color="#7C3AED" />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.noTopicsContainer}>
+                <Ionicons name="planet-outline" size={40} color="#9CA3AF" />
+                <Text style={styles.noTopicsTitle}>Join communities to share here!</Text>
+                <Text style={styles.noTopicsText}>
+                  Follow topics you're interested in, then your posts can reach people who share your passions.
+                </Text>
+                <TouchableOpacity
+                  style={styles.browseTopicsButton}
+                  onPress={() => (navigation as any).navigate('Topics', { screen: 'BrowseTopics' })}
+                >
+                  <Ionicons name="compass" size={18} color="#FFFFFF" />
+                  <Text style={styles.browseTopicsButtonText}>Discover Communities</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Beginner Badge Info */}
+            <View style={styles.beginnerInfo}>
+              <Ionicons name="sparkles" size={18} color="#F59E0B" />
+              <Text style={styles.beginnerText}>
+                New to a topic? Your posts get a beginner badge and extra visibility for encouragement!
+              </Text>
+            </View>
+          </>
+        )}
 
         <TouchableOpacity
           style={[styles.postButton, !canPost && styles.postButtonDisabled]}
@@ -382,11 +573,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 20,
     paddingBottom: 40,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20,
   },
   imagePlaceholder: {
     height: 300,
@@ -528,6 +714,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 15,
     alignItems: 'center',
+    marginTop: 8,
   },
   postButtonDisabled: {
     backgroundColor: '#ccc',
@@ -609,5 +796,134 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     fontSize: 16,
     color: '#666',
+  },
+  // Phase 3.3: Visibility & Topic Selection styles
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  sectionSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginBottom: 12,
+  },
+  visibilityOptions: {
+    gap: 10,
+    marginBottom: 8,
+  },
+  visibilityOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    gap: 12,
+  },
+  visibilitySelected: {
+    borderColor: '#7C3AED',
+    backgroundColor: '#F5F3FF',
+  },
+  visibilityTextContainer: {
+    flex: 1,
+  },
+  visibilityLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  visibilityLabelSelected: {
+    color: '#7C3AED',
+  },
+  visibilityDesc: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  topicsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  topicChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    gap: 6,
+  },
+  topicSelected: {
+    backgroundColor: '#EDE9FE',
+    borderWidth: 1,
+    borderColor: '#7C3AED',
+  },
+  topicEmoji: {
+    fontSize: 16,
+  },
+  topicName: {
+    fontSize: 14,
+    color: '#4B5563',
+  },
+  topicNameSelected: {
+    color: '#7C3AED',
+    fontWeight: '600',
+  },
+  noTopicsContainer: {
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
+    marginBottom: 12,
+  },
+  noTopicsTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#374151',
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  noTopicsText: {
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  browseTopicsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#7C3AED',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    gap: 6,
+  },
+  browseTopicsButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  beginnerInfo: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FFFBEB',
+    padding: 12,
+    borderRadius: 10,
+    gap: 10,
+    marginBottom: 16,
+  },
+  beginnerText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#92400E',
+    lineHeight: 18,
   },
 });

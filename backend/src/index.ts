@@ -27,6 +27,14 @@ import uploadRoutes from './routes/upload';
 import chatRoutes from './routes/messages';
 import avatarRoutes from './routes/avatars';
 // import fullBodyAvatarRoutes from './routes/fullBodyAvatar'; // TEMP DISABLED
+// Phase 3.3: Community/Topic routes
+import topicsRoutes from './routes/topics';
+import favoritesRoutes from './routes/favorites';
+import medalsRoutes from './routes/medals';
+import savedPostsRoutes from './routes/savedPosts';
+import repostsRoutes from './routes/reposts';
+// Trust Score routes
+import trustRoutes from './routes/trust';
 import { celeryClient } from './config/celery';
 
 const app = express();
@@ -87,6 +95,16 @@ app.use('/api', commentRoutes);
 app.use('/api/coins', coinsRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/chat', chatRoutes);
+
+// Phase 3.3: Community/Topic routes
+app.use('/api/topics', topicsRoutes);
+app.use('/api/favorites', favoritesRoutes);
+app.use('/api/medals', medalsRoutes);
+app.use('/api', savedPostsRoutes);
+app.use('/api/reposts', repostsRoutes);
+
+// Trust Score routes
+app.use('/api/trust', trustRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response) => {

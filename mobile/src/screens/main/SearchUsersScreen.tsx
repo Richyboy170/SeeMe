@@ -69,8 +69,13 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
       const followingResponse = await api.getFollowing(currentUser.username);
       const following = followingResponse.following || [];
 
+      // Filter out current user (should never be in following list, but defensive check)
+      const filteredFollowing = following.filter(
+        (f: any) => f.id !== currentUser.id && f.username !== currentUser.username
+      );
+
       // Map to SearchUser format
-      const mappedUsers: SearchUser[] = following.map((f: any) => ({
+      const mappedUsers: SearchUser[] = filteredFollowing.map((f: any) => ({
         id: f.id,
         username: f.username,
         activeAvatarId: f.activeAvatarId,
@@ -92,11 +97,22 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
   const loadRecommendations = async () => {
     setLoadingRecommendations(true);
     try {
+      // Get current user ID to filter out self from recommendations
+      const profileResponse = await api.getProfile();
+      const currentUserId = (profileResponse.user || profileResponse).id;
+      const currentUsername = (profileResponse.user || profileResponse).username;
+
       const response = await api.getRecommendedUsers(20);
       const recommendations = response.recommendations || [];
 
+      // Filter out current user (defensive check - backend should already exclude)
+      // Use both ID and username comparison for safety
+      const filteredRecommendations = recommendations.filter(
+        (r: any) => r.id !== currentUserId && r.username !== currentUsername
+      );
+
       // Map to SearchUser format
-      const mappedUsers: SearchUser[] = recommendations.map((r: any) => ({
+      const mappedUsers: SearchUser[] = filteredRecommendations.map((r: any) => ({
         id: r.id,
         username: r.username,
         activeAvatarId: r.activeAvatarId,

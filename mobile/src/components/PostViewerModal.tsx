@@ -1,0 +1,407 @@
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import {
+  View,
+  Text,
+  Modal,
+  TouchableOpacity,
+  FlatList,
+  Image,
+  StyleSheet,
+  Dimensions,
+  StatusBar,
+  ViewToken,
+  Animated,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { getImageUrl } from '../services/api';
+import Avatar from './Avatar';
+import PostActionsBar from './PostActionsBar';
+import GiveCoinsModal from './coins/GiveCoinsModal';
+import SharePostModal from './SharePostModal';
+import { usePostInteractions, Post } from '../hooks/usePostInteractions';
+import { formatTimeAgo, getPostImageUrl } from '../utils/postHelpers';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+export interface PostViewerModalProps {
+  visible: boolean;
+  posts: Post[];
+  initialIndex: number;
+  title?: string;
+  onClose: () => void;
+  onCommentPress: (postId: string) => void;
+  onUserPress?: (userId: string, username: string) => void;
+  onPostChange?: (index: number, post: Post) => void;
+}
+
+export default function PostViewerModal({
+  visible,
+  posts,
+  initialIndex,
+  title = 'Posts',
+  onClose,
+  onCommentPress,
+  onUserPress,
+  onPostChange,
+}: PostViewerModalProps) {
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const [giveModalVisible, setGiveModalVisible] = useState(false);
+  const [giveModalPost, setGiveModalPost] = useState<Post | null>(null);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [shareModalPostId, setShareModalPostId] = useState<string>('');
+  const [shareModalPostImage, setShareModalPostImage] = useState<string | null>(null);
+
+  const flatListRef = useRef<FlatList>(null);
+
+  // Initialize post interactions hook
+  const {
+    isLiked,
+    isSaved,
+    getLikeCount,
+    handleLike,
+    handleDoubleTap,
+    handleSave,
+    handleComment,
+    handleUserPress: onUserPressInternal,
+    reinitializeState,
+    animatingPostId,
+    heartScale,
+    heartOpacity,
+  } = usePostInteractions(posts, {
+    onCommentPress,
+    onUserPress,
+  });
+
+  // Reinitialize state when posts change
+  useEffect(() => {
+    reinitializeState(posts);
+  }, [posts, reinitializeState]);
+
+  // Reset current index when modal opens with new initial index
+  useEffect(() => {
+    if (visible) {
+      setCurrentIndex(initialIndex);
+    }
+  }, [visible, initialIndex]);
+
+  const onViewableItemsChanged = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      if (viewableItems.length > 0 && viewableItems[0].index !== null) {
+        const newIndex = viewableItems[0].index;
+        setCurrentIndex(newIndex);
+        onPostChange?.(newIndex, posts[newIndex]);
+      }
+    },
+    [posts, onPostChange]
+  );
+
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 50,
+  }).current;
+
+  const handleGiveCoins = useCallback((post: Post) => {
+    setGiveModalPost(post);
+    setGiveModalVisible(true);
+  }, []);
+
+  const handleShare = useCallback((post: Post) => {
+    setShareModalPostId(post.id);
+    setShareModalPostImage(getPostImageUrl(post));
+    setShareModalVisible(true);
+  }, []);
+
+  const currentPost = posts[currentIndex];
+
+  const renderPost = ({ item, index }: { item: Post; index: number }) => {
+    const imageUri = getImageUrl(getPostImageUrl(item));
+
+    return (
+      <View style={styles.postItem}>
+        {/* User Header */}
+        <TouchableOpacity
+          style={styles.postHeader}
+          onPress={() => onUserPressInternal(item.user.id, item.user.username)}
+        >
+          <Avatar
+            size={36}
+            username={item.user.username}
+            customizations={item.user.activeAvatar?.customizations}
+            avatarStyle={item.user.activeAvatar?.style}
+          />
+          <View style={styles.postUserInfo}>
+            <Text style={styles.postUsername}>@{item.user.username}</Text>
+            <Text style={styles.postTime}>{formatTimeAgo(item.createdAt)}</Text>
+          </View>
+          <TouchableOpacity style={styles.moreButton}>
+            <Ionicons name="ellipsis-horizontal" size={20} color="#6B7280" />
+          </TouchableOpacity>
+        </TouchableOpacity>
+
+        {/* Image with double tap support */}
+        <TouchableOpacity
+          activeOpacity={0.95}
+          onPress={() => handleDoubleTap(item.id)}
+        >
+          <View>
+            {imageUri ? (
+              <Image
+                source={{ uri: imageUri }}
+                style={styles.postImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={[styles.postImage, styles.imagePlaceholder]}>
+                <Ionicons name="image-outline" size={48} color="#9CA3AF" />
+              </View>
+            )}
+
+            {/* Heart overlay animation - only for the specific post being animated */}
+            {animatingPostId === item.id && (
+              <Animated.View
+                style={[
+                  styles.heartOverlay,
+                  {
+                    opacity: heartOpacity,
+                    transform: [{ scale: heartScale }],
+                  },
+                ]}
+              >
+                <Ionicons name="heart" size={100} color="#FFF" />
+              </Animated.View>
+            )}
+          </View>
+        </TouchableOpacity>
+
+        {/* Actions */}
+        <PostActionsBar
+          isLiked={isLiked(item.id)}
+          isSaved={isSaved(item.id)}
+          likesCount={getLikeCount(item.id)}
+          commentsCount={item.commentsCount}
+          onLike={() => handleLike(item.id)}
+          onComment={() => handleComment(item.id)}
+          onGiveCoins={() => handleGiveCoins(item)}
+          onShare={() => handleShare(item)}
+          onSave={() => handleSave(item.id)}
+          showShare={true}
+          showSave={true}
+          showGiveCoins={true}
+        />
+
+        {/* Likes count */}
+        {getLikeCount(item.id) > 0 && (
+          <Text style={styles.likesText}>
+            {getLikeCount(item.id)} {getLikeCount(item.id) === 1 ? 'like' : 'likes'}
+          </Text>
+        )}
+
+        {/* Caption */}
+        {item.caption && (
+          <View style={styles.captionContainer}>
+            <Text style={styles.captionText}>
+              <Text style={styles.captionUsername}>{item.user.username}</Text>
+              {'  '}
+              {item.caption}
+            </Text>
+          </View>
+        )}
+
+        {/* View comments link */}
+        {item.commentsCount > 0 && (
+          <TouchableOpacity
+            style={styles.viewComments}
+            onPress={() => handleComment(item.id)}
+          >
+            <Text style={styles.viewCommentsText}>
+              View all {item.commentsCount} comments
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Separator */}
+        {index < posts.length - 1 && <View style={styles.separator} />}
+      </View>
+    );
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <View style={styles.container}>
+        <StatusBar barStyle="dark-content" />
+
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onClose} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={28} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>{title}</Text>
+          <Text style={styles.headerCounter}>
+            {currentIndex + 1}/{posts.length}
+          </Text>
+        </View>
+
+        {/* Posts List */}
+        <FlatList
+          ref={flatListRef}
+          data={posts}
+          keyExtractor={(item) => item.id}
+          renderItem={renderPost}
+          initialScrollIndex={initialIndex}
+          getItemLayout={(data, index) => ({
+            length: SCREEN_WIDTH + 180,
+            offset: (SCREEN_WIDTH + 180) * index,
+            index,
+          })}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
+          showsVerticalScrollIndicator={false}
+        />
+      </View>
+
+      {/* Give Coins Modal */}
+      {giveModalPost && (
+        <GiveCoinsModal
+          visible={giveModalVisible}
+          recipientId={giveModalPost.user.id}
+          recipientUsername={giveModalPost.user.username}
+          contextType="post"
+          contextId={giveModalPost.id}
+          onClose={() => {
+            setGiveModalVisible(false);
+            setGiveModalPost(null);
+          }}
+          onSuccess={() => {
+            setGiveModalVisible(false);
+            setGiveModalPost(null);
+          }}
+        />
+      )}
+
+      {/* Share Post Modal */}
+      <SharePostModal
+        visible={shareModalVisible}
+        postId={shareModalPostId}
+        postImageUrl={shareModalPostImage}
+        onClose={() => {
+          setShareModalVisible(false);
+          setShareModalPostId('');
+          setShareModalPostImage(null);
+        }}
+        onSuccess={() => {
+          setShareModalVisible(false);
+        }}
+      />
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+  },
+  backButton: {
+    padding: 4,
+  },
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  headerCounter: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#6B7280',
+  },
+  postItem: {
+    backgroundColor: '#FFFFFF',
+  },
+  postHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  postUserInfo: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  postUsername: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  postTime: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 1,
+  },
+  moreButton: {
+    padding: 4,
+  },
+  postImage: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_WIDTH,
+    backgroundColor: '#F3F4F6',
+  },
+  imagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  heartOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  likesText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+    paddingHorizontal: 12,
+    marginBottom: 4,
+  },
+  captionContainer: {
+    paddingHorizontal: 12,
+    marginBottom: 6,
+  },
+  captionText: {
+    fontSize: 14,
+    color: '#111827',
+    lineHeight: 20,
+  },
+  captionUsername: {
+    fontWeight: '600',
+  },
+  viewComments: {
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  viewCommentsText: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  separator: {
+    height: 8,
+    backgroundColor: '#F3F4F6',
+    marginTop: 8,
+  },
+});

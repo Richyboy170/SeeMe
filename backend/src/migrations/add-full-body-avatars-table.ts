@@ -3,12 +3,34 @@
  * Phase 3.1: Full-Body 3D Avatar System
  */
 
-import { QueryInterface, DataTypes } from 'sequelize';
+import { QueryInterface, DataTypes, QueryTypes } from 'sequelize';
 
 export async function up(queryInterface: QueryInterface): Promise<void> {
+  const dialect = queryInterface.sequelize.getDialect();
+
+  // Check if table already exists
+  let tableExists = false;
+  if (dialect === 'sqlite') {
+    const tables = await queryInterface.sequelize.query(
+      "SELECT name FROM sqlite_master WHERE type='table' and name='full_body_avatars';",
+      { type: QueryTypes.SELECT }
+    ) as any[];
+    tableExists = tables.length > 0;
+  } else {
+    const tables = await queryInterface.sequelize.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_name = 'full_body_avatars';",
+      { type: QueryTypes.SELECT }
+    ) as any[];
+    tableExists = tables.length > 0;
+  }
+
+  if (tableExists) {
+    console.log('full_body_avatars table already exists, skipping migration');
+    return;
+  }
+
   // Create ENUM type for style (PostgreSQL specific)
   // For SQLite, this will be handled as TEXT with validation
-  const dialect = queryInterface.sequelize.getDialect();
 
   if (dialect === 'postgres') {
     await queryInterface.sequelize.query(`
@@ -109,7 +131,10 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
       name: 'full_body_avatars_user_id_idx'
     });
   } catch (e: any) {
-    if (e.original?.code !== '42P07') throw e; // Ignore "already exists" error
+    // Ignore "already exists" errors for both PostgreSQL and SQLite
+    const isAlreadyExists = e.original?.code === '42P07' ||
+      (e.original?.code === 'SQLITE_ERROR' && e.message?.includes('already exists'));
+    if (!isAlreadyExists) throw e;
   }
 
   try {
@@ -117,7 +142,9 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
       name: 'full_body_avatars_user_active_idx'
     });
   } catch (e: any) {
-    if (e.original?.code !== '42P07') throw e;
+    const isAlreadyExists = e.original?.code === '42P07' ||
+      (e.original?.code === 'SQLITE_ERROR' && e.message?.includes('already exists'));
+    if (!isAlreadyExists) throw e;
   }
 
   console.log('Created full_body_avatars table with indexes');

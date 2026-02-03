@@ -4,7 +4,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import { View, Text, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 
 // Auth screens
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -12,8 +12,10 @@ import RegisterScreen from '../screens/auth/RegisterScreen';
 
 // Main screens
 import FeedScreen from '../screens/main/FeedScreen';
-import SearchUsersScreen from '../screens/main/SearchUsersScreen';
 import CreatePostScreen from '../screens/main/CreatePostScreen';
+
+// Discover screens
+import DiscoverScreen from '../screens/discover/DiscoverScreen';
 import ProfileScreen from '../screens/main/ProfileScreen';
 import CommentsScreen from '../screens/main/CommentsScreen';
 import AvatarCustomizationScreen from '../screens/main/AvatarCustomizationScreen';
@@ -24,9 +26,9 @@ import GiveLeaderboardScreen from '../screens/coins/GiveLeaderboardScreen';
 import CoinHistoryScreen from '../screens/coins/CoinHistoryScreen';
 import GivingActivityScreen from '../screens/coins/GivingActivityScreen';
 
-// Chat screens
-import ConversationsScreen from '../screens/chat/ConversationsScreen';
-import ChatScreen from '../screens/chat/ChatScreen';
+// Topic screens (used by DiscoverNavigator)
+import TopicPageScreen from '../screens/topics/TopicPageScreen';
+import CreateTopicScreen from '../screens/topics/CreateTopicScreen';
 
 // Socket service
 import { socketService } from '../services/socket';
@@ -42,9 +44,11 @@ import {
   CoinsStackParamList,
   ChatStackParamList,
   SearchStackParamList,
+  DiscoverStackParamList,
   FeedStackParamList,
   ProfileStackParamList,
   CreatePostStackParamList,
+  TopicsStackParamList,
   MainTabParamList,
 } from './types';
 
@@ -56,16 +60,17 @@ export {
   CoinsStackParamList,
   ChatStackParamList,
   SearchStackParamList,
+  DiscoverStackParamList,
   FeedStackParamList,
   ProfileStackParamList,
   CreatePostStackParamList,
+  TopicsStackParamList,
   MainTabParamList,
 } from './types';
 
 const AuthStack = createStackNavigator<AuthStackParamList>();
 const CoinsStack = createStackNavigator<CoinsStackParamList>();
-const ChatStack = createStackNavigator<ChatStackParamList>();
-const SearchStack = createStackNavigator<SearchStackParamList>();
+const DiscoverStack = createStackNavigator<DiscoverStackParamList>();
 const FeedStack = createStackNavigator<FeedStackParamList>();
 const ProfileStack = createStackNavigator<ProfileStackParamList>();
 const CreatePostStack = createStackNavigator<CreatePostStackParamList>();
@@ -86,7 +91,10 @@ function CoinsNavigator() {
       <CoinsStack.Screen
         name="CoinsHome"
         component={CoinsScreen}
-        options={{ headerShown: false }}
+        options={{
+          title: 'Positivity Coins',
+          headerShown: true
+        }}
       />
       <CoinsStack.Screen
         name="GiveLeaderboard"
@@ -116,41 +124,18 @@ function CoinsNavigator() {
   );
 }
 
-function ChatNavigator() {
+function DiscoverNavigator() {
   return (
-    <ChatStack.Navigator>
-      <ChatStack.Screen
-        name="Conversations"
-        component={ConversationsScreen}
+    <DiscoverStack.Navigator>
+      <DiscoverStack.Screen
+        name="DiscoverHome"
+        component={DiscoverScreen}
         options={{
-          title: 'Messages',
+          title: 'Discover',
           headerShown: true
         }}
       />
-      <ChatStack.Screen
-        name="Chat"
-        component={ChatScreen}
-        options={({ route }) => ({
-          title: route.params.otherUser.username,
-          headerBackTitle: 'Back'
-        })}
-      />
-    </ChatStack.Navigator>
-  );
-}
-
-function SearchNavigator() {
-  return (
-    <SearchStack.Navigator>
-      <SearchStack.Screen
-        name="SearchUsers"
-        component={SearchUsersScreen}
-        options={{
-          title: 'Find Friends',
-          headerShown: true
-        }}
-      />
-      <SearchStack.Screen
+      <DiscoverStack.Screen
         name="UserProfile"
         component={ProfileScreen}
         options={({ route }) => ({
@@ -158,7 +143,33 @@ function SearchNavigator() {
           headerBackTitle: 'Back'
         })}
       />
-    </SearchStack.Navigator>
+      <DiscoverStack.Screen
+        name="TopicPage"
+        component={TopicPageScreen}
+        options={({ route }) => ({
+          title: '',
+          headerBackTitle: 'Back',
+          headerTransparent: true,
+          headerTintColor: '#FFFFFF'
+        })}
+      />
+      <DiscoverStack.Screen
+        name="CreateTopic"
+        component={CreateTopicScreen}
+        options={{
+          title: 'Create Community',
+          headerBackTitle: 'Back'
+        }}
+      />
+      <DiscoverStack.Screen
+        name="Comments"
+        component={CommentsScreen}
+        options={{
+          title: 'Comments',
+          headerBackTitle: 'Back'
+        }}
+      />
+    </DiscoverStack.Navigator>
   );
 }
 
@@ -168,15 +179,26 @@ function FeedNavigator() {
       <FeedStack.Screen
         name="FeedHome"
         component={FeedScreen}
-        options={{ headerShown: false }}
+        options={{
+          title: 'Home',
+          headerShown: true,
+        }}
       />
       <FeedStack.Screen
         name="Comments"
         component={CommentsScreen}
         options={{
-          title: 'Comments',
-          headerBackTitle: 'Back'
+          title: 'Post',
+          headerBackTitle: 'Back',
         }}
+      />
+      <FeedStack.Screen
+        name="UserProfile"
+        component={ProfileScreen}
+        options={({ route }) => ({
+          title: `@${route.params.username}`,
+          headerBackTitle: 'Back',
+        })}
       />
     </FeedStack.Navigator>
   );
@@ -188,7 +210,10 @@ function CreatePostNavigator() {
       <CreatePostStack.Screen
         name="CreatePostHome"
         component={CreatePostScreen}
-        options={{ headerShown: false }}
+        options={{
+          title: 'Create Post',
+          headerShown: true
+        }}
       />
       <CreatePostStack.Screen
         name="FullBodyAvatar"
@@ -210,7 +235,10 @@ function ProfileNavigator() {
       <ProfileStack.Screen
         name="ProfileHome"
         component={ProfileScreen}
-        options={{ headerShown: false }}
+        options={{
+          title: 'Profile',
+          headerShown: true
+        }}
       />
       <ProfileStack.Screen
         name="AvatarCustomization"
@@ -232,39 +260,7 @@ function ProfileNavigator() {
   );
 }
 
-// Custom badge component for tab bar
-function TabBarBadge({ count }: { count: number }) {
-  if (count <= 0) return null;
-
-  return (
-    <View style={styles.badge}>
-      <Text style={styles.badgeText}>
-        {count > 99 ? '99+' : count}
-      </Text>
-    </View>
-  );
-}
-
-// Messages tab icon with badge
-function MessagesTabIcon({ focused, color, size, unreadCount }: {
-  focused: boolean;
-  color: string;
-  size: number;
-  unreadCount: number;
-}) {
-  return (
-    <View>
-      <Ionicons
-        name={focused ? 'chatbubbles' : 'chatbubbles-outline'}
-        size={size}
-        color={color}
-      />
-      <TabBarBadge count={unreadCount} />
-    </View>
-  );
-}
-
-function MainNavigator({ unreadCount }: { unreadCount: number }) {
+function MainNavigator() {
   return (
     <MainTab.Navigator
       screenOptions={({ route }) => ({
@@ -273,20 +269,10 @@ function MainNavigator({ unreadCount }: { unreadCount: number }) {
 
           if (route.name === 'Feed') {
             iconName = focused ? 'home' : 'home-outline';
-          } else if (route.name === 'Search') {
-            iconName = focused ? 'search' : 'search-outline';
+          } else if (route.name === 'Discover') {
+            iconName = focused ? 'compass' : 'compass-outline';
           } else if (route.name === 'CreatePost') {
             iconName = focused ? 'add-circle' : 'add-circle-outline';
-          } else if (route.name === 'Messages') {
-            // Use custom icon with badge
-            return (
-              <MessagesTabIcon
-                focused={focused}
-                color={color}
-                size={size}
-                unreadCount={unreadCount}
-              />
-            );
           } else if (route.name === 'Coins') {
             iconName = focused ? 'heart' : 'heart-outline';
           } else if (route.name === 'Profile') {
@@ -305,16 +291,11 @@ function MainNavigator({ unreadCount }: { unreadCount: number }) {
         options={{ headerShown: false }}
       />
       <MainTab.Screen
-        name="Search"
-        component={SearchNavigator}
-        options={{ headerShown: false, title: 'Find Friends', unmountOnBlur: true } as any}
+        name="Discover"
+        component={DiscoverNavigator}
+        options={{ headerShown: false }}
       />
       <MainTab.Screen name="CreatePost" component={CreatePostNavigator} options={{ headerShown: false }} />
-      <MainTab.Screen
-        name="Messages"
-        component={ChatNavigator}
-        options={{ headerShown: false, unmountOnBlur: true } as any}
-      />
       <MainTab.Screen
         name="Coins"
         component={CoinsNavigator}
@@ -462,28 +443,10 @@ export function RootNavigator() {
   return (
     <UnreadContext.Provider value={contextValue}>
       <NavigationContainer>
-        {isAuthenticated ? <MainNavigator unreadCount={unreadCount} /> : <AuthNavigator />}
+        {isAuthenticated ? <MainNavigator /> : <AuthNavigator />}
       </NavigationContainer>
     </UnreadContext.Provider>
   );
 }
 
-const styles = StyleSheet.create({
-  badge: {
-    position: 'absolute',
-    right: -8,
-    top: -4,
-    backgroundColor: '#EF4444',
-    borderRadius: 10,
-    minWidth: 18,
-    height: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 4,
-  },
-  badgeText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-});
+const styles = StyleSheet.create({});

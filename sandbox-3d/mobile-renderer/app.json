@@ -9,15 +9,41 @@
       "backgroundColor": "#1a1a2e"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.seeme.sandbox3d"
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#1a1a2e"
-      }
+      },
+      "package": "com.seeme.sandbox3d",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "plugins": [
-      "expo-image-picker"
-    ]
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 34,
+            "targetSdkVersion": 34,
+            "minSdkVersion": 24,
+            "kotlinVersion": "1.9.24"
+          }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos for pose detection."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2cb21149-71e9-415e-a572-94f8e15d42ed"
+      }
+    }
   }
 }

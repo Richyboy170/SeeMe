@@ -7417,12 +7417,152 @@ export class CoinsController {
         }
     }
     
+    /**
+     * Get leaderboard - supports multiple views:
+     *
+     * 1. Community Leaderboard (topicId provided):
+     *    - Shows coins given to posts WITHIN that specific community
+     *    - Ranked by total coins given in that topic
+     *
+     * 2. Global Leaderboard (no topicId):
+     *    - Shows total coins given across ALL communities + direct person gifts
+     *    - Ranked by total coins given everywhere
+     *
+     * Query params:
+     *   - limit: number of results (default 50)
+     *   - type: 'givers' | 'receivers' (default 'givers')
+     *   - topicId: filter by specific topic/community (optional)
+     */
     static async getLeaderboard(req: Request, res: Response) {
         try {
             const limit = parseInt(req.query.limit as string) || 50;
-            const leaderboard = await CoinsService.getGiveLeaderboard(limit);
-            
-            res.json({ leaderboard });
+            const type = (req.query.type as string) || 'givers';
+            const topicId = req.query.topicId as string | undefined;
+
+            let leaderboard;
+
+            if (type === 'givers') {
+                if (topicId) {
+                    // COMMUNITY LEADERBOARD: Coins given within this specific topic
+                    const results = await CoinTransaction.findAll({
+                        attributes: [
+                            'fromUserId',
+                            [sequelize.fn('SUM', sequelize.col('amount')), 'totalGiven'],
+                            [sequelize.fn('COUNT', sequelize.col('id')), 'giftCount']
+                        ],
+                        where: {
+                            topicId,
+                            type: { [Op.in]: ['encouragement', 'gift', 'post_reward'] }
+                        },
+                        include: [{
+                            model: User,
+                            as: 'sender',
+                            attributes: ['id', 'username', 'avatarUrl', 'displayName']
+                        }],
+                        group: ['fromUserId', 'sender.id'],
+                        order: [[sequelize.fn('SUM', sequelize.col('amount')), 'DESC']],
+                        limit
+                    });
+
+                    // Get streak info for badges
+                    const userIds = results.map(r => r.fromUserId);
+                    const streaks = await EncouragementStreak.findAll({
+                        where: { userId: { [Op.in]: userIds }, topicId }
+                    });
+                    const streakMap = new Map(streaks.map(s => [s.userId, s]));
+
+                    leaderboard = results.map((entry, index) => {
+                        const streak = streakMap.get(entry.fromUserId);
+                        return {
+                            rank: index + 1,
+                            user: entry.sender,
+                            totalGiven: parseInt(entry.getDataValue('totalGiven')),
+                            giftCount: parseInt(entry.getDataValue('giftCount')),
+                            currentStreak: streak?.currentStreak || 0,
+                            longestStreak: streak?.longestStreak || 0,
+                            badges: streak?.badgesEarned || []
+                        };
+                    });
+                } else {
+                    // GLOBAL LEADERBOARD: Total coins given everywhere (all topics + direct gifts)
+                    const results = await CoinTransaction.findAll({
+                        attributes: [
+                            'fromUserId',
+                            [sequelize.fn('SUM', sequelize.col('amount')), 'totalGiven'],
+                            [sequelize.fn('COUNT', sequelize.col('id')), 'giftCount']
+                        ],
+                        where: {
+                            type: { [Op.in]: ['encouragement', 'gift', 'post_reward'] }
+                        },
+                        include: [{
+                            model: User,
+                            as: 'sender',
+                            attributes: ['id', 'username', 'avatarUrl', 'displayName']
+                        }],
+                        group: ['fromUserId', 'sender.id'],
+                        order: [[sequelize.fn('SUM', sequelize.col('amount')), 'DESC']],
+                        limit
+                    });
+
+                    // Also get their total from positivity_coins for badge info
+                    const userIds = results.map(r => r.fromUserId);
+                    const coinRecords = await PositivityCoins.findAll({
+                        where: { userId: { [Op.in]: userIds } }
+                    });
+                    const coinMap = new Map(coinRecords.map(c => [c.userId, c]));
+
+                    leaderboard = results.map((entry, index) => {
+                        const coins = coinMap.get(entry.fromUserId);
+                        return {
+                            rank: index + 1,
+                            user: entry.sender,
+                            totalGiven: parseInt(entry.getDataValue('totalGiven')),
+                            giftCount: parseInt(entry.getDataValue('giftCount')),
+                            givenCounter: coins?.givenCounter || 0,  // Lifetime given count
+                            badges: []  // Could add global badges here
+                        };
+                    });
+                }
+            } else {
+                // RECEIVERS leaderboard - who received the most coins
+                const whereClause: any = {
+                    type: { [Op.in]: ['encouragement', 'gift', 'post_reward'] }
+                };
+                if (topicId) {
+                    whereClause.topicId = topicId;
+                }
+
+                const results = await CoinTransaction.findAll({
+                    attributes: [
+                        'toUserId',
+                        [sequelize.fn('SUM', sequelize.col('amount')), 'totalReceived'],
+                        [sequelize.fn('COUNT', sequelize.col('id')), 'giftCount']
+                    ],
+                    where: whereClause,
+                    include: [{
+                        model: User,
+                        as: 'receiver',
+                        attributes: ['id', 'username', 'avatarUrl', 'displayName']
+                    }],
+                    group: ['toUserId', 'receiver.id'],
+                    order: [[sequelize.fn('SUM', sequelize.col('amount')), 'DESC']],
+                    limit
+                });
+
+                leaderboard = results.map((entry, index) => ({
+                    rank: index + 1,
+                    user: entry.receiver,
+                    totalReceived: parseInt(entry.getDataValue('totalReceived')),
+                    giftCount: parseInt(entry.getDataValue('giftCount'))
+                }));
+            }
+
+            res.json({
+                leaderboard,
+                topicId: topicId || null,
+                type,
+                scope: topicId ? 'community' : 'global'
+            });
         } catch (error) {
             console.error('Error getting leaderboard:', error);
             res.status(500).json({ error: 'Failed to get leaderboard' });
@@ -15471,6 +15611,5774 @@ export default router;
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+# PHASE 3.3: COMMUNITY GROUPS & TOPIC-BASED POSTS
+
+**Duration:** 3 weeks (Weeks 28-30)
+**Goal:** Enable topic-based communities where users post to interest groups, with encouragement-first culture using coins
+**Dependencies:** Phase 2.5 (Positivity Coins), Phase 2 (Social Features), Phase 3.2 (Safety Systems)
+
+---
+
+## OVERVIEW
+
+**Philosophy:**
+> "Communities should lift people up, not judge them. Instead of asking 'is this work good enough?', we ask 'how can we encourage this person to keep going?'"
+
+**Core Concept - The Encouragement Economy:**
+- Users post to **Topic Groups** (cooking, plastic models, drawing, fitness, etc.)
+- Posts go to **topic followers' feeds**, not necessarily friends' feeds
+- **Beginners ("Weaklings")** get special visibility and coin encouragement
+- Focus on **encouragement over judgment** - coins reward effort, not perfection
+- **Favorites system** ensures you never miss posts from people you care about
+
+**User-Created Topics:**
+- **Anyone can create a topic** - No gatekeeping, just create and share
+- **Instantly visible to everyone** - New topics appear in browse/discovery
+- **Shareable invite links** - `seeme.app/t/my-cool-hobby` or `seeme.app/invite/ABC123`
+- **Creator becomes first follower** - Automatic follow on creation
+- **No approval needed** - Topics go live immediately (moderation handles abuse)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    TOPIC SHARING FLOW                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. User creates topic "Gunpla Building"                        │
+│     └── Gets shareable link: seeme.app/t/gunpla-building        │
+│                                                                  │
+│  2. User shares link with friends (WhatsApp, Discord, etc.)     │
+│     └── "Hey! Join my Gunpla community on SeeMe!"               │
+│                                                                  │
+│  3. Friend clicks link                                          │
+│     ├── If logged in → Topic page with "Follow" button          │
+│     └── If not logged in → Sign up → Redirect to topic          │
+│                                                                  │
+│  4. Topic grows organically through shares                      │
+│     └── Also discoverable in Browse Topics                      │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Differences from Reddit:**
+| Reddit | SeeMe Communities |
+|--------|-------------------|
+| Upvotes judge quality | Coins encourage effort |
+| Top posts = best content | Featured = needs encouragement |
+| Karma rewards popularity | Give Counter rewards kindness |
+| Anonymous harsh criticism | Supportive avatar community |
+| Downvotes discourage | No downvotes, only encouragement |
+
+---
+
+## POST VISIBILITY SYSTEM
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     POST VISIBILITY MATRIX                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  When User Creates Post, They Choose:                           │
+│  ────────────────────────────────────                           │
+│                                                                  │
+│  Option A: "Topic Only"                                          │
+│  ├── ✓ Appears in: Topic followers' feeds                       │
+│  ├── ✗ NOT in: Friends' feeds (unless favorited)                │
+│  └── ✓ Always on: User's profile page                           │
+│                                                                  │
+│  Option B: "Topic + Friends"                                     │
+│  ├── ✓ Appears in: Topic followers' feeds                       │
+│  ├── ✓ Appears in: Friends' feeds                               │
+│  └── ✓ Always on: User's profile page                           │
+│                                                                  │
+│  Option C: "Friends Only" (existing behavior)                    │
+│  ├── ✗ NOT in: Topic feeds                                      │
+│  ├── ✓ Appears in: Friends' feeds                               │
+│  └── ✓ Always on: User's profile page                           │
+│                                                                  │
+│  OVERRIDE: Favorites                                             │
+│  ─────────────────────                                          │
+│  If User A has "favorited" User B:                              │
+│  → ALL posts from User B appear in User A's feed                │
+│  → Regardless of post visibility settings                       │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## WORKSTREAM 3.3.1: DATABASE SCHEMA
+
+**Agent:** Database Agent
+**Duration:** Week 28 (3 days)
+**Output:** Complete database schema for communities
+
+---
+
+### **Task 3.3.1.1: Topics & Community Tables**
+
+```sql
+-- Topics/Groups table
+CREATE TABLE topics (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    -- Basic info
+    name VARCHAR(50) NOT NULL UNIQUE,
+    slug VARCHAR(50) NOT NULL UNIQUE,  -- URL-friendly: "plastic-models"
+    description TEXT,
+    icon_emoji VARCHAR(10),  -- 🎨 🍳 🏋️ etc.
+    cover_image_url VARCHAR(500),
+
+    -- Creator info (anyone can create!)
+    creator_id UUID REFERENCES users(id) ON DELETE SET NULL,  -- Who created this topic
+    invite_code VARCHAR(10) UNIQUE,  -- Short code for sharing: "ABC123"
+
+    -- Category for organization
+    category VARCHAR(50) NOT NULL,  -- "creative", "lifestyle", "fitness", etc.
+
+    -- Stats (denormalized for performance)
+    follower_count INTEGER DEFAULT 0,
+    post_count INTEGER DEFAULT 0,
+    weekly_post_count INTEGER DEFAULT 0,
+
+    -- Moderation
+    is_official BOOLEAN DEFAULT false,  -- Created by SeeMe team (false for user-created)
+    is_active BOOLEAN DEFAULT true,
+    is_discoverable BOOLEAN DEFAULT true,  -- Show in browse/search
+    min_age INTEGER DEFAULT 13,  -- Age restriction if needed
+
+    -- Encouragement settings
+    beginner_boost_enabled BOOLEAN DEFAULT true,  -- Show beginners more
+    encouragement_multiplier DECIMAL(3,2) DEFAULT 1.0,  -- Coin bonus for this topic
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+    INDEX idx_topics_category (category),
+    INDEX idx_topics_slug (slug),
+    INDEX idx_topics_creator (creator_id),
+    INDEX idx_topics_invite_code (invite_code),
+    INDEX idx_topics_follower_count (follower_count DESC),
+    INDEX idx_topics_discoverable (is_discoverable, is_active) WHERE is_discoverable = true AND is_active = true
+);
+
+-- Topic followers
+CREATE TABLE topic_follows (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    topic_id UUID NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+
+    -- Notification preferences
+    notify_new_posts BOOLEAN DEFAULT true,
+    notify_trending BOOLEAN DEFAULT false,
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+    UNIQUE(user_id, topic_id),
+    INDEX idx_topic_follows_user (user_id),
+    INDEX idx_topic_follows_topic (topic_id)
+);
+
+-- Post-to-topic associations (posts can have multiple topics)
+CREATE TABLE post_topics (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    post_id UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    topic_id UUID NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+    UNIQUE(post_id, topic_id),
+    INDEX idx_post_topics_post (post_id),
+    INDEX idx_post_topics_topic (topic_id)
+);
+
+-- User favorites (override for feed visibility)
+CREATE TABLE user_favorites (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,  -- The person doing the favoriting
+    favorite_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,  -- The favorited person
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+    UNIQUE(user_id, favorite_user_id),
+    INDEX idx_user_favorites_user (user_id),
+    INDEX idx_user_favorites_favorite (favorite_user_id),
+
+    -- Can't favorite yourself
+    CHECK (user_id != favorite_user_id)
+);
+
+-- Beginner status tracking per topic
+CREATE TABLE user_topic_status (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    topic_id UUID NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+
+    -- Beginner tracking
+    post_count INTEGER DEFAULT 0,
+    first_post_at TIMESTAMP WITH TIME ZONE,
+    is_beginner BOOLEAN DEFAULT true,  -- True until 5 posts or 30 days
+    beginner_until TIMESTAMP WITH TIME ZONE,  -- Auto-calculated
+
+    -- Encouragement received
+    total_coins_received INTEGER DEFAULT 0,
+    encouragement_count INTEGER DEFAULT 0,  -- Times received coins
+
+    -- Engagement
+    last_post_at TIMESTAMP WITH TIME ZONE,
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+    UNIQUE(user_id, topic_id),
+    INDEX idx_user_topic_status_beginner (topic_id, is_beginner) WHERE is_beginner = true
+);
+```
+
+---
+
+### **Task 3.3.1.2: Extend Posts Table**
+
+```sql
+-- Add visibility column to posts table
+ALTER TABLE posts ADD COLUMN visibility VARCHAR(20) DEFAULT 'friends_only';
+-- Options: 'friends_only', 'topics_only', 'topics_and_friends'
+
+ALTER TABLE posts ADD COLUMN is_beginner_post BOOLEAN DEFAULT false;
+-- Marked true if user is beginner in any of the post's topics
+
+-- Add index for topic feed queries
+CREATE INDEX idx_posts_visibility ON posts(visibility) WHERE status = 'completed';
+```
+
+---
+
+### **Task 3.3.1.3: Encouragement Coins Extension**
+
+```sql
+-- Extend coin_transactions for topic-specific encouragement
+ALTER TABLE coin_transactions ADD COLUMN topic_id UUID REFERENCES topics(id);
+ALTER TABLE coin_transactions ADD COLUMN is_beginner_encouragement BOOLEAN DEFAULT false;
+
+-- Track encouragement streaks (for gamification)
+CREATE TABLE encouragement_streaks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    topic_id UUID NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+
+    current_streak INTEGER DEFAULT 0,  -- Days in a row encouraging beginners
+    longest_streak INTEGER DEFAULT 0,
+    last_encouragement_date DATE,
+
+    -- Badges earned
+    badges_earned JSONB DEFAULT '[]',  -- ["first_encourager", "streak_7", "mentor_50"]
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+    UNIQUE(user_id, topic_id)
+);
+
+-- Community Medals (earned from leaderboard positions)
+CREATE TABLE user_community_medals (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    topic_id UUID NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+
+    -- Medal type (based on leaderboard position)
+    medal_type VARCHAR(10) NOT NULL,  -- 'gold', 'silver', 'bronze'
+    leaderboard_type VARCHAR(20) NOT NULL,  -- 'givers' (encouragement), 'receivers' (most encouraged)
+
+    -- When was this medal earned
+    period_type VARCHAR(20) NOT NULL,  -- 'weekly', 'monthly', 'all_time'
+    period_start DATE,  -- For weekly/monthly medals
+    period_end DATE,
+
+    -- Stats at time of earning
+    rank_position INTEGER NOT NULL,  -- 1, 2, or 3
+    coins_amount INTEGER NOT NULL,  -- How many coins given/received
+
+    -- Display info (cached for quick access)
+    topic_name VARCHAR(50) NOT NULL,
+    topic_emoji VARCHAR(10),
+
+    awarded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+    -- Prevent duplicate medals for same period
+    UNIQUE(user_id, topic_id, medal_type, leaderboard_type, period_type, period_start)
+);
+
+-- Index for quick profile medal lookups
+CREATE INDEX idx_user_medals_user ON user_community_medals(user_id);
+CREATE INDEX idx_user_medals_topic ON user_community_medals(topic_id);
+
+-- Global leaderboard medals (not tied to specific community)
+CREATE TABLE user_global_medals (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+    medal_type VARCHAR(10) NOT NULL,  -- 'gold', 'silver', 'bronze'
+    leaderboard_type VARCHAR(20) NOT NULL,  -- 'givers', 'receivers'
+
+    period_type VARCHAR(20) NOT NULL,  -- 'weekly', 'monthly', 'all_time'
+    period_start DATE,
+    period_end DATE,
+
+    rank_position INTEGER NOT NULL,
+    coins_amount INTEGER NOT NULL,
+
+    awarded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+    UNIQUE(user_id, medal_type, leaderboard_type, period_type, period_start)
+);
+
+CREATE INDEX idx_global_medals_user ON user_global_medals(user_id);
+```
+
+---
+
+## WORKSTREAM 3.3.2: BACKEND API
+
+**Agent:** Backend Agent
+**Duration:** Week 28-29 (5 days)
+**Output:** Complete API for topics, visibility, favorites
+
+---
+
+### **Task 3.3.2.1: Topic Models**
+
+```typescript
+// backend/src/models/Topic.ts
+import { Model, DataTypes, Sequelize } from 'sequelize';
+
+export interface TopicAttributes {
+    id: string;
+    name: string;
+    slug: string;
+    description: string | null;
+    iconEmoji: string | null;
+    coverImageUrl: string | null;
+    creatorId: string | null;  // Who created this topic (anyone can create!)
+    inviteCode: string;  // Short shareable code: "ABC123"
+    category: string;
+    followerCount: number;
+    postCount: number;
+    weeklyPostCount: number;
+    isOfficial: boolean;
+    isActive: boolean;
+    isDiscoverable: boolean;  // Visible in browse/search
+    minAge: number;
+    beginnerBoostEnabled: boolean;
+    encouragementMultiplier: number;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
+export class Topic extends Model<TopicAttributes> implements TopicAttributes {
+    public id!: string;
+    public name!: string;
+    public slug!: string;
+    public description!: string | null;
+    public iconEmoji!: string | null;
+    public coverImageUrl!: string | null;
+    public creatorId!: string | null;
+    public inviteCode!: string;
+    public category!: string;
+    public followerCount!: number;
+    public postCount!: number;
+    public weeklyPostCount!: number;
+    public isOfficial!: boolean;
+    public isActive!: boolean;
+    public isDiscoverable!: boolean;
+    public minAge!: number;
+    public beginnerBoostEnabled!: boolean;
+    public encouragementMultiplier!: number;
+    public readonly createdAt!: Date;
+    public readonly updatedAt!: Date;
+
+    static initModel(sequelize: Sequelize): typeof Topic {
+        Topic.init({
+            id: {
+                type: DataTypes.UUID,
+                defaultValue: DataTypes.UUIDV4,
+                primaryKey: true
+            },
+            name: {
+                type: DataTypes.STRING(50),
+                allowNull: false,
+                unique: true
+            },
+            slug: {
+                type: DataTypes.STRING(50),
+                allowNull: false,
+                unique: true
+            },
+            description: DataTypes.TEXT,
+            iconEmoji: DataTypes.STRING(10),
+            coverImageUrl: DataTypes.STRING(500),
+            creatorId: {
+                type: DataTypes.UUID,
+                allowNull: true,
+                references: { model: 'users', key: 'id' }
+            },
+            inviteCode: {
+                type: DataTypes.STRING(10),
+                unique: true
+            },
+            category: {
+                type: DataTypes.STRING(50),
+                allowNull: false
+            },
+            followerCount: {
+                type: DataTypes.INTEGER,
+                defaultValue: 0
+            },
+            postCount: {
+                type: DataTypes.INTEGER,
+                defaultValue: 0
+            },
+            weeklyPostCount: {
+                type: DataTypes.INTEGER,
+                defaultValue: 0
+            },
+            isOfficial: {
+                type: DataTypes.BOOLEAN,
+                defaultValue: false
+            },
+            isActive: {
+                type: DataTypes.BOOLEAN,
+                defaultValue: true
+            },
+            isDiscoverable: {
+                type: DataTypes.BOOLEAN,
+                defaultValue: true
+            },
+            minAge: {
+                type: DataTypes.INTEGER,
+                defaultValue: 13
+            },
+            beginnerBoostEnabled: {
+                type: DataTypes.BOOLEAN,
+                defaultValue: true
+            },
+            encouragementMultiplier: {
+                type: DataTypes.DECIMAL(3, 2),
+                defaultValue: 1.0
+            },
+            createdAt: DataTypes.DATE,
+            updatedAt: DataTypes.DATE
+        }, {
+            sequelize,
+            tableName: 'topics',
+            timestamps: true
+        });
+
+        return Topic;
+    }
+}
+```
+
+---
+
+### **Task 3.3.2.2: User Favorites Model**
+
+```typescript
+// backend/src/models/UserFavorite.ts
+import { Model, DataTypes, Sequelize } from 'sequelize';
+
+export interface UserFavoriteAttributes {
+    id: string;
+    userId: string;
+    favoriteUserId: string;
+    createdAt: Date;
+}
+
+export class UserFavorite extends Model<UserFavoriteAttributes> {
+    public id!: string;
+    public userId!: string;
+    public favoriteUserId!: string;
+    public readonly createdAt!: Date;
+
+    static initModel(sequelize: Sequelize): typeof UserFavorite {
+        UserFavorite.init({
+            id: {
+                type: DataTypes.UUID,
+                defaultValue: DataTypes.UUIDV4,
+                primaryKey: true
+            },
+            userId: {
+                type: DataTypes.UUID,
+                allowNull: false,
+                references: { model: 'users', key: 'id' }
+            },
+            favoriteUserId: {
+                type: DataTypes.UUID,
+                allowNull: false,
+                references: { model: 'users', key: 'id' }
+            },
+            createdAt: DataTypes.DATE
+        }, {
+            sequelize,
+            tableName: 'user_favorites',
+            timestamps: true,
+            updatedAt: false,
+            indexes: [
+                { unique: true, fields: ['userId', 'favoriteUserId'] }
+            ]
+        });
+
+        return UserFavorite;
+    }
+}
+```
+
+---
+
+### **Task 3.3.2.3: Enhanced Feed Controller**
+
+```typescript
+// backend/src/controllers/FeedController.ts
+import { Request, Response } from 'express';
+import { Post, User, Topic, TopicFollow, UserFavorite, PostTopic } from '../models';
+import { Op, literal } from 'sequelize';
+
+export class FeedController {
+    /**
+     * Get personalized feed with topic and favorite support
+     * Feed includes:
+     * 1. Posts from followed topics (if visibility includes topics)
+     * 2. Posts from friends (if visibility includes friends)
+     * 3. ALL posts from favorited users (override)
+     */
+    static async getPersonalizedFeed(req: Request, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const page = parseInt(req.query.page as string) || 1;
+            const limit = 20;
+            const offset = (page - 1) * limit;
+
+            // Get user's followed topics
+            const followedTopics = await TopicFollow.findAll({
+                where: { userId },
+                attributes: ['topicId']
+            });
+            const topicIds = followedTopics.map(tf => tf.topicId);
+
+            // Get user's friends (people they follow)
+            const friends = await Follow.findAll({
+                where: { followerId: userId },
+                attributes: ['followingId']
+            });
+            const friendIds = friends.map(f => f.followingId);
+
+            // Get user's favorited users (ALL their posts show up)
+            const favorites = await UserFavorite.findAll({
+                where: { userId },
+                attributes: ['favoriteUserId']
+            });
+            const favoriteUserIds = favorites.map(f => f.favoriteUserId);
+
+            // Build complex query
+            const posts = await Post.findAll({
+                where: {
+                    status: 'completed',
+                    [Op.or]: [
+                        // Posts from favorited users (always show)
+                        { userId: { [Op.in]: favoriteUserIds } },
+
+                        // Posts to friends from friends
+                        {
+                            userId: { [Op.in]: friendIds },
+                            visibility: { [Op.in]: ['friends_only', 'topics_and_friends'] }
+                        },
+
+                        // Posts to topics user follows
+                        {
+                            visibility: { [Op.in]: ['topics_only', 'topics_and_friends'] },
+                            id: {
+                                [Op.in]: literal(`(
+                                    SELECT post_id FROM post_topics
+                                    WHERE topic_id IN (${topicIds.map(id => `'${id}'`).join(',') || "'none'"})
+                                )`)
+                            }
+                        }
+                    ]
+                },
+                include: [
+                    { model: User, as: 'author', attributes: ['id', 'username', 'avatarUrl'] },
+                    { model: Topic, as: 'topics', through: { attributes: [] } }
+                ],
+                order: [
+                    // Boost beginner posts slightly
+                    [literal('is_beginner_post'), 'DESC'],
+                    ['createdAt', 'DESC']
+                ],
+                limit,
+                offset,
+                distinct: true
+            });
+
+            // Mark posts from favorited users
+            const postsWithMeta = posts.map(post => ({
+                ...post.toJSON(),
+                isFromFavorite: favoriteUserIds.includes(post.userId),
+                isBeginnerPost: post.isBeginnerPost
+            }));
+
+            res.json({
+                posts: postsWithMeta,
+                page,
+                hasMore: posts.length === limit
+            });
+
+        } catch (error) {
+            console.error('Error getting personalized feed:', error);
+            res.status(500).json({ error: 'Failed to load feed' });
+        }
+    }
+
+    /**
+     * Get topic-specific feed
+     */
+    static async getTopicFeed(req: Request, res: Response) {
+        try {
+            const { topicSlug } = req.params;
+            const page = parseInt(req.query.page as string) || 1;
+            const showBeginnersFirst = req.query.beginners === 'true';
+            const limit = 20;
+            const offset = (page - 1) * limit;
+
+            const topic = await Topic.findOne({ where: { slug: topicSlug } });
+            if (!topic) {
+                return res.status(404).json({ error: 'Topic not found' });
+            }
+
+            const posts = await Post.findAll({
+                where: {
+                    status: 'completed',
+                    visibility: { [Op.in]: ['topics_only', 'topics_and_friends'] }
+                },
+                include: [
+                    { model: User, as: 'author', attributes: ['id', 'username', 'avatarUrl'] },
+                    {
+                        model: Topic,
+                        as: 'topics',
+                        where: { id: topic.id },
+                        through: { attributes: [] }
+                    }
+                ],
+                order: showBeginnersFirst
+                    ? [[literal('is_beginner_post'), 'DESC'], ['createdAt', 'DESC']]
+                    : [['createdAt', 'DESC']],
+                limit,
+                offset
+            });
+
+            res.json({
+                topic: topic.toJSON(),
+                posts,
+                page,
+                hasMore: posts.length === limit
+            });
+
+        } catch (error) {
+            console.error('Error getting topic feed:', error);
+            res.status(500).json({ error: 'Failed to load topic feed' });
+        }
+    }
+}
+```
+
+---
+
+### **Task 3.3.2.4: Favorites Controller**
+
+```typescript
+// backend/src/controllers/FavoriteController.ts
+import { Request, Response } from 'express';
+import { UserFavorite, User } from '../models';
+
+export class FavoriteController {
+    /**
+     * Add user to favorites
+     * When favorited, ALL their posts appear in your feed
+     */
+    static async addFavorite(req: Request, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const { favoriteUserId } = req.params;
+
+            if (userId === favoriteUserId) {
+                return res.status(400).json({ error: 'Cannot favorite yourself' });
+            }
+
+            // Check if user exists
+            const userToFavorite = await User.findByPk(favoriteUserId);
+            if (!userToFavorite) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+
+            // Create favorite (or ignore if exists)
+            await UserFavorite.findOrCreate({
+                where: { userId, favoriteUserId },
+                defaults: { userId, favoriteUserId }
+            });
+
+            res.json({
+                success: true,
+                message: `You'll now see all posts from ${userToFavorite.username} in your feed`
+            });
+
+        } catch (error) {
+            console.error('Error adding favorite:', error);
+            res.status(500).json({ error: 'Failed to add favorite' });
+        }
+    }
+
+    /**
+     * Remove user from favorites
+     */
+    static async removeFavorite(req: Request, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const { favoriteUserId } = req.params;
+
+            await UserFavorite.destroy({
+                where: { userId, favoriteUserId }
+            });
+
+            res.json({ success: true });
+
+        } catch (error) {
+            console.error('Error removing favorite:', error);
+            res.status(500).json({ error: 'Failed to remove favorite' });
+        }
+    }
+
+    /**
+     * Get user's favorites list
+     */
+    static async getFavorites(req: Request, res: Response) {
+        try {
+            const userId = req.user!.id;
+
+            const favorites = await UserFavorite.findAll({
+                where: { userId },
+                include: [{
+                    model: User,
+                    as: 'favoritedUser',
+                    attributes: ['id', 'username', 'avatarUrl', 'displayName']
+                }],
+                order: [['createdAt', 'DESC']]
+            });
+
+            res.json({
+                favorites: favorites.map(f => f.favoritedUser)
+            });
+
+        } catch (error) {
+            console.error('Error getting favorites:', error);
+            res.status(500).json({ error: 'Failed to get favorites' });
+        }
+    }
+
+    /**
+     * Check if user is favorited
+     */
+    static async isFavorited(req: Request, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const { favoriteUserId } = req.params;
+
+            const favorite = await UserFavorite.findOne({
+                where: { userId, favoriteUserId }
+            });
+
+            res.json({ isFavorited: !!favorite });
+
+        } catch (error) {
+            console.error('Error checking favorite:', error);
+            res.status(500).json({ error: 'Failed to check favorite status' });
+        }
+    }
+}
+```
+
+---
+
+### **Task 3.3.2.5: Topics Controller**
+
+```typescript
+// backend/src/controllers/TopicController.ts
+import { Request, Response } from 'express';
+import { Topic, TopicFollow, UserTopicStatus, User } from '../models';
+import { Op } from 'sequelize';
+
+export class TopicController {
+    /**
+     * Get all topics by category
+     */
+    static async getTopics(req: Request, res: Response) {
+        try {
+            const { category } = req.query;
+            const userId = req.user?.id;
+
+            const where: any = { isActive: true };
+            if (category) {
+                where.category = category;
+            }
+
+            const topics = await Topic.findAll({
+                where,
+                order: [['followerCount', 'DESC']],
+                attributes: [
+                    'id', 'name', 'slug', 'description', 'iconEmoji',
+                    'category', 'followerCount', 'postCount', 'isOfficial'
+                ]
+            });
+
+            // If user is logged in, mark which topics they follow
+            let followedTopicIds: string[] = [];
+            if (userId) {
+                const follows = await TopicFollow.findAll({
+                    where: { userId },
+                    attributes: ['topicId']
+                });
+                followedTopicIds = follows.map(f => f.topicId);
+            }
+
+            const topicsWithFollow = topics.map(topic => ({
+                ...topic.toJSON(),
+                isFollowing: followedTopicIds.includes(topic.id)
+            }));
+
+            res.json({ topics: topicsWithFollow });
+
+        } catch (error) {
+            console.error('Error getting topics:', error);
+            res.status(500).json({ error: 'Failed to get topics' });
+        }
+    }
+
+    /**
+     * Get topic categories
+     */
+    static async getCategories(req: Request, res: Response) {
+        const categories = [
+            { id: 'creative', name: 'Creative', icon: '🎨',
+              description: 'Art, drawing, crafts, photography' },
+            { id: 'hobbies', name: 'Hobbies', icon: '🎯',
+              description: 'Models, collections, games' },
+            { id: 'lifestyle', name: 'Lifestyle', icon: '🏠',
+              description: 'Cooking, gardening, DIY' },
+            { id: 'fitness', name: 'Fitness', icon: '💪',
+              description: 'Workouts, sports, health' },
+            { id: 'learning', name: 'Learning', icon: '📚',
+              description: 'Languages, skills, courses' },
+            { id: 'tech', name: 'Tech', icon: '💻',
+              description: 'Coding, electronics, gadgets' }
+        ];
+
+        res.json({ categories });
+    }
+
+    /**
+     * Create a new topic (anyone can create!)
+     */
+    static async createTopic(req: Request, res: Response) {
+        try {
+            const creatorId = req.user!.id;
+            const { name, description, iconEmoji, category } = req.body;
+
+            // Validate required fields
+            if (!name || name.length < 2 || name.length > 50) {
+                return res.status(400).json({
+                    error: 'Topic name must be 2-50 characters'
+                });
+            }
+
+            if (!category) {
+                return res.status(400).json({ error: 'Category is required' });
+            }
+
+            // Generate slug from name
+            const slug = name
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-|-$/g, '');
+
+            // Check if slug already exists
+            const existingTopic = await Topic.findOne({ where: { slug } });
+            if (existingTopic) {
+                return res.status(400).json({
+                    error: 'A topic with this name already exists'
+                });
+            }
+
+            // Generate unique invite code (6 chars alphanumeric)
+            const generateInviteCode = () => {
+                const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // No confusing chars
+                let code = '';
+                for (let i = 0; i < 6; i++) {
+                    code += chars.charAt(Math.floor(Math.random() * chars.length));
+                }
+                return code;
+            };
+
+            let inviteCode = generateInviteCode();
+            // Ensure uniqueness (rare collision)
+            while (await Topic.findOne({ where: { inviteCode } })) {
+                inviteCode = generateInviteCode();
+            }
+
+            // Create the topic
+            const topic = await Topic.create({
+                name,
+                slug,
+                description: description || null,
+                iconEmoji: iconEmoji || null,
+                category,
+                creatorId,
+                inviteCode,
+                isOfficial: false,  // User-created
+                isActive: true,
+                isDiscoverable: true,
+                followerCount: 1,  // Creator is first follower
+                beginnerBoostEnabled: true
+            });
+
+            // Auto-follow the creator
+            await TopicFollow.create({
+                userId: creatorId,
+                topicId: topic.id
+            });
+
+            res.status(201).json({
+                topic: {
+                    ...topic.toJSON(),
+                    shareableLink: `seeme.app/t/${topic.slug}`,
+                    inviteLink: `seeme.app/invite/${topic.inviteCode}`
+                },
+                message: `Topic "${name}" created! Share it with friends.`
+            });
+
+        } catch (error) {
+            console.error('Error creating topic:', error);
+            res.status(500).json({ error: 'Failed to create topic' });
+        }
+    }
+
+    /**
+     * Get topic by invite code (for share links)
+     */
+    static async getTopicByInviteCode(req: Request, res: Response) {
+        try {
+            const { inviteCode } = req.params;
+
+            const topic = await Topic.findOne({
+                where: { inviteCode, isActive: true },
+                include: [{
+                    model: User,
+                    as: 'creator',
+                    attributes: ['id', 'username', 'avatarUrl']
+                }]
+            });
+
+            if (!topic) {
+                return res.status(404).json({ error: 'Topic not found' });
+            }
+
+            // Check if user follows this topic
+            let isFollowing = false;
+            if (req.user) {
+                const follow = await TopicFollow.findOne({
+                    where: { userId: req.user.id, topicId: topic.id }
+                });
+                isFollowing = !!follow;
+            }
+
+            res.json({
+                topic: {
+                    ...topic.toJSON(),
+                    isFollowing,
+                    shareableLink: `seeme.app/t/${topic.slug}`,
+                    inviteLink: `seeme.app/invite/${topic.inviteCode}`
+                }
+            });
+
+        } catch (error) {
+            console.error('Error getting topic by invite:', error);
+            res.status(500).json({ error: 'Failed to get topic' });
+        }
+    }
+
+    /**
+     * Get shareable links for a topic
+     */
+    static async getShareableLinks(req: Request, res: Response) {
+        try {
+            const { topicId } = req.params;
+
+            const topic = await Topic.findByPk(topicId, {
+                attributes: ['id', 'name', 'slug', 'inviteCode', 'iconEmoji']
+            });
+
+            if (!topic) {
+                return res.status(404).json({ error: 'Topic not found' });
+            }
+
+            res.json({
+                links: {
+                    direct: `seeme.app/t/${topic.slug}`,
+                    invite: `seeme.app/invite/${topic.inviteCode}`,
+                    // Pre-formatted share messages
+                    shareText: `Join me in the ${topic.iconEmoji || ''} ${topic.name} community on SeeMe! seeme.app/invite/${topic.inviteCode}`
+                }
+            });
+
+        } catch (error) {
+            console.error('Error getting shareable links:', error);
+            res.status(500).json({ error: 'Failed to get links' });
+        }
+    }
+
+    /**
+     * Get full topic page (community page like Reddit/Facebook)
+     * Returns topic details, stats, creator, recent members, top encouragers
+     */
+    static async getTopicPage(req: Request, res: Response) {
+        try {
+            const { topicSlug } = req.params;
+            const userId = req.user?.id;
+
+            const topic = await Topic.findOne({
+                where: { slug: topicSlug, isActive: true },
+                include: [{
+                    model: User,
+                    as: 'creator',
+                    attributes: ['id', 'username', 'avatarUrl', 'displayName']
+                }]
+            });
+
+            if (!topic) {
+                return res.status(404).json({ error: 'Topic not found' });
+            }
+
+            // Check if user follows this topic
+            let isFollowing = false;
+            if (userId) {
+                const follow = await TopicFollow.findOne({
+                    where: { userId, topicId: topic.id }
+                });
+                isFollowing = !!follow;
+            }
+
+            // Get recent members (last 10 to join)
+            const recentFollows = await TopicFollow.findAll({
+                where: { topicId: topic.id },
+                include: [{
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'username', 'avatarUrl']
+                }],
+                order: [['createdAt', 'DESC']],
+                limit: 10
+            });
+            const recentMembers = recentFollows.map(f => f.user);
+
+            // Get top encouragers in this topic
+            const topEncouragers = await EncouragementStreak.findAll({
+                where: { topicId: topic.id },
+                include: [{
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'username', 'avatarUrl']
+                }],
+                order: [['longestStreak', 'DESC']],
+                limit: 10
+            });
+
+            // Get initial posts (first page)
+            const posts = await Post.findAll({
+                where: {
+                    status: 'completed',
+                    visibility: { [Op.in]: ['topics_only', 'topics_and_friends'] }
+                },
+                include: [
+                    { model: User, as: 'author', attributes: ['id', 'username', 'avatarUrl'] },
+                    {
+                        model: Topic,
+                        as: 'topics',
+                        where: { id: topic.id },
+                        through: { attributes: [] }
+                    }
+                ],
+                order: [
+                    [literal('is_beginner_post'), 'DESC'],
+                    ['createdAt', 'DESC']
+                ],
+                limit: 20
+            });
+
+            res.json({
+                topic: {
+                    ...topic.toJSON(),
+                    isFollowing,
+                    shareableLink: `seeme.app/t/${topic.slug}`,
+                    inviteLink: `seeme.app/invite/${topic.inviteCode}`,
+                    recentMembers,
+                    topEncouragers: topEncouragers.map(e => ({
+                        user: e.user,
+                        longestStreak: e.longestStreak,
+                        currentStreak: e.currentStreak,
+                        badges: e.badgesEarned || []
+                    }))
+                },
+                posts
+            });
+
+        } catch (error) {
+            console.error('Error getting topic page:', error);
+            res.status(500).json({ error: 'Failed to get topic page' });
+        }
+    }
+
+    /**
+     * Follow a topic
+     */
+    static async followTopic(req: Request, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const { topicId } = req.params;
+
+            const topic = await Topic.findByPk(topicId);
+            if (!topic) {
+                return res.status(404).json({ error: 'Topic not found' });
+            }
+
+            await TopicFollow.findOrCreate({
+                where: { userId, topicId },
+                defaults: { userId, topicId }
+            });
+
+            // Increment follower count
+            await topic.increment('followerCount');
+
+            res.json({
+                success: true,
+                message: `Now following ${topic.name}`
+            });
+
+        } catch (error) {
+            console.error('Error following topic:', error);
+            res.status(500).json({ error: 'Failed to follow topic' });
+        }
+    }
+
+    /**
+     * Unfollow a topic
+     */
+    static async unfollowTopic(req: Request, res: Response) {
+        try {
+            const userId = req.user!.id;
+            const { topicId } = req.params;
+
+            const deleted = await TopicFollow.destroy({
+                where: { userId, topicId }
+            });
+
+            if (deleted) {
+                await Topic.decrement('followerCount', { where: { id: topicId } });
+            }
+
+            res.json({ success: true });
+
+        } catch (error) {
+            console.error('Error unfollowing topic:', error);
+            res.status(500).json({ error: 'Failed to unfollow topic' });
+        }
+    }
+
+    /**
+     * Get beginners in a topic (for encouragement)
+     */
+    static async getTopicBeginners(req: Request, res: Response) {
+        try {
+            const { topicId } = req.params;
+
+            const beginners = await UserTopicStatus.findAll({
+                where: {
+                    topicId,
+                    isBeginner: true,
+                    postCount: { [Op.gt]: 0 }  // Has at least one post
+                },
+                include: [{
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'username', 'avatarUrl']
+                }],
+                order: [
+                    ['encouragementCount', 'ASC'],  // Least encouraged first
+                    ['firstPostAt', 'DESC']  // Newest beginners
+                ],
+                limit: 20
+            });
+
+            res.json({
+                beginners: beginners.map(b => ({
+                    user: b.user,
+                    postCount: b.postCount,
+                    coinsReceived: b.totalCoinsReceived,
+                    firstPostAt: b.firstPostAt
+                }))
+            });
+
+        } catch (error) {
+            console.error('Error getting topic beginners:', error);
+            res.status(500).json({ error: 'Failed to get beginners' });
+        }
+    }
+}
+```
+
+---
+
+### **Task 3.3.2.6: Enhanced Post Creation**
+
+```typescript
+// backend/src/controllers/PostController.ts - Enhanced create method
+static async createPost(req: Request, res: Response) {
+    try {
+        const userId = req.user!.id;
+        const {
+            imageUrl,
+            caption,
+            visibility = 'friends_only',  // NEW
+            topicIds = []                   // NEW: array of topic IDs
+        } = req.body;
+
+        // Validate visibility
+        const validVisibilities = ['friends_only', 'topics_only', 'topics_and_friends'];
+        if (!validVisibilities.includes(visibility)) {
+            return res.status(400).json({ error: 'Invalid visibility option' });
+        }
+
+        // If posting to topics, require at least one topic
+        if (visibility !== 'friends_only' && topicIds.length === 0) {
+            return res.status(400).json({
+                error: 'Please select at least one topic when posting to communities'
+            });
+        }
+
+        // Check if user is beginner in any selected topic
+        let isBeginnerPost = false;
+        if (topicIds.length > 0) {
+            const beginnerStatuses = await UserTopicStatus.findAll({
+                where: {
+                    userId,
+                    topicId: { [Op.in]: topicIds },
+                    isBeginner: true
+                }
+            });
+            isBeginnerPost = beginnerStatuses.length > 0;
+        }
+
+        // Create post
+        const post = await Post.create({
+            userId,
+            originalImageUrl: imageUrl,
+            caption,
+            visibility,
+            isBeginnerPost,
+            status: 'pending'
+        });
+
+        // Associate with topics
+        if (topicIds.length > 0) {
+            await PostTopic.bulkCreate(
+                topicIds.map(topicId => ({
+                    postId: post.id,
+                    topicId
+                }))
+            );
+
+            // Update topic post counts
+            await Topic.increment('postCount', {
+                where: { id: { [Op.in]: topicIds } }
+            });
+
+            // Update user's topic status
+            for (const topicId of topicIds) {
+                const [status] = await UserTopicStatus.findOrCreate({
+                    where: { userId, topicId },
+                    defaults: {
+                        userId,
+                        topicId,
+                        postCount: 0,
+                        isBeginner: true,
+                        beginnerUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+                    }
+                });
+
+                await status.increment('postCount');
+
+                if (!status.firstPostAt) {
+                    await status.update({ firstPostAt: new Date() });
+                }
+
+                // Graduate from beginner after 5 posts
+                if (status.postCount >= 5) {
+                    await status.update({ isBeginner: false });
+                }
+            }
+        }
+
+        // Process image (existing logic)
+        await imageProcessingQueue.add('process', { postId: post.id });
+
+        res.status(201).json({ post });
+
+    } catch (error) {
+        console.error('Error creating post:', error);
+        res.status(500).json({ error: 'Failed to create post' });
+    }
+}
+```
+
+---
+
+### **Task 3.3.2.7: Encouragement Coins Integration**
+
+```typescript
+// backend/src/controllers/EncouragementController.ts
+import { Request, Response } from 'express';
+import {
+    PositivityCoins, CoinTransaction, UserTopicStatus,
+    EncouragementStreak, Post, User, Topic
+} from '../models';
+import { Op } from 'sequelize';
+
+export class EncouragementController {
+    /**
+     * Send encouragement coins to a beginner
+     * Bonus coins for encouraging beginners!
+     */
+    static async encourageBeginner(req: Request, res: Response) {
+        try {
+            const senderId = req.user!.id;
+            const { postId, amount, message } = req.body;
+
+            // Validate amount (1-10 coins)
+            if (amount < 1 || amount > 10) {
+                return res.status(400).json({ error: 'Amount must be 1-10 coins' });
+            }
+
+            // Get post and check if beginner
+            const post = await Post.findByPk(postId, {
+                include: [
+                    { model: User, as: 'author' },
+                    { model: Topic, as: 'topics' }
+                ]
+            });
+
+            if (!post) {
+                return res.status(404).json({ error: 'Post not found' });
+            }
+
+            if (post.userId === senderId) {
+                return res.status(400).json({ error: 'Cannot encourage your own post' });
+            }
+
+            // Check sender's coin balance
+            const senderCoins = await PositivityCoins.findOne({
+                where: { userId: senderId }
+            });
+
+            if (!senderCoins || senderCoins.totalCoins < amount) {
+                return res.status(400).json({ error: 'Insufficient coins' });
+            }
+
+            // Calculate bonus for beginner encouragement
+            let effectiveAmount = amount;
+            let bonusMessage = '';
+
+            if (post.isBeginnerPost) {
+                // 50% bonus for encouraging beginners!
+                effectiveAmount = Math.floor(amount * 1.5);
+                bonusMessage = ` (+${effectiveAmount - amount} beginner bonus!)`;
+            }
+
+            // Deduct from sender
+            await senderCoins.decrement('totalCoins', { by: amount });
+            await senderCoins.increment('givenCounter', { by: amount });
+
+            // Add to receiver
+            const [receiverCoins] = await PositivityCoins.findOrCreate({
+                where: { userId: post.userId },
+                defaults: { userId: post.userId, totalCoins: 0 }
+            });
+            await receiverCoins.increment('totalCoins', { by: effectiveAmount });
+            await receiverCoins.increment('earnedFromPosts', { by: effectiveAmount });
+
+            // Record transaction
+            const topicId = post.topics?.[0]?.id || null;
+            await CoinTransaction.create({
+                fromUserId: senderId,
+                toUserId: post.userId,
+                amount: effectiveAmount,
+                type: 'encouragement',
+                reason: message || 'Keep going! 💪',
+                relatedPostId: postId,
+                topicId,
+                isBeginnerEncouragement: post.isBeginnerPost
+            });
+
+            // Update receiver's topic status
+            if (topicId) {
+                await UserTopicStatus.increment(
+                    { totalCoinsReceived: effectiveAmount, encouragementCount: 1 },
+                    { where: { userId: post.userId, topicId } }
+                );
+            }
+
+            // Update sender's encouragement streak
+            await this.updateEncouragementStreak(senderId, topicId);
+
+            res.json({
+                success: true,
+                message: `Sent ${amount} coins${bonusMessage}`,
+                newBalance: senderCoins.totalCoins - amount
+            });
+
+        } catch (error) {
+            console.error('Error sending encouragement:', error);
+            res.status(500).json({ error: 'Failed to send encouragement' });
+        }
+    }
+
+    /**
+     * Update encouragement streak for gamification
+     */
+    private static async updateEncouragementStreak(userId: string, topicId: string | null) {
+        if (!topicId) return;
+
+        const today = new Date().toISOString().split('T')[0];
+
+        const [streak] = await EncouragementStreak.findOrCreate({
+            where: { userId, topicId },
+            defaults: { userId, topicId, currentStreak: 0 }
+        });
+
+        const lastDate = streak.lastEncouragementDate?.toISOString().split('T')[0];
+
+        if (lastDate === today) {
+            // Already encouraged today, no streak update
+            return;
+        }
+
+        const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000)
+            .toISOString().split('T')[0];
+
+        if (lastDate === yesterday) {
+            // Continuing streak
+            await streak.update({
+                currentStreak: streak.currentStreak + 1,
+                longestStreak: Math.max(streak.longestStreak, streak.currentStreak + 1),
+                lastEncouragementDate: new Date()
+            });
+        } else {
+            // Streak broken, start new
+            await streak.update({
+                currentStreak: 1,
+                lastEncouragementDate: new Date()
+            });
+        }
+
+        // Check for badge unlocks
+        await this.checkStreakBadges(streak);
+    }
+
+    private static async checkStreakBadges(streak: EncouragementStreak) {
+        const badges = streak.badgesEarned || [];
+        const newBadges: string[] = [];
+
+        if (streak.currentStreak >= 7 && !badges.includes('streak_7')) {
+            newBadges.push('streak_7');
+        }
+        if (streak.currentStreak >= 30 && !badges.includes('streak_30')) {
+            newBadges.push('streak_30');
+        }
+
+        if (newBadges.length > 0) {
+            await streak.update({
+                badgesEarned: [...badges, ...newBadges]
+            });
+        }
+    }
+
+    /**
+     * Get leaderboard of top encouragers in a topic
+     */
+    static async getTopEncouragers(req: Request, res: Response) {
+        try {
+            const { topicId } = req.params;
+
+            const encouragers = await EncouragementStreak.findAll({
+                where: { topicId },
+                include: [{
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'username', 'avatarUrl']
+                }],
+                order: [['longestStreak', 'DESC']],
+                limit: 20
+            });
+
+            res.json({
+                encouragers: encouragers.map(e => ({
+                    user: e.user,
+                    currentStreak: e.currentStreak,
+                    longestStreak: e.longestStreak,
+                    badges: e.badgesEarned
+                }))
+            });
+
+        } catch (error) {
+            console.error('Error getting encouragers:', error);
+            res.status(500).json({ error: 'Failed to get encouragers' });
+        }
+    }
+}
+```
+
+---
+
+### **Task 3.3.2.8: API Routes**
+
+```typescript
+// backend/src/routes/topics.ts
+import { Router } from 'express';
+import { TopicController } from '../controllers/TopicController';
+import { authenticateToken, optionalAuth } from '../middleware/auth';
+
+const router = Router();
+
+// Public routes
+router.get('/', optionalAuth, TopicController.getTopics);
+router.get('/categories', TopicController.getCategories);
+router.get('/invite/:inviteCode', optionalAuth, TopicController.getTopicByInviteCode);
+router.get('/:topicSlug', optionalAuth, TopicController.getTopicPage);  // Full community page
+router.get('/:topicSlug/feed', optionalAuth, FeedController.getTopicFeed);
+
+// Authenticated routes
+router.post('/', authenticateToken, TopicController.createTopic);  // Anyone can create!
+router.post('/:topicId/follow', authenticateToken, TopicController.followTopic);
+router.delete('/:topicId/follow', authenticateToken, TopicController.unfollowTopic);
+router.get('/:topicId/beginners', authenticateToken, TopicController.getTopicBeginners);
+router.get('/:topicId/share', authenticateToken, TopicController.getShareableLinks);
+
+export default router;
+
+// backend/src/routes/favorites.ts
+import { Router } from 'express';
+import { FavoriteController } from '../controllers/FavoriteController';
+import { authenticateToken } from '../middleware/auth';
+
+const router = Router();
+
+router.get('/', authenticateToken, FavoriteController.getFavorites);
+router.post('/:favoriteUserId', authenticateToken, FavoriteController.addFavorite);
+router.delete('/:favoriteUserId', authenticateToken, FavoriteController.removeFavorite);
+router.get('/:favoriteUserId/status', authenticateToken, FavoriteController.isFavorited);
+
+export default router;
+
+// backend/src/routes/encouragement.ts
+import { Router } from 'express';
+import { EncouragementController } from '../controllers/EncouragementController';
+import { authenticateToken } from '../middleware/auth';
+
+const router = Router();
+
+router.post('/send', authenticateToken, EncouragementController.encourageBeginner);
+router.get('/topics/:topicId/leaderboard', EncouragementController.getTopEncouragers);
+
+export default router;
+
+// backend/src/models/UserCommunityMedal.ts
+import { Model, DataTypes, Sequelize } from 'sequelize';
+
+export interface UserCommunityMedalAttributes {
+    id: string;
+    userId: string;
+    topicId: string;
+    medalType: 'gold' | 'silver' | 'bronze';
+    leaderboardType: 'givers' | 'receivers';
+    periodType: 'weekly' | 'monthly' | 'all_time';
+    periodStart: Date | null;
+    periodEnd: Date | null;
+    rankPosition: number;
+    coinsAmount: number;
+    topicName: string;
+    topicEmoji: string | null;
+    awardedAt: Date;
+}
+
+export class UserCommunityMedal extends Model<UserCommunityMedalAttributes> {
+    public id!: string;
+    public userId!: string;
+    public topicId!: string;
+    public medalType!: 'gold' | 'silver' | 'bronze';
+    public leaderboardType!: 'givers' | 'receivers';
+    public periodType!: 'weekly' | 'monthly' | 'all_time';
+    public periodStart!: Date | null;
+    public periodEnd!: Date | null;
+    public rankPosition!: number;
+    public coinsAmount!: number;
+    public topicName!: string;
+    public topicEmoji!: string | null;
+    public readonly awardedAt!: Date;
+}
+
+// backend/src/models/UserGlobalMedal.ts
+import { Model, DataTypes, Sequelize } from 'sequelize';
+
+export interface UserGlobalMedalAttributes {
+    id: string;
+    userId: string;
+    medalType: 'gold' | 'silver' | 'bronze';
+    leaderboardType: 'givers' | 'receivers';
+    periodType: 'weekly' | 'monthly' | 'all_time';
+    periodStart: Date | null;
+    periodEnd: Date | null;
+    rankPosition: number;
+    coinsAmount: number;
+    awardedAt: Date;
+}
+
+export class UserGlobalMedal extends Model<UserGlobalMedalAttributes> {
+    public id!: string;
+    public userId!: string;
+    public medalType!: 'gold' | 'silver' | 'bronze';
+    public leaderboardType!: 'givers' | 'receivers';
+    public periodType!: 'weekly' | 'monthly' | 'all_time';
+    public periodStart!: Date | null;
+    public periodEnd!: Date | null;
+    public rankPosition!: number;
+    public coinsAmount!: number;
+    public readonly awardedAt!: Date;
+}
+
+// backend/src/services/MedalService.ts
+import { UserCommunityMedal } from '../models/UserCommunityMedal';
+import { UserGlobalMedal } from '../models/UserGlobalMedal';
+import { CoinTransaction } from '../models/CoinTransaction';
+import { Topic } from '../models/Topic';
+import { User } from '../models/User';
+import { Op, Sequelize } from 'sequelize';
+
+export class MedalService {
+    /**
+     * Get all medals for a user's profile
+     */
+    static async getUserMedals(userId: string) {
+        // Get community medals
+        const communityMedals = await UserCommunityMedal.findAll({
+            where: { userId },
+            order: [['awardedAt', 'DESC']],
+            limit: 50
+        });
+
+        // Get global medals
+        const globalMedals = await UserGlobalMedal.findAll({
+            where: { userId },
+            order: [['awardedAt', 'DESC']],
+            limit: 20
+        });
+
+        // Group community medals by topic for display
+        const medalsByTopic = communityMedals.reduce((acc, medal) => {
+            if (!acc[medal.topicId]) {
+                acc[medal.topicId] = {
+                    topicId: medal.topicId,
+                    topicName: medal.topicName,
+                    topicEmoji: medal.topicEmoji,
+                    medals: []
+                };
+            }
+            acc[medal.topicId].medals.push({
+                id: medal.id,
+                medalType: medal.medalType,
+                leaderboardType: medal.leaderboardType,
+                periodType: medal.periodType,
+                periodStart: medal.periodStart,
+                periodEnd: medal.periodEnd,
+                rankPosition: medal.rankPosition,
+                coinsAmount: medal.coinsAmount,
+                awardedAt: medal.awardedAt
+            });
+            return acc;
+        }, {} as Record<string, any>);
+
+        return {
+            communityMedals: Object.values(medalsByTopic),
+            globalMedals: globalMedals.map(m => ({
+                id: m.id,
+                medalType: m.medalType,
+                leaderboardType: m.leaderboardType,
+                periodType: m.periodType,
+                periodStart: m.periodStart,
+                periodEnd: m.periodEnd,
+                rankPosition: m.rankPosition,
+                coinsAmount: m.coinsAmount,
+                awardedAt: m.awardedAt
+            })),
+            totalMedals: communityMedals.length + globalMedals.length,
+            goldCount: communityMedals.filter(m => m.medalType === 'gold').length +
+                       globalMedals.filter(m => m.medalType === 'gold').length,
+            silverCount: communityMedals.filter(m => m.medalType === 'silver').length +
+                         globalMedals.filter(m => m.medalType === 'silver').length,
+            bronzeCount: communityMedals.filter(m => m.medalType === 'bronze').length +
+                         globalMedals.filter(m => m.medalType === 'bronze').length
+        };
+    }
+
+    /**
+     * Award weekly medals for a specific topic
+     * Called by cron job every Sunday
+     */
+    static async awardWeeklyTopicMedals(topicId: string) {
+        const topic = await Topic.findByPk(topicId);
+        if (!topic) return;
+
+        const weekStart = new Date();
+        weekStart.setDate(weekStart.getDate() - 7);
+        weekStart.setHours(0, 0, 0, 0);
+
+        const weekEnd = new Date();
+        weekEnd.setHours(23, 59, 59, 999);
+
+        // Get top 3 givers in this topic for the week
+        const topGivers = await CoinTransaction.findAll({
+            attributes: [
+                'fromUserId',
+                [Sequelize.fn('SUM', Sequelize.col('amount')), 'totalGiven']
+            ],
+            where: {
+                topicId,
+                type: { [Op.in]: ['encouragement', 'gift', 'post_reward'] },
+                createdAt: { [Op.between]: [weekStart, weekEnd] }
+            },
+            group: ['fromUserId'],
+            order: [[Sequelize.fn('SUM', Sequelize.col('amount')), 'DESC']],
+            limit: 3,
+            raw: true
+        }) as any[];
+
+        // Award medals to top 3
+        const medalTypes: Array<'gold' | 'silver' | 'bronze'> = ['gold', 'silver', 'bronze'];
+
+        for (let i = 0; i < topGivers.length && i < 3; i++) {
+            const giver = topGivers[i];
+            if (giver.totalGiven > 0) {
+                await UserCommunityMedal.create({
+                    userId: giver.fromUserId,
+                    topicId: topic.id,
+                    medalType: medalTypes[i],
+                    leaderboardType: 'givers',
+                    periodType: 'weekly',
+                    periodStart: weekStart,
+                    periodEnd: weekEnd,
+                    rankPosition: i + 1,
+                    coinsAmount: parseInt(giver.totalGiven),
+                    topicName: topic.name,
+                    topicEmoji: topic.iconEmoji
+                });
+            }
+        }
+    }
+
+    /**
+     * Award weekly global medals
+     * Called by cron job every Sunday
+     */
+    static async awardWeeklyGlobalMedals() {
+        const weekStart = new Date();
+        weekStart.setDate(weekStart.getDate() - 7);
+        weekStart.setHours(0, 0, 0, 0);
+
+        const weekEnd = new Date();
+        weekEnd.setHours(23, 59, 59, 999);
+
+        // Get top 3 global givers for the week
+        const topGivers = await CoinTransaction.findAll({
+            attributes: [
+                'fromUserId',
+                [Sequelize.fn('SUM', Sequelize.col('amount')), 'totalGiven']
+            ],
+            where: {
+                type: { [Op.in]: ['encouragement', 'gift', 'post_reward'] },
+                createdAt: { [Op.between]: [weekStart, weekEnd] }
+            },
+            group: ['fromUserId'],
+            order: [[Sequelize.fn('SUM', Sequelize.col('amount')), 'DESC']],
+            limit: 3,
+            raw: true
+        }) as any[];
+
+        const medalTypes: Array<'gold' | 'silver' | 'bronze'> = ['gold', 'silver', 'bronze'];
+
+        for (let i = 0; i < topGivers.length && i < 3; i++) {
+            const giver = topGivers[i];
+            if (giver.totalGiven > 0) {
+                await UserGlobalMedal.create({
+                    userId: giver.fromUserId,
+                    medalType: medalTypes[i],
+                    leaderboardType: 'givers',
+                    periodType: 'weekly',
+                    periodStart: weekStart,
+                    periodEnd: weekEnd,
+                    rankPosition: i + 1,
+                    coinsAmount: parseInt(giver.totalGiven)
+                });
+            }
+        }
+    }
+
+    /**
+     * Get medal emoji based on type
+     */
+    static getMedalEmoji(medalType: string): string {
+        switch (medalType) {
+            case 'gold': return '🥇';
+            case 'silver': return '🥈';
+            case 'bronze': return '🥉';
+            default: return '🏅';
+        }
+    }
+}
+
+// backend/src/controllers/MedalController.ts
+import { Request, Response } from 'express';
+import { MedalService } from '../services/MedalService';
+
+export class MedalController {
+    /**
+     * GET /api/users/:userId/medals
+     * Get all medals for a user's profile
+     */
+    static async getUserMedals(req: Request, res: Response) {
+        try {
+            const { userId } = req.params;
+
+            const medals = await MedalService.getUserMedals(userId);
+
+            res.json({
+                success: true,
+                ...medals
+            });
+        } catch (error) {
+            console.error('Error fetching user medals:', error);
+            res.status(500).json({ error: 'Failed to fetch medals' });
+        }
+    }
+}
+
+// backend/src/routes/medals.ts
+import { Router } from 'express';
+import { MedalController } from '../controllers/MedalController';
+import { optionalAuth } from '../middleware/auth';
+
+const router = Router();
+
+// Get medals for a user (public - shown on profile)
+router.get('/users/:userId', optionalAuth, MedalController.getUserMedals);
+
+export default router;
+
+// backend/src/jobs/medalAwarder.ts
+// Cron job to award weekly medals every Sunday at midnight
+import cron from 'node-cron';
+import { Topic } from '../models/Topic';
+import { MedalService } from '../services/MedalService';
+
+// Run every Sunday at midnight
+cron.schedule('0 0 * * 0', async () => {
+    console.log('Starting weekly medal awards...');
+
+    try {
+        // Award global medals
+        await MedalService.awardWeeklyGlobalMedals();
+        console.log('Global medals awarded');
+
+        // Award medals for each active topic
+        const topics = await Topic.findAll({ where: { isActive: true } });
+
+        for (const topic of topics) {
+            await MedalService.awardWeeklyTopicMedals(topic.id);
+            console.log(`Medals awarded for topic: ${topic.name}`);
+        }
+
+        console.log('Weekly medal awards complete!');
+    } catch (error) {
+        console.error('Error awarding weekly medals:', error);
+    }
+});
+```
+
+---
+
+## WORKSTREAM 3.3.3: MOBILE FRONTEND
+
+**Agent:** Mobile Agent
+**Duration:** Week 29-30 (5 days)
+**Output:** Complete UI for topics, posting, favorites
+
+---
+
+### **Task 3.3.3.1: Post Creation with Visibility**
+
+```typescript
+// mobile/src/screens/CreatePostScreen.tsx
+import React, { useState, useEffect } from 'react';
+import {
+    View, Text, StyleSheet, TouchableOpacity, ScrollView,
+    TextInput, Image, Alert, Linking
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { topicsApi, postsApi } from '../services/api';
+
+type Visibility = 'friends_only' | 'topics_only' | 'topics_and_friends';
+
+interface Topic {
+    id: string;
+    name: string;
+    iconEmoji: string;
+    isFollowing: boolean;
+}
+
+export const CreatePostScreen: React.FC = ({ route, navigation }) => {
+    const { imageUri } = route.params;
+    const [caption, setCaption] = useState('');
+    const [visibility, setVisibility] = useState<Visibility>('friends_only');
+    const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
+    const [followedTopics, setFollowedTopics] = useState<Topic[]>([]);  // Only topics user follows
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        loadFollowedTopics();
+    }, []);
+
+    const loadFollowedTopics = async () => {
+        const response = await topicsApi.getTopics();
+        // Only show topics the user follows
+        const followed = response.topics.filter((t: Topic) => t.isFollowing);
+        setFollowedTopics(followed);
+    };
+
+    const toggleTopic = (topicId: string) => {
+        setSelectedTopics(prev =>
+            prev.includes(topicId)
+                ? prev.filter(id => id !== topicId)
+                : [...prev, topicId]
+        );
+    };
+
+    const handlePost = async () => {
+        if (visibility !== 'friends_only' && selectedTopics.length === 0) {
+            Alert.alert('Select Topics', 'Please select at least one topic for your post');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            await postsApi.createPost({
+                imageUri,
+                caption,
+                visibility,
+                topicIds: selectedTopics
+            });
+            navigation.navigate('Feed');
+        } catch (error) {
+            Alert.alert('Error', 'Failed to create post');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <ScrollView style={styles.container}>
+            {/* Image Preview */}
+            <Image source={{ uri: imageUri }} style={styles.preview} />
+
+            {/* Caption */}
+            <TextInput
+                style={styles.captionInput}
+                placeholder="Write a caption..."
+                value={caption}
+                onChangeText={setCaption}
+                multiline
+                maxLength={500}
+            />
+
+            {/* Visibility Options */}
+            <Text style={styles.sectionTitle}>Who can see this?</Text>
+
+            <View style={styles.visibilityOptions}>
+                <TouchableOpacity
+                    style={[
+                        styles.visibilityOption,
+                        visibility === 'friends_only' && styles.visibilitySelected
+                    ]}
+                    onPress={() => setVisibility('friends_only')}
+                >
+                    <Ionicons name="people" size={24} color={
+                        visibility === 'friends_only' ? '#7C3AED' : '#6B7280'
+                    } />
+                    <Text style={styles.visibilityLabel}>Friends Only</Text>
+                    <Text style={styles.visibilityDesc}>
+                        Only your followers see this
+                    </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={[
+                        styles.visibilityOption,
+                        visibility === 'topics_only' && styles.visibilitySelected
+                    ]}
+                    onPress={() => setVisibility('topics_only')}
+                >
+                    <Ionicons name="grid" size={24} color={
+                        visibility === 'topics_only' ? '#7C3AED' : '#6B7280'
+                    } />
+                    <Text style={styles.visibilityLabel}>Topics Only</Text>
+                    <Text style={styles.visibilityDesc}>
+                        Community members interested in the topic
+                    </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={[
+                        styles.visibilityOption,
+                        visibility === 'topics_and_friends' && styles.visibilitySelected
+                    ]}
+                    onPress={() => setVisibility('topics_and_friends')}
+                >
+                    <Ionicons name="globe" size={24} color={
+                        visibility === 'topics_and_friends' ? '#7C3AED' : '#6B7280'
+                    } />
+                    <Text style={styles.visibilityLabel}>Topics + Friends</Text>
+                    <Text style={styles.visibilityDesc}>
+                        Both community and your followers
+                    </Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* Topic Selection (shown when not friends_only) */}
+            {visibility !== 'friends_only' && (
+                <>
+                    <Text style={styles.sectionTitle}>Your Communities</Text>
+                    <Text style={styles.sectionSubtitle}>
+                        Select topics you follow to share with those communities
+                    </Text>
+
+                    {followedTopics.length > 0 ? (
+                        <View style={styles.topicsGrid}>
+                            {followedTopics.map(topic => (
+                                <TouchableOpacity
+                                    key={topic.id}
+                                    style={[
+                                        styles.topicChip,
+                                        selectedTopics.includes(topic.id) && styles.topicSelected
+                                    ]}
+                                    onPress={() => toggleTopic(topic.id)}
+                                >
+                                    <Text style={styles.topicEmoji}>{topic.iconEmoji}</Text>
+                                    <Text style={[
+                                        styles.topicName,
+                                        selectedTopics.includes(topic.id) && styles.topicNameSelected
+                                    ]}>
+                                        {topic.name}
+                                    </Text>
+                                    {selectedTopics.includes(topic.id) && (
+                                        <Ionicons name="checkmark-circle" size={16} color="#7C3AED" />
+                                    )}
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    ) : (
+                        /* No followed topics - encourage user to join communities */
+                        <View style={styles.noTopicsContainer}>
+                            <Ionicons name="planet-outline" size={48} color="#9CA3AF" />
+                            <Text style={styles.noTopicsTitle}>
+                                Join communities to share here!
+                            </Text>
+                            <Text style={styles.noTopicsText}>
+                                Follow topics you're interested in, then your posts
+                                can reach people who share your passions.
+                            </Text>
+                            <TouchableOpacity
+                                style={styles.browseTopicsButton}
+                                onPress={() => navigation.navigate('BrowseTopics')}
+                            >
+                                <Ionicons name="compass" size={20} color="#FFFFFF" />
+                                <Text style={styles.browseTopicsButtonText}>
+                                    Discover Communities
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.createTopicButton}
+                                onPress={() => navigation.navigate('CreateTopic')}
+                            >
+                                <Ionicons name="add-circle-outline" size={20} color="#7C3AED" />
+                                <Text style={styles.createTopicButtonText}>
+                                    Or create your own topic
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
+
+                    {/* Hint to join more communities */}
+                    {followedTopics.length > 0 && followedTopics.length < 5 && (
+                        <TouchableOpacity
+                            style={styles.joinMoreHint}
+                            onPress={() => navigation.navigate('BrowseTopics')}
+                        >
+                            <Ionicons name="add" size={16} color="#7C3AED" />
+                            <Text style={styles.joinMoreText}>
+                                Join more communities to share with
+                            </Text>
+                        </TouchableOpacity>
+                    )}
+                </>
+            )}
+
+            {/* Beginner Badge Info */}
+            {visibility !== 'friends_only' && (
+                <View style={styles.beginnerInfo}>
+                    <Ionicons name="sparkles" size={20} color="#F59E0B" />
+                    <Text style={styles.beginnerText}>
+                        New to a topic? Your posts get a beginner badge and
+                        extra visibility for encouragement!
+                    </Text>
+                </View>
+            )}
+
+            {/* Post Button */}
+            <TouchableOpacity
+                style={[styles.postButton, loading && styles.postButtonDisabled]}
+                onPress={handlePost}
+                disabled={loading}
+            >
+                <Text style={styles.postButtonText}>
+                    {loading ? 'Posting...' : 'Share Post'}
+                </Text>
+            </TouchableOpacity>
+        </ScrollView>
+    );
+};
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#FFFFFF'
+    },
+    preview: {
+        width: '100%',
+        height: 300,
+        resizeMode: 'cover'
+    },
+    captionInput: {
+        padding: 16,
+        fontSize: 16,
+        minHeight: 100,
+        textAlignVertical: 'top'
+    },
+    sectionTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        paddingHorizontal: 16,
+        paddingTop: 16,
+        color: '#1F2937'
+    },
+    sectionSubtitle: {
+        fontSize: 14,
+        color: '#6B7280',
+        paddingHorizontal: 16,
+        paddingBottom: 12
+    },
+    visibilityOptions: {
+        padding: 16,
+        gap: 12
+    },
+    visibilityOption: {
+        padding: 16,
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: '#E5E7EB',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12
+    },
+    visibilitySelected: {
+        borderColor: '#7C3AED',
+        backgroundColor: '#F5F3FF'
+    },
+    visibilityLabel: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#1F2937',
+        flex: 1
+    },
+    visibilityDesc: {
+        fontSize: 12,
+        color: '#6B7280',
+        position: 'absolute',
+        bottom: 8,
+        left: 52
+    },
+    topicsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        padding: 16,
+        gap: 8
+    },
+    topicChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 20,
+        backgroundColor: '#F3F4F6',
+        gap: 6
+    },
+    topicSelected: {
+        backgroundColor: '#EDE9FE',
+        borderWidth: 1,
+        borderColor: '#7C3AED'
+    },
+    topicEmoji: {
+        fontSize: 16
+    },
+    topicName: {
+        fontSize: 14,
+        color: '#4B5563'
+    },
+    topicNameSelected: {
+        color: '#7C3AED',
+        fontWeight: '600'
+    },
+    noTopicsContainer: {
+        alignItems: 'center',
+        padding: 24,
+        margin: 16,
+        backgroundColor: '#F9FAFB',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        borderStyle: 'dashed'
+    },
+    noTopicsTitle: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#374151',
+        marginTop: 12,
+        marginBottom: 8
+    },
+    noTopicsText: {
+        fontSize: 14,
+        color: '#6B7280',
+        textAlign: 'center',
+        marginBottom: 16,
+        lineHeight: 20
+    },
+    browseTopicsButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#7C3AED',
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+        borderRadius: 8,
+        gap: 8
+    },
+    browseTopicsButtonText: {
+        color: '#FFFFFF',
+        fontSize: 14,
+        fontWeight: '600'
+    },
+    createTopicButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 12,
+        gap: 6
+    },
+    createTopicButtonText: {
+        color: '#7C3AED',
+        fontSize: 14
+    },
+    joinMoreHint: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 12,
+        gap: 6
+    },
+    joinMoreText: {
+        color: '#7C3AED',
+        fontSize: 14
+    },
+    beginnerInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        margin: 16,
+        padding: 12,
+        backgroundColor: '#FFFBEB',
+        borderRadius: 8,
+        gap: 8
+    },
+    beginnerText: {
+        flex: 1,
+        fontSize: 13,
+        color: '#92400E'
+    },
+    postButton: {
+        margin: 16,
+        backgroundColor: '#7C3AED',
+        paddingVertical: 16,
+        borderRadius: 12,
+        alignItems: 'center'
+    },
+    postButtonDisabled: {
+        opacity: 0.6
+    },
+    postButtonText: {
+        color: '#FFFFFF',
+        fontSize: 16,
+        fontWeight: '600'
+    }
+});
+```
+
+---
+
+### **Task 3.3.3.2: Topic Page Screen (Community Page)**
+
+This is the main discovery page for each topic - like a subreddit or Facebook group page.
+
+```typescript
+// mobile/src/screens/TopicPageScreen.tsx
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+    View, Text, StyleSheet, FlatList, TouchableOpacity,
+    RefreshControl, Image, Share, ScrollView, Animated
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { topicsApi, feedApi } from '../services/api';
+import { PostCard } from '../components/PostCard';
+import { EncouragementButton } from '../components/EncouragementButton';
+
+type TabType = 'posts' | 'about' | 'encouragers';
+
+interface TopicDetails {
+    id: string;
+    name: string;
+    slug: string;
+    description: string;
+    iconEmoji: string;
+    coverImageUrl: string | null;
+    category: string;
+    followerCount: number;
+    postCount: number;
+    weeklyPostCount: number;
+    createdAt: string;
+    isFollowing: boolean;
+    creator: {
+        id: string;
+        username: string;
+        avatarUrl: string;
+    } | null;
+    topEncouragers: Array<{
+        user: { id: string; username: string; avatarUrl: string };
+        longestStreak: number;
+        badges: string[];
+    }>;
+    recentMembers: Array<{
+        id: string;
+        username: string;
+        avatarUrl: string;
+    }>;
+    inviteCode: string;
+}
+
+export const TopicPageScreen: React.FC = ({ route, navigation }) => {
+    const { topicSlug, inviteCode } = route.params;
+    const [topic, setTopic] = useState<TopicDetails | null>(null);
+    const [posts, setPosts] = useState<any[]>([]);
+    const [activeTab, setActiveTab] = useState<TabType>('posts');
+    const [showBeginnersFirst, setShowBeginnersFirst] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [isFollowing, setIsFollowing] = useState(false);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        loadTopicPage();
+    }, [topicSlug, inviteCode]);
+
+    const loadTopicPage = async () => {
+        setLoading(true);
+        try {
+            // Load by slug or invite code
+            const response = inviteCode
+                ? await topicsApi.getTopicByInviteCode(inviteCode)
+                : await topicsApi.getTopicPage(topicSlug);
+
+            setTopic(response.topic);
+            setIsFollowing(response.topic.isFollowing);
+            setPosts(response.posts || []);
+        } catch (error) {
+            console.error('Error loading topic:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const loadPosts = async () => {
+        if (!topic) return;
+        const response = await feedApi.getTopicFeed(topic.slug, {
+            beginners: showBeginnersFirst
+        });
+        setPosts(response.posts);
+    };
+
+    useEffect(() => {
+        if (topic) loadPosts();
+    }, [showBeginnersFirst, topic?.slug]);
+
+    const handleFollow = async () => {
+        if (!topic) return;
+        if (isFollowing) {
+            await topicsApi.unfollowTopic(topic.id);
+            setTopic(prev => prev ? { ...prev, followerCount: prev.followerCount - 1 } : null);
+        } else {
+            await topicsApi.followTopic(topic.id);
+            setTopic(prev => prev ? { ...prev, followerCount: prev.followerCount + 1 } : null);
+        }
+        setIsFollowing(!isFollowing);
+    };
+
+    const handleShare = async () => {
+        if (!topic) return;
+        try {
+            await Share.share({
+                message: `Join the ${topic.iconEmoji} ${topic.name} community on SeeMe! seeme.app/invite/${topic.inviteCode}`,
+                url: `https://seeme.app/invite/${topic.inviteCode}`
+            });
+        } catch (error) {
+            console.error('Error sharing:', error);
+        }
+    };
+
+    const renderHeader = () => (
+        <View>
+            {/* Cover Image / Banner */}
+            <View style={styles.coverContainer}>
+                {topic?.coverImageUrl ? (
+                    <Image source={{ uri: topic.coverImageUrl }} style={styles.coverImage} />
+                ) : (
+                    <View style={[styles.coverImage, styles.coverPlaceholder]}>
+                        <Text style={styles.coverEmoji}>{topic?.iconEmoji}</Text>
+                    </View>
+                )}
+                <View style={styles.coverOverlay} />
+            </View>
+
+            {/* Topic Info Card */}
+            <View style={styles.infoCard}>
+                <View style={styles.emojiContainer}>
+                    <Text style={styles.emoji}>{topic?.iconEmoji}</Text>
+                </View>
+
+                <Text style={styles.topicName}>{topic?.name}</Text>
+
+                {/* Stats Row */}
+                <View style={styles.statsRow}>
+                    <View style={styles.stat}>
+                        <Text style={styles.statNumber}>
+                            {topic?.followerCount.toLocaleString()}
+                        </Text>
+                        <Text style={styles.statLabel}>Members</Text>
+                    </View>
+                    <View style={styles.statDivider} />
+                    <View style={styles.stat}>
+                        <Text style={styles.statNumber}>
+                            {topic?.postCount.toLocaleString()}
+                        </Text>
+                        <Text style={styles.statLabel}>Posts</Text>
+                    </View>
+                    <View style={styles.statDivider} />
+                    <View style={styles.stat}>
+                        <Text style={styles.statNumber}>
+                            {topic?.weeklyPostCount || 0}
+                        </Text>
+                        <Text style={styles.statLabel}>This Week</Text>
+                    </View>
+                </View>
+
+                {/* Description */}
+                {topic?.description && (
+                    <Text style={styles.description}>{topic.description}</Text>
+                )}
+
+                {/* Action Buttons */}
+                <View style={styles.actionRow}>
+                    <TouchableOpacity
+                        style={[
+                            styles.joinButton,
+                            isFollowing && styles.joinedButton
+                        ]}
+                        onPress={handleFollow}
+                    >
+                        <Ionicons
+                            name={isFollowing ? 'checkmark-circle' : 'add-circle'}
+                            size={20}
+                            color={isFollowing ? '#10B981' : '#FFFFFF'}
+                        />
+                        <Text style={[
+                            styles.joinButtonText,
+                            isFollowing && styles.joinedButtonText
+                        ]}>
+                            {isFollowing ? 'Joined' : 'Join Community'}
+                        </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
+                        <Ionicons name="share-outline" size={20} color="#7C3AED" />
+                    </TouchableOpacity>
+                </View>
+
+                {/* Creator info */}
+                {topic?.creator && (
+                    <TouchableOpacity
+                        style={styles.creatorRow}
+                        onPress={() => navigation.navigate('Profile', { userId: topic.creator!.id })}
+                    >
+                        <Image
+                            source={{ uri: topic.creator.avatarUrl }}
+                            style={styles.creatorAvatar}
+                        />
+                        <Text style={styles.creatorText}>
+                            Created by <Text style={styles.creatorName}>@{topic.creator.username}</Text>
+                        </Text>
+                    </TouchableOpacity>
+                )}
+            </View>
+
+            {/* Tabs */}
+            <View style={styles.tabsContainer}>
+                <TouchableOpacity
+                    style={[styles.tab, activeTab === 'posts' && styles.tabActive]}
+                    onPress={() => setActiveTab('posts')}
+                >
+                    <Ionicons
+                        name="images"
+                        size={18}
+                        color={activeTab === 'posts' ? '#7C3AED' : '#6B7280'}
+                    />
+                    <Text style={[styles.tabText, activeTab === 'posts' && styles.tabTextActive]}>
+                        Posts
+                    </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={[styles.tab, activeTab === 'about' && styles.tabActive]}
+                    onPress={() => setActiveTab('about')}
+                >
+                    <Ionicons
+                        name="information-circle"
+                        size={18}
+                        color={activeTab === 'about' ? '#7C3AED' : '#6B7280'}
+                    />
+                    <Text style={[styles.tabText, activeTab === 'about' && styles.tabTextActive]}>
+                        About
+                    </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={[styles.tab, activeTab === 'encouragers' && styles.tabActive]}
+                    onPress={() => setActiveTab('encouragers')}
+                >
+                    <Ionicons
+                        name="heart"
+                        size={18}
+                        color={activeTab === 'encouragers' ? '#7C3AED' : '#6B7280'}
+                    />
+                    <Text style={[styles.tabText, activeTab === 'encouragers' && styles.tabTextActive]}>
+                        Top Helpers
+                    </Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* Posts Tab - Feed Toggle */}
+            {activeTab === 'posts' && (
+                <View style={styles.feedToggle}>
+                    <TouchableOpacity
+                        style={[styles.toggle, showBeginnersFirst && styles.toggleActive]}
+                        onPress={() => setShowBeginnersFirst(true)}
+                    >
+                        <Ionicons name="sparkles" size={14} color={
+                            showBeginnersFirst ? '#7C3AED' : '#6B7280'
+                        } />
+                        <Text style={[
+                            styles.toggleText,
+                            showBeginnersFirst && styles.toggleTextActive
+                        ]}>
+                            Encourage Beginners
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.toggle, !showBeginnersFirst && styles.toggleActive]}
+                        onPress={() => setShowBeginnersFirst(false)}
+                    >
+                        <Ionicons name="time" size={14} color={
+                            !showBeginnersFirst ? '#7C3AED' : '#6B7280'
+                        } />
+                        <Text style={[
+                            styles.toggleText,
+                            !showBeginnersFirst && styles.toggleTextActive
+                        ]}>
+                            Recent
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+            )}
+        </View>
+    );
+
+    const renderAboutTab = () => (
+        <View style={styles.aboutContainer}>
+            {/* Community Guidelines */}
+            <View style={styles.aboutSection}>
+                <Text style={styles.aboutSectionTitle}>About This Community</Text>
+                <Text style={styles.aboutText}>
+                    {topic?.description || `Welcome to ${topic?.name}! Share your work, encourage others, and grow together.`}
+                </Text>
+            </View>
+
+            {/* Community Values */}
+            <View style={styles.aboutSection}>
+                <Text style={styles.aboutSectionTitle}>Community Values</Text>
+                <View style={styles.valueItem}>
+                    <Ionicons name="heart" size={20} color="#EC4899" />
+                    <Text style={styles.valueText}>
+                        <Text style={styles.valueBold}>Encouragement First</Text> - We support beginners and celebrate effort, not just results
+                    </Text>
+                </View>
+                <View style={styles.valueItem}>
+                    <Ionicons name="sparkles" size={20} color="#F59E0B" />
+                    <Text style={styles.valueText}>
+                        <Text style={styles.valueBold}>Beginners Welcome</Text> - Everyone starts somewhere. Share your journey!
+                    </Text>
+                </View>
+                <View style={styles.valueItem}>
+                    <Ionicons name="people" size={20} color="#7C3AED" />
+                    <Text style={styles.valueText}>
+                        <Text style={styles.valueBold}>Positive Vibes</Text> - No judgment, only support and constructive feedback
+                    </Text>
+                </View>
+            </View>
+
+            {/* Stats */}
+            <View style={styles.aboutSection}>
+                <Text style={styles.aboutSectionTitle}>Community Stats</Text>
+                <View style={styles.statsGrid}>
+                    <View style={styles.statBox}>
+                        <Text style={styles.statBoxNumber}>{topic?.followerCount}</Text>
+                        <Text style={styles.statBoxLabel}>Members</Text>
+                    </View>
+                    <View style={styles.statBox}>
+                        <Text style={styles.statBoxNumber}>{topic?.postCount}</Text>
+                        <Text style={styles.statBoxLabel}>Posts</Text>
+                    </View>
+                    <View style={styles.statBox}>
+                        <Text style={styles.statBoxNumber}>{topic?.weeklyPostCount || 0}</Text>
+                        <Text style={styles.statBoxLabel}>This Week</Text>
+                    </View>
+                </View>
+            </View>
+
+            {/* Recent Members */}
+            {topic?.recentMembers && topic.recentMembers.length > 0 && (
+                <View style={styles.aboutSection}>
+                    <Text style={styles.aboutSectionTitle}>Recent Members</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        {topic.recentMembers.map(member => (
+                            <TouchableOpacity
+                                key={member.id}
+                                style={styles.memberItem}
+                                onPress={() => navigation.navigate('Profile', { userId: member.id })}
+                            >
+                                <Image source={{ uri: member.avatarUrl }} style={styles.memberAvatar} />
+                                <Text style={styles.memberName}>@{member.username}</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                </View>
+            )}
+
+            {/* Invite Link */}
+            <View style={styles.aboutSection}>
+                <Text style={styles.aboutSectionTitle}>Invite Friends</Text>
+                <View style={styles.inviteLinkBox}>
+                    <Text style={styles.inviteLink}>seeme.app/invite/{topic?.inviteCode}</Text>
+                    <TouchableOpacity style={styles.copyButton} onPress={handleShare}>
+                        <Ionicons name="share-outline" size={18} color="#7C3AED" />
+                        <Text style={styles.copyButtonText}>Share</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </View>
+    );
+
+    // Leaderboard state - toggle between community and global
+    const [leaderboardView, setLeaderboardView] = useState<'community' | 'global'>('community');
+    const [communityLeaderboard, setCommunityLeaderboard] = useState<any[]>([]);
+    const [globalLeaderboard, setGlobalLeaderboard] = useState<any[]>([]);
+    const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+
+    // Load leaderboard data when tab becomes active or view changes
+    useEffect(() => {
+        if (activeTab === 'encouragers' && topic) {
+            loadLeaderboard();
+        }
+    }, [activeTab, leaderboardView, topic?.id]);
+
+    const loadLeaderboard = async () => {
+        if (!topic) return;
+        setLoadingLeaderboard(true);
+        try {
+            if (leaderboardView === 'community') {
+                // Community leaderboard: coins given within THIS topic
+                const response = await coinsApi.getLeaderboard({
+                    type: 'givers',
+                    topicId: topic.id,
+                    limit: 20
+                });
+                setCommunityLeaderboard(response.leaderboard);
+            } else {
+                // Global leaderboard: total coins given everywhere
+                const response = await coinsApi.getLeaderboard({
+                    type: 'givers',
+                    limit: 20
+                });
+                setGlobalLeaderboard(response.leaderboard);
+            }
+        } catch (error) {
+            console.error('Error loading leaderboard:', error);
+        } finally {
+            setLoadingLeaderboard(false);
+        }
+    };
+
+    const currentLeaderboard = leaderboardView === 'community'
+        ? communityLeaderboard
+        : globalLeaderboard;
+
+    const renderEncouragersTab = () => (
+        <View style={styles.encouragersContainer}>
+            <Text style={styles.encouragersTitle}>Top Encouragers</Text>
+            <Text style={styles.encouragersSubtitle}>
+                These members help beginners the most!
+            </Text>
+
+            {/* Toggle: Community vs Global */}
+            <View style={styles.leaderboardToggle}>
+                <TouchableOpacity
+                    style={[
+                        styles.leaderboardToggleBtn,
+                        leaderboardView === 'community' && styles.leaderboardToggleBtnActive
+                    ]}
+                    onPress={() => setLeaderboardView('community')}
+                >
+                    <Text style={styles.leaderboardToggleEmoji}>{topic?.iconEmoji}</Text>
+                    <Text style={[
+                        styles.leaderboardToggleText,
+                        leaderboardView === 'community' && styles.leaderboardToggleTextActive
+                    ]}>
+                        This Community
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[
+                        styles.leaderboardToggleBtn,
+                        leaderboardView === 'global' && styles.leaderboardToggleBtnActive
+                    ]}
+                    onPress={() => setLeaderboardView('global')}
+                >
+                    <Ionicons
+                        name="globe"
+                        size={16}
+                        color={leaderboardView === 'global' ? '#7C3AED' : '#6B7280'}
+                    />
+                    <Text style={[
+                        styles.leaderboardToggleText,
+                        leaderboardView === 'global' && styles.leaderboardToggleTextActive
+                    ]}>
+                        Global
+                    </Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* Scope description */}
+            <Text style={styles.leaderboardScopeText}>
+                {leaderboardView === 'community'
+                    ? `Coins given to posts in ${topic?.name}`
+                    : 'Total coins given across all communities'
+                }
+            </Text>
+
+            {/* Leaderboard List */}
+            {loadingLeaderboard ? (
+                <View style={styles.loadingLeaderboard}>
+                    <Text style={styles.loadingText}>Loading...</Text>
+                </View>
+            ) : currentLeaderboard.length > 0 ? (
+                <>
+                    {currentLeaderboard.map((encourager, index) => (
+                        <TouchableOpacity
+                            key={encourager.user.id}
+                            style={styles.encouragerItem}
+                            onPress={() => navigation.navigate('Profile', { userId: encourager.user.id })}
+                        >
+                            {/* Rank with medal for top 3 */}
+                            <View style={styles.rankContainer}>
+                                {index === 0 && <Text style={styles.medal}>🥇</Text>}
+                                {index === 1 && <Text style={styles.medal}>🥈</Text>}
+                                {index === 2 && <Text style={styles.medal}>🥉</Text>}
+                                {index > 2 && <Text style={styles.encouragerRank}>#{index + 1}</Text>}
+                            </View>
+                            <Image
+                                source={{ uri: encourager.user.avatarUrl }}
+                                style={styles.encouragerAvatar}
+                            />
+                            <View style={styles.encouragerInfo}>
+                                <Text style={styles.encouragerName}>@{encourager.user.username}</Text>
+                                <View style={styles.encouragerStats}>
+                                    <Ionicons name="logo-bitcoin" size={14} color="#F59E0B" />
+                                    <Text style={styles.encouragerCoins}>
+                                        {encourager.totalGiven || encourager.totalReceived} coins
+                                    </Text>
+                                    {leaderboardView === 'community' && encourager.currentStreak > 0 && (
+                                        <>
+                                            <Text style={styles.statSeparator}>·</Text>
+                                            <Text style={styles.encouragerStreak}>
+                                                🔥 {encourager.currentStreak} day streak
+                                            </Text>
+                                        </>
+                                    )}
+                                </View>
+                            </View>
+                            <View style={styles.badgesRow}>
+                                {encourager.badges?.includes('streak_7') && (
+                                    <View style={styles.badge}><Text>🔥</Text></View>
+                                )}
+                                {encourager.badges?.includes('streak_30') && (
+                                    <View style={styles.badge}><Text>⭐</Text></View>
+                                )}
+                                {encourager.badges?.includes('mentor_50') && (
+                                    <View style={styles.badge}><Text>🎓</Text></View>
+                                )}
+                            </View>
+                        </TouchableOpacity>
+                    ))}
+
+                    {/* Link to full leaderboard */}
+                    <TouchableOpacity
+                        style={styles.viewFullLeaderboard}
+                        onPress={() => navigation.navigate('CoinLeaderboard', {
+                            initialTab: 'givers',
+                            topicId: leaderboardView === 'community' ? topic?.id : null
+                        })}
+                    >
+                        <Text style={styles.viewFullLeaderboardText}>
+                            View Full Leaderboard
+                        </Text>
+                        <Ionicons name="chevron-forward" size={16} color="#7C3AED" />
+                    </TouchableOpacity>
+                </>
+            ) : (
+                <View style={styles.emptyEncouragers}>
+                    <Ionicons name="heart-outline" size={48} color="#D1D5DB" />
+                    <Text style={styles.emptyText}>
+                        {leaderboardView === 'community'
+                            ? 'No encouragers in this community yet. Be the first to help beginners!'
+                            : 'No encouragers yet. Start giving coins to climb the leaderboard!'
+                        }
+                    </Text>
+                </View>
+            )}
+        </View>
+    );
+
+    const renderPost = ({ item }: { item: any }) => (
+        <View>
+            <PostCard post={item} />
+            {item.isBeginnerPost && (
+                <View style={styles.beginnerBadge}>
+                    <Ionicons name="sparkles" size={14} color="#F59E0B" />
+                    <Text style={styles.beginnerBadgeText}>Beginner - Show some love!</Text>
+                    <EncouragementButton postId={item.id} isBeginnerPost={true} />
+                </View>
+            )}
+        </View>
+    );
+
+    if (loading) {
+        return (
+            <View style={styles.loadingContainer}>
+                <Text style={styles.loadingEmoji}>{topic?.iconEmoji || '⏳'}</Text>
+                <Text style={styles.loadingText}>Loading community...</Text>
+            </View>
+        );
+    }
+
+    return (
+        <View style={styles.container}>
+            {activeTab === 'posts' ? (
+                <FlatList
+                    data={posts}
+                    renderItem={renderPost}
+                    keyExtractor={item => item.id}
+                    ListHeaderComponent={renderHeader}
+                    refreshControl={
+                        <RefreshControl refreshing={refreshing} onRefresh={loadTopicPage} />
+                    }
+                    ListEmptyComponent={
+                        <View style={styles.emptyPosts}>
+                            <Ionicons name="images-outline" size={48} color="#D1D5DB" />
+                            <Text style={styles.emptyTitle}>No posts yet</Text>
+                            <Text style={styles.emptySubtitle}>
+                                Be the first to share in {topic?.name}!
+                            </Text>
+                            {isFollowing && (
+                                <TouchableOpacity
+                                    style={styles.createPostButton}
+                                    onPress={() => navigation.navigate('CreatePost')}
+                                >
+                                    <Ionicons name="add" size={20} color="#FFFFFF" />
+                                    <Text style={styles.createPostButtonText}>Create Post</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    }
+                />
+            ) : (
+                <ScrollView>
+                    {renderHeader()}
+                    {activeTab === 'about' && renderAboutTab()}
+                    {activeTab === 'encouragers' && renderEncouragersTab()}
+                </ScrollView>
+            )}
+
+            {/* Floating Action Button for creating posts */}
+            {isFollowing && activeTab === 'posts' && (
+                <TouchableOpacity
+                    style={styles.fab}
+                    onPress={() => navigation.navigate('CreatePost', { preselectedTopic: topic })}
+                >
+                    <Ionicons name="add" size={28} color="#FFFFFF" />
+                </TouchableOpacity>
+            )}
+        </View>
+    );
+};
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#F9FAFB'
+    },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF'
+    },
+    loadingEmoji: {
+        fontSize: 48,
+        marginBottom: 16
+    },
+    loadingText: {
+        fontSize: 16,
+        color: '#6B7280'
+    },
+    // Cover Image
+    coverContainer: {
+        height: 150,
+        position: 'relative'
+    },
+    coverImage: {
+        width: '100%',
+        height: '100%'
+    },
+    coverPlaceholder: {
+        backgroundColor: '#7C3AED',
+        justifyContent: 'center',
+        alignItems: 'center'
+    },
+    coverEmoji: {
+        fontSize: 64,
+        opacity: 0.3
+    },
+    coverOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(0,0,0,0.2)'
+    },
+    // Info Card
+    infoCard: {
+        backgroundColor: '#FFFFFF',
+        marginTop: -40,
+        marginHorizontal: 16,
+        borderRadius: 16,
+        padding: 20,
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 4
+    },
+    emojiContainer: {
+        width: 72,
+        height: 72,
+        borderRadius: 36,
+        backgroundColor: '#F3F4F6',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: -56,
+        borderWidth: 4,
+        borderColor: '#FFFFFF'
+    },
+    emoji: {
+        fontSize: 36
+    },
+    topicName: {
+        fontSize: 24,
+        fontWeight: '700',
+        color: '#1F2937',
+        marginTop: 12,
+        textAlign: 'center'
+    },
+    statsRow: {
+        flexDirection: 'row',
+        marginTop: 16,
+        paddingVertical: 12,
+        borderTopWidth: 1,
+        borderBottomWidth: 1,
+        borderColor: '#F3F4F6'
+    },
+    stat: {
+        flex: 1,
+        alignItems: 'center'
+    },
+    statNumber: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: '#1F2937'
+    },
+    statLabel: {
+        fontSize: 12,
+        color: '#6B7280',
+        marginTop: 2
+    },
+    statDivider: {
+        width: 1,
+        backgroundColor: '#E5E7EB'
+    },
+    description: {
+        fontSize: 14,
+        color: '#4B5563',
+        textAlign: 'center',
+        marginTop: 12,
+        lineHeight: 20
+    },
+    actionRow: {
+        flexDirection: 'row',
+        marginTop: 16,
+        gap: 12,
+        width: '100%'
+    },
+    joinButton: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#7C3AED',
+        paddingVertical: 14,
+        borderRadius: 12,
+        gap: 8
+    },
+    joinedButton: {
+        backgroundColor: '#ECFDF5',
+        borderWidth: 1,
+        borderColor: '#10B981'
+    },
+    joinButtonText: {
+        color: '#FFFFFF',
+        fontSize: 16,
+        fontWeight: '600'
+    },
+    joinedButtonText: {
+        color: '#10B981'
+    },
+    shareButton: {
+        width: 52,
+        height: 52,
+        borderRadius: 12,
+        backgroundColor: '#F3F4F6',
+        justifyContent: 'center',
+        alignItems: 'center'
+    },
+    creatorRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 16,
+        gap: 8
+    },
+    creatorAvatar: {
+        width: 24,
+        height: 24,
+        borderRadius: 12
+    },
+    creatorText: {
+        fontSize: 13,
+        color: '#6B7280'
+    },
+    creatorName: {
+        color: '#7C3AED',
+        fontWeight: '600'
+    },
+    // Tabs
+    tabsContainer: {
+        flexDirection: 'row',
+        backgroundColor: '#FFFFFF',
+        marginTop: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB'
+    },
+    tab: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 14,
+        gap: 6
+    },
+    tabActive: {
+        borderBottomWidth: 2,
+        borderBottomColor: '#7C3AED'
+    },
+    tabText: {
+        fontSize: 14,
+        color: '#6B7280'
+    },
+    tabTextActive: {
+        color: '#7C3AED',
+        fontWeight: '600'
+    },
+    // Feed Toggle
+    feedToggle: {
+        flexDirection: 'row',
+        padding: 12,
+        backgroundColor: '#FFFFFF',
+        gap: 8
+    },
+    toggle: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 10,
+        borderRadius: 8,
+        backgroundColor: '#F3F4F6',
+        gap: 6
+    },
+    toggleActive: {
+        backgroundColor: '#EDE9FE'
+    },
+    toggleText: {
+        fontSize: 13,
+        color: '#6B7280'
+    },
+    toggleTextActive: {
+        color: '#7C3AED',
+        fontWeight: '600'
+    },
+    // Posts
+    beginnerBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        backgroundColor: '#FFFBEB',
+        marginHorizontal: 16,
+        marginBottom: 8,
+        borderRadius: 8,
+        gap: 8
+    },
+    beginnerBadgeText: {
+        flex: 1,
+        fontSize: 13,
+        color: '#92400E'
+    },
+    emptyPosts: {
+        padding: 40,
+        alignItems: 'center'
+    },
+    emptyTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#374151',
+        marginTop: 16
+    },
+    emptySubtitle: {
+        fontSize: 14,
+        color: '#6B7280',
+        marginTop: 4,
+        textAlign: 'center'
+    },
+    createPostButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#7C3AED',
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+        borderRadius: 8,
+        marginTop: 16,
+        gap: 8
+    },
+    createPostButtonText: {
+        color: '#FFFFFF',
+        fontSize: 14,
+        fontWeight: '600'
+    },
+    // About Tab
+    aboutContainer: {
+        padding: 16
+    },
+    aboutSection: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 12
+    },
+    aboutSectionTitle: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#1F2937',
+        marginBottom: 12
+    },
+    aboutText: {
+        fontSize: 14,
+        color: '#4B5563',
+        lineHeight: 22
+    },
+    valueItem: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        marginBottom: 12,
+        gap: 12
+    },
+    valueText: {
+        flex: 1,
+        fontSize: 14,
+        color: '#4B5563',
+        lineHeight: 20
+    },
+    valueBold: {
+        fontWeight: '600',
+        color: '#1F2937'
+    },
+    statsGrid: {
+        flexDirection: 'row',
+        gap: 12
+    },
+    statBox: {
+        flex: 1,
+        backgroundColor: '#F9FAFB',
+        borderRadius: 8,
+        padding: 12,
+        alignItems: 'center'
+    },
+    statBoxNumber: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#7C3AED'
+    },
+    statBoxLabel: {
+        fontSize: 12,
+        color: '#6B7280',
+        marginTop: 4
+    },
+    memberItem: {
+        alignItems: 'center',
+        marginRight: 16
+    },
+    memberAvatar: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        marginBottom: 4
+    },
+    memberName: {
+        fontSize: 12,
+        color: '#6B7280'
+    },
+    inviteLinkBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F3F4F6',
+        borderRadius: 8,
+        padding: 12
+    },
+    inviteLink: {
+        flex: 1,
+        fontSize: 14,
+        color: '#7C3AED',
+        fontWeight: '500'
+    },
+    copyButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4
+    },
+    copyButtonText: {
+        fontSize: 14,
+        color: '#7C3AED',
+        fontWeight: '600'
+    },
+    // Encouragers Tab
+    encouragersContainer: {
+        padding: 16
+    },
+    encouragersTitle: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#1F2937',
+        marginBottom: 4
+    },
+    encouragersSubtitle: {
+        fontSize: 14,
+        color: '#6B7280',
+        marginBottom: 16
+    },
+    // Leaderboard toggle styles
+    leaderboardToggle: {
+        flexDirection: 'row',
+        backgroundColor: '#F3F4F6',
+        borderRadius: 8,
+        padding: 4,
+        marginBottom: 16
+    },
+    leaderboardToggleBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 10,
+        borderRadius: 6,
+        gap: 6
+    },
+    leaderboardToggleBtnActive: {
+        backgroundColor: '#FFFFFF',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 2
+    },
+    leaderboardToggleEmoji: {
+        fontSize: 14
+    },
+    leaderboardToggleText: {
+        fontSize: 14,
+        color: '#6B7280'
+    },
+    leaderboardToggleTextActive: {
+        color: '#7C3AED',
+        fontWeight: '600'
+    },
+    rankContainer: {
+        width: 32,
+        alignItems: 'center'
+    },
+    medal: {
+        fontSize: 20
+    },
+    loadingLeaderboard: {
+        padding: 40,
+        alignItems: 'center'
+    },
+    viewFullLeaderboard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 16,
+        marginTop: 8,
+        gap: 4
+    },
+    viewFullLeaderboardText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#7C3AED'
+    },
+    encouragerItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        padding: 12,
+        marginBottom: 8
+    },
+    encouragerRank: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#7C3AED',
+        width: 32
+    },
+    encouragerAvatar: {
+        width: 44,
+        height: 44,
+        borderRadius: 22
+    },
+    encouragerInfo: {
+        flex: 1,
+        marginLeft: 12
+    },
+    encouragerName: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#1F2937'
+    },
+    encouragerStreak: {
+        fontSize: 13,
+        color: '#6B7280'
+    },
+    // Leaderboard item stats display
+    leaderboardScopeText: {
+        fontSize: 13,
+        color: '#6B7280',
+        textAlign: 'center',
+        marginBottom: 12,
+        fontStyle: 'italic'
+    },
+    encouragerStats: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 2,
+        gap: 4
+    },
+    encouragerCoins: {
+        fontSize: 13,
+        color: '#F59E0B',
+        fontWeight: '600'
+    },
+    statSeparator: {
+        fontSize: 13,
+        color: '#D1D5DB'
+    },
+    badgesRow: {
+        flexDirection: 'row',
+        gap: 4
+    },
+    badge: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        backgroundColor: '#FEF3C7',
+        justifyContent: 'center',
+        alignItems: 'center'
+    },
+    emptyEncouragers: {
+        alignItems: 'center',
+        padding: 40
+    },
+    emptyText: {
+        fontSize: 14,
+        color: '#6B7280',
+        textAlign: 'center',
+        marginTop: 12
+    },
+    // FAB
+    fab: {
+        position: 'absolute',
+        bottom: 24,
+        right: 24,
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: '#7C3AED',
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#7C3AED',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 8
+    },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 16,
+        backgroundColor: '#FFFFFF',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB'
+    },
+    topicEmoji: {
+        fontSize: 40,
+        marginRight: 12
+    },
+    headerInfo: {
+        flex: 1
+    },
+    topicName: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#1F2937'
+    },
+    topicStats: {
+        fontSize: 13,
+        color: '#6B7280',
+        marginTop: 2
+    },
+    followButton: {
+        paddingHorizontal: 20,
+        paddingVertical: 8,
+        backgroundColor: '#7C3AED',
+        borderRadius: 20
+    },
+    followingButton: {
+        backgroundColor: '#E5E7EB'
+    },
+    followButtonText: {
+        color: '#FFFFFF',
+        fontWeight: '600'
+    },
+    followingButtonText: {
+        color: '#4B5563'
+    },
+    toggleContainer: {
+        flexDirection: 'row',
+        padding: 12,
+        backgroundColor: '#FFFFFF',
+        gap: 8
+    },
+    toggle: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 10,
+        borderRadius: 8,
+        backgroundColor: '#F3F4F6',
+        gap: 6
+    },
+    toggleActive: {
+        backgroundColor: '#EDE9FE'
+    },
+    toggleText: {
+        fontSize: 14,
+        color: '#6B7280'
+    },
+    toggleTextActive: {
+        color: '#7C3AED',
+        fontWeight: '600'
+    },
+    beginnerBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        backgroundColor: '#FFFBEB',
+        marginHorizontal: 16,
+        marginBottom: 8,
+        borderRadius: 8,
+        gap: 8
+    },
+    beginnerBadgeText: {
+        flex: 1,
+        fontSize: 13,
+        color: '#92400E'
+    },
+    empty: {
+        padding: 40,
+        alignItems: 'center'
+    },
+    emptyText: {
+        fontSize: 16,
+        color: '#6B7280',
+        textAlign: 'center'
+    }
+});
+```
+
+---
+
+### **Task 3.3.3.2b: Browse Topics Screen (Discovery)**
+
+```typescript
+// mobile/src/screens/BrowseTopicsScreen.tsx
+import React, { useState, useEffect } from 'react';
+import {
+    View, Text, StyleSheet, FlatList, TouchableOpacity,
+    TextInput, RefreshControl
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { topicsApi } from '../services/api';
+
+interface Topic {
+    id: string;
+    name: string;
+    slug: string;
+    description: string;
+    iconEmoji: string;
+    category: string;
+    followerCount: number;
+    postCount: number;
+    isFollowing: boolean;
+    isOfficial: boolean;
+}
+
+interface Category {
+    id: string;
+    name: string;
+    icon: string;
+    description: string;
+}
+
+export const BrowseTopicsScreen: React.FC = ({ navigation }) => {
+    const [topics, setTopics] = useState<Topic[]>([]);
+    const [categories, setCategories] = useState<Category[]>([]);
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [refreshing, setRefreshing] = useState(false);
+
+    useEffect(() => {
+        loadData();
+    }, []);
+
+    const loadData = async () => {
+        const [topicsRes, categoriesRes] = await Promise.all([
+            topicsApi.getTopics(),
+            topicsApi.getCategories()
+        ]);
+        setTopics(topicsRes.topics);
+        setCategories(categoriesRes.categories);
+    };
+
+    const filteredTopics = topics.filter(topic => {
+        const matchesCategory = !selectedCategory || topic.category === selectedCategory;
+        const matchesSearch = !searchQuery ||
+            topic.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            topic.description?.toLowerCase().includes(searchQuery.toLowerCase());
+        return matchesCategory && matchesSearch;
+    });
+
+    const handleFollow = async (topic: Topic) => {
+        if (topic.isFollowing) {
+            await topicsApi.unfollowTopic(topic.id);
+        } else {
+            await topicsApi.followTopic(topic.id);
+        }
+        // Update local state
+        setTopics(prev => prev.map(t =>
+            t.id === topic.id
+                ? { ...t, isFollowing: !t.isFollowing, followerCount: t.followerCount + (t.isFollowing ? -1 : 1) }
+                : t
+        ));
+    };
+
+    const renderCategory = ({ item }: { item: Category }) => (
+        <TouchableOpacity
+            style={[
+                styles.categoryChip,
+                selectedCategory === item.id && styles.categoryChipActive
+            ]}
+            onPress={() => setSelectedCategory(
+                selectedCategory === item.id ? null : item.id
+            )}
+        >
+            <Text style={styles.categoryIcon}>{item.icon}</Text>
+            <Text style={[
+                styles.categoryName,
+                selectedCategory === item.id && styles.categoryNameActive
+            ]}>
+                {item.name}
+            </Text>
+        </TouchableOpacity>
+    );
+
+    const renderTopic = ({ item }: { item: Topic }) => (
+        <TouchableOpacity
+            style={styles.topicCard}
+            onPress={() => navigation.navigate('TopicPage', { topicSlug: item.slug })}
+        >
+            <View style={styles.topicHeader}>
+                <Text style={styles.topicEmoji}>{item.iconEmoji}</Text>
+                <View style={styles.topicInfo}>
+                    <View style={styles.topicNameRow}>
+                        <Text style={styles.topicName}>{item.name}</Text>
+                        {item.isOfficial && (
+                            <Ionicons name="checkmark-circle" size={16} color="#7C3AED" />
+                        )}
+                    </View>
+                    <Text style={styles.topicStats}>
+                        {item.followerCount.toLocaleString()} members · {item.postCount} posts
+                    </Text>
+                </View>
+                <TouchableOpacity
+                    style={[
+                        styles.followButton,
+                        item.isFollowing && styles.followingButton
+                    ]}
+                    onPress={(e) => {
+                        e.stopPropagation();
+                        handleFollow(item);
+                    }}
+                >
+                    <Text style={[
+                        styles.followButtonText,
+                        item.isFollowing && styles.followingButtonText
+                    ]}>
+                        {item.isFollowing ? 'Joined' : 'Join'}
+                    </Text>
+                </TouchableOpacity>
+            </View>
+            {item.description && (
+                <Text style={styles.topicDescription} numberOfLines={2}>
+                    {item.description}
+                </Text>
+            )}
+        </TouchableOpacity>
+    );
+
+    return (
+        <View style={styles.container}>
+            {/* Header */}
+            <View style={styles.header}>
+                <Text style={styles.title}>Discover Communities</Text>
+                <TouchableOpacity
+                    style={styles.createButton}
+                    onPress={() => navigation.navigate('CreateTopic')}
+                >
+                    <Ionicons name="add" size={20} color="#7C3AED" />
+                    <Text style={styles.createButtonText}>Create</Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* Search */}
+            <View style={styles.searchContainer}>
+                <Ionicons name="search" size={20} color="#9CA3AF" />
+                <TextInput
+                    style={styles.searchInput}
+                    placeholder="Search communities..."
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                />
+                {searchQuery.length > 0 && (
+                    <TouchableOpacity onPress={() => setSearchQuery('')}>
+                        <Ionicons name="close-circle" size={20} color="#9CA3AF" />
+                    </TouchableOpacity>
+                )}
+            </View>
+
+            {/* Categories */}
+            <FlatList
+                horizontal
+                data={categories}
+                renderItem={renderCategory}
+                keyExtractor={item => item.id}
+                showsHorizontalScrollIndicator={false}
+                style={styles.categoriesList}
+                contentContainerStyle={styles.categoriesContent}
+            />
+
+            {/* Topics List */}
+            <FlatList
+                data={filteredTopics}
+                renderItem={renderTopic}
+                keyExtractor={item => item.id}
+                refreshControl={
+                    <RefreshControl refreshing={refreshing} onRefresh={loadData} />
+                }
+                contentContainerStyle={styles.topicsList}
+                ListEmptyComponent={
+                    <View style={styles.emptyState}>
+                        <Ionicons name="planet-outline" size={48} color="#D1D5DB" />
+                        <Text style={styles.emptyTitle}>No communities found</Text>
+                        <Text style={styles.emptySubtitle}>
+                            Try a different search or create your own!
+                        </Text>
+                        <TouchableOpacity
+                            style={styles.createTopicButton}
+                            onPress={() => navigation.navigate('CreateTopic')}
+                        >
+                            <Ionicons name="add-circle" size={20} color="#FFFFFF" />
+                            <Text style={styles.createTopicButtonText}>Create Community</Text>
+                        </TouchableOpacity>
+                    </View>
+                }
+            />
+        </View>
+    );
+};
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#F9FAFB'
+    },
+    header: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 16,
+        backgroundColor: '#FFFFFF'
+    },
+    title: {
+        fontSize: 24,
+        fontWeight: '700',
+        color: '#1F2937'
+    },
+    createButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4
+    },
+    createButtonText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#7C3AED'
+    },
+    searchContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
+        marginHorizontal: 16,
+        marginVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#E5E7EB'
+    },
+    searchInput: {
+        flex: 1,
+        paddingVertical: 12,
+        paddingHorizontal: 8,
+        fontSize: 16
+    },
+    categoriesList: {
+        maxHeight: 50,
+        backgroundColor: '#FFFFFF'
+    },
+    categoriesContent: {
+        paddingHorizontal: 16,
+        gap: 8
+    },
+    categoryChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 20,
+        backgroundColor: '#F3F4F6',
+        marginRight: 8,
+        gap: 6
+    },
+    categoryChipActive: {
+        backgroundColor: '#EDE9FE'
+    },
+    categoryIcon: {
+        fontSize: 16
+    },
+    categoryName: {
+        fontSize: 14,
+        color: '#4B5563'
+    },
+    categoryNameActive: {
+        color: '#7C3AED',
+        fontWeight: '600'
+    },
+    topicsList: {
+        padding: 16
+    },
+    topicCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 1
+    },
+    topicHeader: {
+        flexDirection: 'row',
+        alignItems: 'center'
+    },
+    topicEmoji: {
+        fontSize: 36,
+        marginRight: 12
+    },
+    topicInfo: {
+        flex: 1
+    },
+    topicNameRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6
+    },
+    topicName: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#1F2937'
+    },
+    topicStats: {
+        fontSize: 13,
+        color: '#6B7280',
+        marginTop: 2
+    },
+    topicDescription: {
+        fontSize: 14,
+        color: '#4B5563',
+        marginTop: 8,
+        lineHeight: 20
+    },
+    followButton: {
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        backgroundColor: '#7C3AED',
+        borderRadius: 20
+    },
+    followingButton: {
+        backgroundColor: '#E5E7EB'
+    },
+    followButtonText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#FFFFFF'
+    },
+    followingButtonText: {
+        color: '#4B5563'
+    },
+    emptyState: {
+        alignItems: 'center',
+        padding: 40
+    },
+    emptyTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#374151',
+        marginTop: 16
+    },
+    emptySubtitle: {
+        fontSize: 14,
+        color: '#6B7280',
+        marginTop: 4,
+        textAlign: 'center'
+    },
+    createTopicButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#7C3AED',
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+        borderRadius: 8,
+        marginTop: 16,
+        gap: 8
+    },
+    createTopicButtonText: {
+        color: '#FFFFFF',
+        fontSize: 14,
+        fontWeight: '600'
+    }
+});
+```
+
+---
+
+### **Task 3.3.3.3: Encouragement Button Component**
+
+```typescript
+// mobile/src/components/EncouragementButton.tsx
+import React, { useState } from 'react';
+import {
+    View, Text, StyleSheet, TouchableOpacity, Modal,
+    TextInput, Alert
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { encouragementApi } from '../services/api';
+
+interface Props {
+    postId: string;
+    isBeginnerPost: boolean;
+}
+
+export const EncouragementButton: React.FC<Props> = ({ postId, isBeginnerPost }) => {
+    const [showModal, setShowModal] = useState(false);
+    const [amount, setAmount] = useState(1);
+    const [message, setMessage] = useState('');
+    const [sending, setSending] = useState(false);
+
+    const quickMessages = [
+        "Keep going! 💪",
+        "Great start!",
+        "Love the effort!",
+        "You've got this!",
+        "Welcome to the community!"
+    ];
+
+    const handleSend = async () => {
+        setSending(true);
+        try {
+            const result = await encouragementApi.sendEncouragement({
+                postId,
+                amount,
+                message: message || quickMessages[0]
+            });
+            Alert.alert('Sent!', result.message);
+            setShowModal(false);
+            setAmount(1);
+            setMessage('');
+        } catch (error: any) {
+            Alert.alert('Error', error.message || 'Failed to send encouragement');
+        } finally {
+            setSending(false);
+        }
+    };
+
+    return (
+        <>
+            <TouchableOpacity
+                style={styles.button}
+                onPress={() => setShowModal(true)}
+            >
+                <Ionicons name="heart" size={16} color="#EC4899" />
+                <Text style={styles.buttonText}>Encourage</Text>
+                {isBeginnerPost && (
+                    <View style={styles.bonusBadge}>
+                        <Text style={styles.bonusText}>+50%</Text>
+                    </View>
+                )}
+            </TouchableOpacity>
+
+            <Modal
+                visible={showModal}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setShowModal(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modal}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>
+                                Send Encouragement
+                            </Text>
+                            <TouchableOpacity onPress={() => setShowModal(false)}>
+                                <Ionicons name="close" size={24} color="#6B7280" />
+                            </TouchableOpacity>
+                        </View>
+
+                        {isBeginnerPost && (
+                            <View style={styles.bonusInfo}>
+                                <Ionicons name="sparkles" size={16} color="#F59E0B" />
+                                <Text style={styles.bonusInfoText}>
+                                    Beginner bonus: They'll receive 50% extra coins!
+                                </Text>
+                            </View>
+                        )}
+
+                        {/* Coin Amount */}
+                        <Text style={styles.label}>How many coins?</Text>
+                        <View style={styles.amountRow}>
+                            {[1, 2, 5, 10].map(num => (
+                                <TouchableOpacity
+                                    key={num}
+                                    style={[
+                                        styles.amountButton,
+                                        amount === num && styles.amountButtonActive
+                                    ]}
+                                    onPress={() => setAmount(num)}
+                                >
+                                    <Ionicons name="logo-bitcoin" size={14} color={
+                                        amount === num ? '#7C3AED' : '#6B7280'
+                                    } />
+                                    <Text style={[
+                                        styles.amountText,
+                                        amount === num && styles.amountTextActive
+                                    ]}>
+                                        {num}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+
+                        {/* Quick Messages */}
+                        <Text style={styles.label}>Add a message</Text>
+                        <View style={styles.quickMessages}>
+                            {quickMessages.map((msg, i) => (
+                                <TouchableOpacity
+                                    key={i}
+                                    style={[
+                                        styles.quickMessage,
+                                        message === msg && styles.quickMessageActive
+                                    ]}
+                                    onPress={() => setMessage(msg)}
+                                >
+                                    <Text style={styles.quickMessageText}>{msg}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+
+                        <TextInput
+                            style={styles.messageInput}
+                            placeholder="Or write your own..."
+                            value={message}
+                            onChangeText={setMessage}
+                            maxLength={100}
+                        />
+
+                        {/* Send Button */}
+                        <TouchableOpacity
+                            style={[styles.sendButton, sending && styles.sendButtonDisabled]}
+                            onPress={handleSend}
+                            disabled={sending}
+                        >
+                            <Ionicons name="heart" size={20} color="#FFFFFF" />
+                            <Text style={styles.sendButtonText}>
+                                {sending ? 'Sending...' : `Send ${amount} Coin${amount > 1 ? 's' : ''}`}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+        </>
+    );
+};
+
+const styles = StyleSheet.create({
+    button: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        backgroundColor: '#FDF2F8',
+        borderRadius: 16,
+        gap: 4
+    },
+    buttonText: {
+        fontSize: 13,
+        color: '#EC4899',
+        fontWeight: '600'
+    },
+    bonusBadge: {
+        backgroundColor: '#F59E0B',
+        paddingHorizontal: 4,
+        paddingVertical: 1,
+        borderRadius: 4
+    },
+    bonusText: {
+        fontSize: 10,
+        color: '#FFFFFF',
+        fontWeight: '700'
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'flex-end'
+    },
+    modal: {
+        backgroundColor: '#FFFFFF',
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        padding: 20,
+        paddingBottom: 40
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 16
+    },
+    modalTitle: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#1F2937'
+    },
+    bonusInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        backgroundColor: '#FFFBEB',
+        borderRadius: 8,
+        marginBottom: 16,
+        gap: 8
+    },
+    bonusInfoText: {
+        flex: 1,
+        fontSize: 13,
+        color: '#92400E'
+    },
+    label: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#374151',
+        marginBottom: 8
+    },
+    amountRow: {
+        flexDirection: 'row',
+        gap: 8,
+        marginBottom: 16
+    },
+    amountButton: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 12,
+        borderRadius: 8,
+        backgroundColor: '#F3F4F6',
+        gap: 4
+    },
+    amountButtonActive: {
+        backgroundColor: '#EDE9FE',
+        borderWidth: 2,
+        borderColor: '#7C3AED'
+    },
+    amountText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#6B7280'
+    },
+    amountTextActive: {
+        color: '#7C3AED'
+    },
+    quickMessages: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        marginBottom: 12
+    },
+    quickMessage: {
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        backgroundColor: '#F3F4F6',
+        borderRadius: 16
+    },
+    quickMessageActive: {
+        backgroundColor: '#EDE9FE'
+    },
+    quickMessageText: {
+        fontSize: 13,
+        color: '#4B5563'
+    },
+    messageInput: {
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        borderRadius: 8,
+        padding: 12,
+        fontSize: 14,
+        marginBottom: 16
+    },
+    sendButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#EC4899',
+        paddingVertical: 16,
+        borderRadius: 12,
+        gap: 8
+    },
+    sendButtonDisabled: {
+        opacity: 0.6
+    },
+    sendButtonText: {
+        color: '#FFFFFF',
+        fontSize: 16,
+        fontWeight: '600'
+    }
+});
+```
+
+---
+
+### **Task 3.3.3.4: Create Topic Screen**
+
+```typescript
+// mobile/src/screens/CreateTopicScreen.tsx
+import React, { useState } from 'react';
+import {
+    View, Text, StyleSheet, TouchableOpacity, ScrollView,
+    TextInput, Alert, Share
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { topicsApi } from '../services/api';
+
+const EMOJI_OPTIONS = ['🎨', '🍳', '💪', '🎮', '📚', '🎵', '🌱', '✂️', '🛠️', '📷', '🧶', '🎭', '⚽', '🎲', '💻'];
+
+const CATEGORIES = [
+    { id: 'creative', name: 'Creative', icon: '🎨' },
+    { id: 'hobbies', name: 'Hobbies', icon: '🎯' },
+    { id: 'lifestyle', name: 'Lifestyle', icon: '🏠' },
+    { id: 'fitness', name: 'Fitness', icon: '💪' },
+    { id: 'learning', name: 'Learning', icon: '📚' },
+    { id: 'tech', name: 'Tech', icon: '💻' }
+];
+
+export const CreateTopicScreen: React.FC = ({ navigation }) => {
+    const [name, setName] = useState('');
+    const [description, setDescription] = useState('');
+    const [selectedEmoji, setSelectedEmoji] = useState('🎨');
+    const [selectedCategory, setSelectedCategory] = useState('creative');
+    const [loading, setLoading] = useState(false);
+    const [createdTopic, setCreatedTopic] = useState<any>(null);
+
+    const handleCreate = async () => {
+        if (name.length < 2) {
+            Alert.alert('Name Required', 'Topic name must be at least 2 characters');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const result = await topicsApi.createTopic({
+                name,
+                description,
+                iconEmoji: selectedEmoji,
+                category: selectedCategory
+            });
+
+            setCreatedTopic(result.topic);
+
+        } catch (error: any) {
+            Alert.alert('Error', error.message || 'Failed to create topic');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleShare = async () => {
+        if (!createdTopic) return;
+
+        try {
+            await Share.share({
+                message: `Join me in the ${createdTopic.iconEmoji} ${createdTopic.name} community on SeeMe! ${createdTopic.inviteLink}`,
+                url: createdTopic.inviteLink
+            });
+        } catch (error) {
+            console.error('Error sharing:', error);
+        }
+    };
+
+    // Success screen after creation
+    if (createdTopic) {
+        return (
+            <View style={styles.successContainer}>
+                <View style={styles.successContent}>
+                    <Text style={styles.successEmoji}>{createdTopic.iconEmoji}</Text>
+                    <Text style={styles.successTitle}>Topic Created!</Text>
+                    <Text style={styles.successName}>{createdTopic.name}</Text>
+
+                    <View style={styles.linkBox}>
+                        <Text style={styles.linkLabel}>Share this link:</Text>
+                        <Text style={styles.linkText}>{createdTopic.inviteLink}</Text>
+                    </View>
+
+                    <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
+                        <Ionicons name="share-outline" size={20} color="#FFFFFF" />
+                        <Text style={styles.shareButtonText}>Share with Friends</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={styles.viewTopicButton}
+                        onPress={() => navigation.navigate('TopicFeed', {
+                            topicSlug: createdTopic.slug
+                        })}
+                    >
+                        <Text style={styles.viewTopicButtonText}>View Topic</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={styles.doneButton}
+                        onPress={() => navigation.goBack()}
+                    >
+                        <Text style={styles.doneButtonText}>Done</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        );
+    }
+
+    return (
+        <ScrollView style={styles.container}>
+            <Text style={styles.header}>Create a Community</Text>
+            <Text style={styles.subtitle}>
+                Start a new topic and invite friends to join!
+            </Text>
+
+            {/* Topic Name */}
+            <Text style={styles.label}>Topic Name</Text>
+            <TextInput
+                style={styles.input}
+                placeholder="e.g., Gunpla Building, Sourdough Baking..."
+                value={name}
+                onChangeText={setName}
+                maxLength={50}
+            />
+
+            {/* Description */}
+            <Text style={styles.label}>Description (optional)</Text>
+            <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="What's this community about?"
+                value={description}
+                onChangeText={setDescription}
+                multiline
+                maxLength={200}
+            />
+
+            {/* Emoji Picker */}
+            <Text style={styles.label}>Choose an Icon</Text>
+            <View style={styles.emojiGrid}>
+                {EMOJI_OPTIONS.map(emoji => (
+                    <TouchableOpacity
+                        key={emoji}
+                        style={[
+                            styles.emojiOption,
+                            selectedEmoji === emoji && styles.emojiSelected
+                        ]}
+                        onPress={() => setSelectedEmoji(emoji)}
+                    >
+                        <Text style={styles.emojiText}>{emoji}</Text>
+                    </TouchableOpacity>
+                ))}
+            </View>
+
+            {/* Category */}
+            <Text style={styles.label}>Category</Text>
+            <View style={styles.categoryGrid}>
+                {CATEGORIES.map(cat => (
+                    <TouchableOpacity
+                        key={cat.id}
+                        style={[
+                            styles.categoryOption,
+                            selectedCategory === cat.id && styles.categorySelected
+                        ]}
+                        onPress={() => setSelectedCategory(cat.id)}
+                    >
+                        <Text style={styles.categoryIcon}>{cat.icon}</Text>
+                        <Text style={[
+                            styles.categoryName,
+                            selectedCategory === cat.id && styles.categoryNameSelected
+                        ]}>
+                            {cat.name}
+                        </Text>
+                    </TouchableOpacity>
+                ))}
+            </View>
+
+            {/* Preview */}
+            <View style={styles.preview}>
+                <Text style={styles.previewLabel}>Preview:</Text>
+                <View style={styles.previewCard}>
+                    <Text style={styles.previewEmoji}>{selectedEmoji}</Text>
+                    <Text style={styles.previewName}>{name || 'Your Topic'}</Text>
+                </View>
+            </View>
+
+            {/* Create Button */}
+            <TouchableOpacity
+                style={[styles.createButton, loading && styles.createButtonDisabled]}
+                onPress={handleCreate}
+                disabled={loading || name.length < 2}
+            >
+                <Ionicons name="add-circle" size={20} color="#FFFFFF" />
+                <Text style={styles.createButtonText}>
+                    {loading ? 'Creating...' : 'Create Topic'}
+                </Text>
+            </TouchableOpacity>
+
+            <Text style={styles.footerText}>
+                Anyone can find and join your topic. You can share the
+                invite link with friends after creating.
+            </Text>
+        </ScrollView>
+    );
+};
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+        padding: 16
+    },
+    header: {
+        fontSize: 24,
+        fontWeight: '700',
+        color: '#1F2937',
+        marginBottom: 8
+    },
+    subtitle: {
+        fontSize: 15,
+        color: '#6B7280',
+        marginBottom: 24
+    },
+    label: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#374151',
+        marginBottom: 8,
+        marginTop: 16
+    },
+    input: {
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        borderRadius: 8,
+        padding: 12,
+        fontSize: 16
+    },
+    textArea: {
+        height: 80,
+        textAlignVertical: 'top'
+    },
+    emojiGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8
+    },
+    emojiOption: {
+        width: 44,
+        height: 44,
+        borderRadius: 8,
+        backgroundColor: '#F3F4F6',
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+    emojiSelected: {
+        backgroundColor: '#EDE9FE',
+        borderWidth: 2,
+        borderColor: '#7C3AED'
+    },
+    emojiText: {
+        fontSize: 24
+    },
+    categoryGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8
+    },
+    categoryOption: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 20,
+        backgroundColor: '#F3F4F6',
+        gap: 6
+    },
+    categorySelected: {
+        backgroundColor: '#EDE9FE',
+        borderWidth: 1,
+        borderColor: '#7C3AED'
+    },
+    categoryIcon: {
+        fontSize: 16
+    },
+    categoryName: {
+        fontSize: 14,
+        color: '#4B5563'
+    },
+    categoryNameSelected: {
+        color: '#7C3AED',
+        fontWeight: '600'
+    },
+    preview: {
+        marginTop: 24,
+        padding: 16,
+        backgroundColor: '#F9FAFB',
+        borderRadius: 12
+    },
+    previewLabel: {
+        fontSize: 12,
+        color: '#6B7280',
+        marginBottom: 8
+    },
+    previewCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12
+    },
+    previewEmoji: {
+        fontSize: 32
+    },
+    previewName: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#1F2937'
+    },
+    createButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#7C3AED',
+        paddingVertical: 16,
+        borderRadius: 12,
+        marginTop: 24,
+        gap: 8
+    },
+    createButtonDisabled: {
+        opacity: 0.6
+    },
+    createButtonText: {
+        color: '#FFFFFF',
+        fontSize: 16,
+        fontWeight: '600'
+    },
+    footerText: {
+        fontSize: 13,
+        color: '#9CA3AF',
+        textAlign: 'center',
+        marginTop: 16,
+        marginBottom: 32
+    },
+    // Success screen styles
+    successContainer: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 24
+    },
+    successContent: {
+        alignItems: 'center',
+        width: '100%'
+    },
+    successEmoji: {
+        fontSize: 64,
+        marginBottom: 16
+    },
+    successTitle: {
+        fontSize: 24,
+        fontWeight: '700',
+        color: '#10B981',
+        marginBottom: 8
+    },
+    successName: {
+        fontSize: 20,
+        fontWeight: '600',
+        color: '#1F2937',
+        marginBottom: 24
+    },
+    linkBox: {
+        width: '100%',
+        backgroundColor: '#F3F4F6',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 24
+    },
+    linkLabel: {
+        fontSize: 12,
+        color: '#6B7280',
+        marginBottom: 4
+    },
+    linkText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#7C3AED'
+    },
+    shareButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#7C3AED',
+        paddingVertical: 14,
+        paddingHorizontal: 24,
+        borderRadius: 12,
+        gap: 8,
+        width: '100%',
+        justifyContent: 'center'
+    },
+    shareButtonText: {
+        color: '#FFFFFF',
+        fontSize: 16,
+        fontWeight: '600'
+    },
+    viewTopicButton: {
+        marginTop: 12,
+        paddingVertical: 12
+    },
+    viewTopicButtonText: {
+        color: '#7C3AED',
+        fontSize: 16,
+        fontWeight: '600'
+    },
+    doneButton: {
+        marginTop: 8,
+        paddingVertical: 12
+    },
+    doneButtonText: {
+        color: '#6B7280',
+        fontSize: 16
+    }
+});
+```
+
+---
+
+### **Task 3.3.3.5: Favorite User Button**
+
+```typescript
+// mobile/src/components/FavoriteButton.tsx
+import React, { useState, useEffect } from 'react';
+import { TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { favoritesApi } from '../services/api';
+
+interface Props {
+    userId: string;
+    size?: number;
+}
+
+export const FavoriteButton: React.FC<Props> = ({ userId, size = 24 }) => {
+    const [isFavorited, setIsFavorited] = useState(false);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        checkFavoriteStatus();
+    }, [userId]);
+
+    const checkFavoriteStatus = async () => {
+        const result = await favoritesApi.isFavorited(userId);
+        setIsFavorited(result.isFavorited);
+    };
+
+    const toggleFavorite = async () => {
+        setLoading(true);
+        try {
+            if (isFavorited) {
+                await favoritesApi.removeFavorite(userId);
+                setIsFavorited(false);
+            } else {
+                const result = await favoritesApi.addFavorite(userId);
+                setIsFavorited(true);
+                Alert.alert('Added to Favorites', result.message);
+            }
+        } catch (error) {
+            Alert.alert('Error', 'Failed to update favorites');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <TouchableOpacity
+            style={[styles.button, isFavorited && styles.buttonActive]}
+            onPress={toggleFavorite}
+            disabled={loading}
+        >
+            <Ionicons
+                name={isFavorited ? 'star' : 'star-outline'}
+                size={size}
+                color={isFavorited ? '#F59E0B' : '#6B7280'}
+            />
+        </TouchableOpacity>
+    );
+};
+
+const styles = StyleSheet.create({
+    button: {
+        padding: 8
+    },
+    buttonActive: {
+        backgroundColor: '#FFFBEB',
+        borderRadius: 20
+    }
+});
+```
+
+---
+
+### **Task 3.3.3.6: Profile Medals Section**
+
+Display community medals on user profiles showing which community each medal was earned from.
+
+```typescript
+// mobile/src/components/profile/ProfileMedalsSection.tsx
+import React, { useState, useEffect } from 'react';
+import {
+    View, Text, StyleSheet, TouchableOpacity, ScrollView,
+    Modal, FlatList
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { medalsApi } from '../../services/api';
+
+interface CommunityMedalGroup {
+    topicId: string;
+    topicName: string;
+    topicEmoji: string | null;
+    medals: Medal[];
+}
+
+interface Medal {
+    id: string;
+    medalType: 'gold' | 'silver' | 'bronze';
+    leaderboardType: 'givers' | 'receivers';
+    periodType: 'weekly' | 'monthly' | 'all_time';
+    periodStart: string | null;
+    periodEnd: string | null;
+    rankPosition: number;
+    coinsAmount: number;
+    awardedAt: string;
+}
+
+interface Props {
+    userId: string;
+    isCompact?: boolean;  // Show minimal version in profile header
+}
+
+export const ProfileMedalsSection: React.FC<Props> = ({ userId, isCompact = false }) => {
+    const [loading, setLoading] = useState(true);
+    const [communityMedals, setCommunityMedals] = useState<CommunityMedalGroup[]>([]);
+    const [globalMedals, setGlobalMedals] = useState<Medal[]>([]);
+    const [totalMedals, setTotalMedals] = useState(0);
+    const [goldCount, setGoldCount] = useState(0);
+    const [silverCount, setSilverCount] = useState(0);
+    const [bronzeCount, setBronzeCount] = useState(0);
+    const [showAllModal, setShowAllModal] = useState(false);
+
+    useEffect(() => {
+        loadMedals();
+    }, [userId]);
+
+    const loadMedals = async () => {
+        try {
+            const response = await medalsApi.getUserMedals(userId);
+            setCommunityMedals(response.communityMedals || []);
+            setGlobalMedals(response.globalMedals || []);
+            setTotalMedals(response.totalMedals || 0);
+            setGoldCount(response.goldCount || 0);
+            setSilverCount(response.silverCount || 0);
+            setBronzeCount(response.bronzeCount || 0);
+        } catch (error) {
+            console.error('Error loading medals:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const getMedalEmoji = (type: string) => {
+        switch (type) {
+            case 'gold': return '🥇';
+            case 'silver': return '🥈';
+            case 'bronze': return '🥉';
+            default: return '🏅';
+        }
+    };
+
+    const formatPeriod = (medal: Medal) => {
+        if (medal.periodType === 'all_time') return 'All-Time';
+        if (medal.periodType === 'weekly' && medal.periodStart) {
+            const date = new Date(medal.periodStart);
+            return `Week of ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+        }
+        if (medal.periodType === 'monthly' && medal.periodStart) {
+            const date = new Date(medal.periodStart);
+            return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        }
+        return '';
+    };
+
+    const getLeaderboardLabel = (type: string) => {
+        return type === 'givers' ? 'Top Encourager' : 'Most Encouraged';
+    };
+
+    // Compact view for profile header - just show medal counts
+    if (isCompact) {
+        if (totalMedals === 0) return null;
+
+        return (
+            <TouchableOpacity
+                style={styles.compactContainer}
+                onPress={() => setShowAllModal(true)}
+            >
+                {goldCount > 0 && (
+                    <View style={styles.compactMedal}>
+                        <Text style={styles.medalEmoji}>🥇</Text>
+                        <Text style={styles.compactCount}>{goldCount}</Text>
+                    </View>
+                )}
+                {silverCount > 0 && (
+                    <View style={styles.compactMedal}>
+                        <Text style={styles.medalEmoji}>🥈</Text>
+                        <Text style={styles.compactCount}>{silverCount}</Text>
+                    </View>
+                )}
+                {bronzeCount > 0 && (
+                    <View style={styles.compactMedal}>
+                        <Text style={styles.medalEmoji}>🥉</Text>
+                        <Text style={styles.compactCount}>{bronzeCount}</Text>
+                    </View>
+                )}
+
+                {/* Medal details modal */}
+                <MedalDetailsModal
+                    visible={showAllModal}
+                    onClose={() => setShowAllModal(false)}
+                    communityMedals={communityMedals}
+                    globalMedals={globalMedals}
+                    getMedalEmoji={getMedalEmoji}
+                    formatPeriod={formatPeriod}
+                    getLeaderboardLabel={getLeaderboardLabel}
+                />
+            </TouchableOpacity>
+        );
+    }
+
+    // Full medals section for profile page
+    if (loading) {
+        return (
+            <View style={styles.loadingContainer}>
+                <Text style={styles.loadingText}>Loading medals...</Text>
+            </View>
+        );
+    }
+
+    if (totalMedals === 0) {
+        return null;  // Don't show section if no medals
+    }
+
+    return (
+        <View style={styles.container}>
+            <View style={styles.header}>
+                <Text style={styles.sectionTitle}>🏆 Community Medals</Text>
+                <TouchableOpacity onPress={() => setShowAllModal(true)}>
+                    <Text style={styles.viewAllText}>View All</Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* Medal summary */}
+            <View style={styles.summaryRow}>
+                {goldCount > 0 && (
+                    <View style={styles.summaryItem}>
+                        <Text style={styles.summaryEmoji}>🥇</Text>
+                        <Text style={styles.summaryCount}>{goldCount}</Text>
+                        <Text style={styles.summaryLabel}>Gold</Text>
+                    </View>
+                )}
+                {silverCount > 0 && (
+                    <View style={styles.summaryItem}>
+                        <Text style={styles.summaryEmoji}>🥈</Text>
+                        <Text style={styles.summaryCount}>{silverCount}</Text>
+                        <Text style={styles.summaryLabel}>Silver</Text>
+                    </View>
+                )}
+                {bronzeCount > 0 && (
+                    <View style={styles.summaryItem}>
+                        <Text style={styles.summaryEmoji}>🥉</Text>
+                        <Text style={styles.summaryCount}>{bronzeCount}</Text>
+                        <Text style={styles.summaryLabel}>Bronze</Text>
+                    </View>
+                )}
+            </View>
+
+            {/* Recent medals with community info */}
+            <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.medalsScroll}
+            >
+                {/* Show community medals first */}
+                {communityMedals.slice(0, 3).map((group) => (
+                    <TouchableOpacity
+                        key={group.topicId}
+                        style={styles.medalCard}
+                        onPress={() => setShowAllModal(true)}
+                    >
+                        <Text style={styles.medalCardEmoji}>
+                            {getMedalEmoji(group.medals[0].medalType)}
+                        </Text>
+                        <View style={styles.medalCardInfo}>
+                            <View style={styles.communityTag}>
+                                <Text style={styles.communityEmoji}>
+                                    {group.topicEmoji || '🏷️'}
+                                </Text>
+                                <Text style={styles.communityName} numberOfLines={1}>
+                                    {group.topicName}
+                                </Text>
+                            </View>
+                            <Text style={styles.medalType}>
+                                {getLeaderboardLabel(group.medals[0].leaderboardType)}
+                            </Text>
+                            <Text style={styles.medalPeriod}>
+                                {formatPeriod(group.medals[0])}
+                            </Text>
+                        </View>
+                    </TouchableOpacity>
+                ))}
+
+                {/* Global medals */}
+                {globalMedals.slice(0, 2).map((medal) => (
+                    <TouchableOpacity
+                        key={medal.id}
+                        style={[styles.medalCard, styles.globalMedalCard]}
+                        onPress={() => setShowAllModal(true)}
+                    >
+                        <Text style={styles.medalCardEmoji}>
+                            {getMedalEmoji(medal.medalType)}
+                        </Text>
+                        <View style={styles.medalCardInfo}>
+                            <View style={styles.globalTag}>
+                                <Ionicons name="globe" size={12} color="#7C3AED" />
+                                <Text style={styles.globalText}>Global</Text>
+                            </View>
+                            <Text style={styles.medalType}>
+                                {getLeaderboardLabel(medal.leaderboardType)}
+                            </Text>
+                            <Text style={styles.medalPeriod}>
+                                {formatPeriod(medal)}
+                            </Text>
+                        </View>
+                    </TouchableOpacity>
+                ))}
+            </ScrollView>
+
+            {/* Full medals modal */}
+            <MedalDetailsModal
+                visible={showAllModal}
+                onClose={() => setShowAllModal(false)}
+                communityMedals={communityMedals}
+                globalMedals={globalMedals}
+                getMedalEmoji={getMedalEmoji}
+                formatPeriod={formatPeriod}
+                getLeaderboardLabel={getLeaderboardLabel}
+            />
+        </View>
+    );
+};
+
+// Modal showing all medals grouped by community
+const MedalDetailsModal: React.FC<{
+    visible: boolean;
+    onClose: () => void;
+    communityMedals: CommunityMedalGroup[];
+    globalMedals: Medal[];
+    getMedalEmoji: (type: string) => string;
+    formatPeriod: (medal: Medal) => string;
+    getLeaderboardLabel: (type: string) => string;
+}> = ({ visible, onClose, communityMedals, globalMedals, getMedalEmoji, formatPeriod, getLeaderboardLabel }) => {
+    const [activeTab, setActiveTab] = useState<'community' | 'global'>('community');
+
+    return (
+        <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+            <View style={styles.modalContainer}>
+                <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>🏆 All Medals</Text>
+                    <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                        <Ionicons name="close" size={24} color="#6B7280" />
+                    </TouchableOpacity>
+                </View>
+
+                {/* Tab Toggle */}
+                <View style={styles.tabToggle}>
+                    <TouchableOpacity
+                        style={[styles.tab, activeTab === 'community' && styles.tabActive]}
+                        onPress={() => setActiveTab('community')}
+                    >
+                        <Text style={[
+                            styles.tabText,
+                            activeTab === 'community' && styles.tabTextActive
+                        ]}>
+                            Communities ({communityMedals.length})
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.tab, activeTab === 'global' && styles.tabActive]}
+                        onPress={() => setActiveTab('global')}
+                    >
+                        <Text style={[
+                            styles.tabText,
+                            activeTab === 'global' && styles.tabTextActive
+                        ]}>
+                            Global ({globalMedals.length})
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+
+                <ScrollView style={styles.modalContent}>
+                    {activeTab === 'community' ? (
+                        // Community medals grouped by topic
+                        communityMedals.length > 0 ? (
+                            communityMedals.map((group) => (
+                                <View key={group.topicId} style={styles.communityGroup}>
+                                    {/* Community header */}
+                                    <View style={styles.communityHeader}>
+                                        <Text style={styles.communityHeaderEmoji}>
+                                            {group.topicEmoji || '🏷️'}
+                                        </Text>
+                                        <Text style={styles.communityHeaderName}>
+                                            {group.topicName}
+                                        </Text>
+                                        <View style={styles.medalCountBadge}>
+                                            <Text style={styles.medalCountText}>
+                                                {group.medals.length} medals
+                                            </Text>
+                                        </View>
+                                    </View>
+
+                                    {/* Medals in this community */}
+                                    {group.medals.map((medal) => (
+                                        <View key={medal.id} style={styles.medalListItem}>
+                                            <Text style={styles.medalListEmoji}>
+                                                {getMedalEmoji(medal.medalType)}
+                                            </Text>
+                                            <View style={styles.medalListInfo}>
+                                                <Text style={styles.medalListTitle}>
+                                                    #{medal.rankPosition} {getLeaderboardLabel(medal.leaderboardType)}
+                                                </Text>
+                                                <Text style={styles.medalListSubtitle}>
+                                                    {formatPeriod(medal)} · {medal.coinsAmount} coins
+                                                </Text>
+                                            </View>
+                                        </View>
+                                    ))}
+                                </View>
+                            ))
+                        ) : (
+                            <View style={styles.emptyState}>
+                                <Text style={styles.emptyEmoji}>🎯</Text>
+                                <Text style={styles.emptyTitle}>No community medals yet</Text>
+                                <Text style={styles.emptySubtitle}>
+                                    Encourage beginners in communities to earn medals!
+                                </Text>
+                            </View>
+                        )
+                    ) : (
+                        // Global medals
+                        globalMedals.length > 0 ? (
+                            <View style={styles.globalGroup}>
+                                <View style={styles.globalHeader}>
+                                    <Ionicons name="globe" size={24} color="#7C3AED" />
+                                    <Text style={styles.globalHeaderText}>
+                                        Global Leaderboard
+                                    </Text>
+                                </View>
+
+                                {globalMedals.map((medal) => (
+                                    <View key={medal.id} style={styles.medalListItem}>
+                                        <Text style={styles.medalListEmoji}>
+                                            {getMedalEmoji(medal.medalType)}
+                                        </Text>
+                                        <View style={styles.medalListInfo}>
+                                            <Text style={styles.medalListTitle}>
+                                                #{medal.rankPosition} {getLeaderboardLabel(medal.leaderboardType)}
+                                            </Text>
+                                            <Text style={styles.medalListSubtitle}>
+                                                {formatPeriod(medal)} · {medal.coinsAmount} coins given
+                                            </Text>
+                                        </View>
+                                    </View>
+                                ))}
+                            </View>
+                        ) : (
+                            <View style={styles.emptyState}>
+                                <Text style={styles.emptyEmoji}>🌍</Text>
+                                <Text style={styles.emptyTitle}>No global medals yet</Text>
+                                <Text style={styles.emptySubtitle}>
+                                    Give coins to people across all communities to climb the global leaderboard!
+                                </Text>
+                            </View>
+                        )
+                    )}
+                </ScrollView>
+            </View>
+        </Modal>
+    );
+};
+
+const styles = StyleSheet.create({
+    // Compact view styles
+    compactContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingVertical: 4
+    },
+    compactMedal: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 2
+    },
+    compactCount: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#4B5563'
+    },
+    medalEmoji: {
+        fontSize: 16
+    },
+
+    // Full section styles
+    container: {
+        backgroundColor: '#FFFFFF',
+        padding: 16,
+        marginTop: 8
+    },
+    loadingContainer: {
+        padding: 20,
+        alignItems: 'center'
+    },
+    loadingText: {
+        color: '#6B7280'
+    },
+    header: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 12
+    },
+    sectionTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: '#1F2937'
+    },
+    viewAllText: {
+        fontSize: 14,
+        color: '#7C3AED',
+        fontWeight: '600'
+    },
+
+    // Summary row
+    summaryRow: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        gap: 24,
+        marginBottom: 16
+    },
+    summaryItem: {
+        alignItems: 'center'
+    },
+    summaryEmoji: {
+        fontSize: 28
+    },
+    summaryCount: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: '#1F2937',
+        marginTop: 4
+    },
+    summaryLabel: {
+        fontSize: 12,
+        color: '#6B7280'
+    },
+
+    // Medal cards
+    medalsScroll: {
+        marginHorizontal: -16,
+        paddingHorizontal: 16
+    },
+    medalCard: {
+        flexDirection: 'row',
+        backgroundColor: '#F9FAFB',
+        borderRadius: 12,
+        padding: 12,
+        marginRight: 12,
+        minWidth: 180
+    },
+    globalMedalCard: {
+        backgroundColor: '#EDE9FE'
+    },
+    medalCardEmoji: {
+        fontSize: 32,
+        marginRight: 12
+    },
+    medalCardInfo: {
+        flex: 1,
+        justifyContent: 'center'
+    },
+    communityTag: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        marginBottom: 4
+    },
+    communityEmoji: {
+        fontSize: 14
+    },
+    communityName: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#7C3AED',
+        maxWidth: 100
+    },
+    globalTag: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        marginBottom: 4
+    },
+    globalText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#7C3AED'
+    },
+    medalType: {
+        fontSize: 12,
+        fontWeight: '500',
+        color: '#374151'
+    },
+    medalPeriod: {
+        fontSize: 11,
+        color: '#6B7280',
+        marginTop: 2
+    },
+
+    // Modal styles
+    modalContainer: {
+        flex: 1,
+        backgroundColor: '#FFFFFF'
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB'
+    },
+    modalTitle: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#1F2937'
+    },
+    closeButton: {
+        padding: 4
+    },
+    tabToggle: {
+        flexDirection: 'row',
+        padding: 12,
+        gap: 8
+    },
+    tab: {
+        flex: 1,
+        paddingVertical: 10,
+        alignItems: 'center',
+        borderRadius: 8,
+        backgroundColor: '#F3F4F6'
+    },
+    tabActive: {
+        backgroundColor: '#EDE9FE'
+    },
+    tabText: {
+        fontSize: 14,
+        color: '#6B7280'
+    },
+    tabTextActive: {
+        color: '#7C3AED',
+        fontWeight: '600'
+    },
+    modalContent: {
+        flex: 1,
+        padding: 16
+    },
+
+    // Community group
+    communityGroup: {
+        marginBottom: 20,
+        backgroundColor: '#F9FAFB',
+        borderRadius: 12,
+        overflow: 'hidden'
+    },
+    communityHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        backgroundColor: '#FFFFFF',
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB'
+    },
+    communityHeaderEmoji: {
+        fontSize: 24,
+        marginRight: 8
+    },
+    communityHeaderName: {
+        flex: 1,
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#1F2937'
+    },
+    medalCountBadge: {
+        backgroundColor: '#EDE9FE',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 12
+    },
+    medalCountText: {
+        fontSize: 12,
+        color: '#7C3AED',
+        fontWeight: '500'
+    },
+
+    // Global group
+    globalGroup: {
+        backgroundColor: '#F9FAFB',
+        borderRadius: 12,
+        overflow: 'hidden'
+    },
+    globalHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        backgroundColor: '#EDE9FE',
+        gap: 8
+    },
+    globalHeaderText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#7C3AED'
+    },
+
+    // Medal list item
+    medalListItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E5E7EB'
+    },
+    medalListEmoji: {
+        fontSize: 28,
+        marginRight: 12
+    },
+    medalListInfo: {
+        flex: 1
+    },
+    medalListTitle: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#1F2937'
+    },
+    medalListSubtitle: {
+        fontSize: 12,
+        color: '#6B7280',
+        marginTop: 2
+    },
+
+    // Empty state
+    emptyState: {
+        alignItems: 'center',
+        padding: 40
+    },
+    emptyEmoji: {
+        fontSize: 48,
+        marginBottom: 16
+    },
+    emptyTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#374151',
+        marginBottom: 8
+    },
+    emptySubtitle: {
+        fontSize: 14,
+        color: '#6B7280',
+        textAlign: 'center'
+    }
+});
+```
+
+**Updated ProfileScreen to include medals:**
+
+```typescript
+// mobile/src/screens/profile/ProfileScreen.tsx (update)
+import { ProfileMedalsSection } from '../../components/profile/ProfileMedalsSection';
+
+export default function ProfileScreen({ route }: any) {
+    const { userId } = route.params;
+    const [user, setUser] = useState(null);
+    const currentUser = useAuth();
+    const isOwnProfile = currentUser?.id === userId;
+
+    // ... existing state and loading ...
+
+    return (
+        <ScrollView style={styles.container}>
+            {/* Profile Header */}
+            <View style={styles.header}>
+                <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
+
+                <View style={styles.userInfo}>
+                    <Text style={styles.displayName}>{user.displayName}</Text>
+                    <Text style={styles.username}>@{user.username}</Text>
+
+                    {/* Compact medals display in header */}
+                    <ProfileMedalsSection userId={userId} isCompact={true} />
+                </View>
+
+                {/* Give Counter Badge */}
+                <GiveCounterBadge
+                    giveCounter={user.positivityGiveCounter}
+                    rank={user.positivityRank}
+                />
+            </View>
+
+            {/* Stats Row */}
+            <View style={styles.statsRow}>
+                <View style={styles.stat}>
+                    <Text style={styles.statNumber}>{user.followersCount}</Text>
+                    <Text style={styles.statLabel}>Followers</Text>
+                </View>
+                <View style={styles.stat}>
+                    <Text style={styles.statNumber}>{user.followingCount}</Text>
+                    <Text style={styles.statLabel}>Following</Text>
+                </View>
+                <View style={styles.stat}>
+                    <Text style={styles.statNumber}>{user.postsCount}</Text>
+                    <Text style={styles.statLabel}>Posts</Text>
+                </View>
+            </View>
+
+            {/* Bio */}
+            {user.bio && (
+                <View style={styles.bioSection}>
+                    <Text style={styles.bio}>{user.bio}</Text>
+                </View>
+            )}
+
+            {/* Action Buttons */}
+            {!isOwnProfile && (
+                <View style={styles.actionRow}>
+                    <FollowButton userId={userId} />
+                    <FavoriteButton userId={userId} />
+                    <TouchableOpacity
+                        style={styles.giveButton}
+                        onPress={() => setGiveModalVisible(true)}
+                    >
+                        <Ionicons name="gift" size={20} color="#FFF" />
+                        <Text style={styles.giveButtonText}>Give Coins</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
+
+            {/* Full Medals Section */}
+            <ProfileMedalsSection userId={userId} isCompact={false} />
+
+            {/* Posts Grid */}
+            <View style={styles.postsSection}>
+                <Text style={styles.sectionTitle}>Posts</Text>
+                {/* ... posts grid ... */}
+            </View>
+
+            {/* Give Coins Modal */}
+            <GiveCoinsModal
+                visible={giveModalVisible}
+                recipientId={user.id}
+                recipientUsername={user.username}
+                contextType="profile"
+                onClose={() => setGiveModalVisible(false)}
+                onSuccess={() => loadProfile()}
+            />
+        </ScrollView>
+    );
+}
+```
+
+**API service for medals:**
+
+```typescript
+// mobile/src/services/api.ts (add to existing file)
+
+export const medalsApi = {
+    getUserMedals: async (userId: string) => {
+        const response = await api.get(`/medals/users/${userId}`);
+        return response.data;
+    }
+};
+```
+
+---
+
+## WORKSTREAM 3.3.4: SEED DATA & INITIAL TOPICS
+
+**Agent:** Data Agent
+**Duration:** Week 28 (1 day)
+**Output:** Initial topics seeded
+
+---
+
+### **Task 3.3.4.1: Seed Initial Topics**
+
+```typescript
+// backend/src/seeds/topics.ts
+export const initialTopics = [
+    // Creative
+    { name: 'Drawing', slug: 'drawing', iconEmoji: '✏️', category: 'creative',
+      description: 'Share your drawings, sketches, and illustrations' },
+    { name: 'Painting', slug: 'painting', iconEmoji: '🎨', category: 'creative',
+      description: 'Watercolor, oil, digital - all painting welcome' },
+    { name: 'Photography', slug: 'photography', iconEmoji: '📷', category: 'creative',
+      description: 'Capture and share beautiful moments' },
+    { name: 'Digital Art', slug: 'digital-art', iconEmoji: '🖥️', category: 'creative',
+      description: 'Digital illustrations, 3D art, and more' },
+    { name: 'Crafts', slug: 'crafts', iconEmoji: '🧶', category: 'creative',
+      description: 'Handmade creations of all kinds' },
+
+    // Hobbies
+    { name: 'Plastic Models', slug: 'plastic-models', iconEmoji: '🛩️', category: 'hobbies',
+      description: 'Gundam, scale models, miniatures, and kits' },
+    { name: 'Gaming', slug: 'gaming', iconEmoji: '🎮', category: 'hobbies',
+      description: 'Video games, setups, and gaming moments' },
+    { name: 'Collecting', slug: 'collecting', iconEmoji: '💎', category: 'hobbies',
+      description: 'Show off your collections' },
+    { name: 'Board Games', slug: 'board-games', iconEmoji: '🎲', category: 'hobbies',
+      description: 'Tabletop gaming community' },
+    { name: 'Cosplay', slug: 'cosplay', iconEmoji: '🎭', category: 'hobbies',
+      description: 'Costume creation and cosplay' },
+
+    // Lifestyle
+    { name: 'Cooking', slug: 'cooking', iconEmoji: '🍳', category: 'lifestyle',
+      description: 'Share your culinary creations' },
+    { name: 'Baking', slug: 'baking', iconEmoji: '🧁', category: 'lifestyle',
+      description: 'Breads, cakes, and sweet treats' },
+    { name: 'Gardening', slug: 'gardening', iconEmoji: '🌱', category: 'lifestyle',
+      description: 'Plants, gardens, and green spaces' },
+    { name: 'Home Decor', slug: 'home-decor', iconEmoji: '🏠', category: 'lifestyle',
+      description: 'Interior design and home projects' },
+    { name: 'Fashion', slug: 'fashion', iconEmoji: '👗', category: 'lifestyle',
+      description: 'Outfits, style, and fashion' },
+
+    // Fitness
+    { name: 'Fitness', slug: 'fitness', iconEmoji: '💪', category: 'fitness',
+      description: 'Workouts, progress, and motivation' },
+    { name: 'Yoga', slug: 'yoga', iconEmoji: '🧘', category: 'fitness',
+      description: 'Yoga practice and wellness' },
+    { name: 'Running', slug: 'running', iconEmoji: '🏃', category: 'fitness',
+      description: 'Runs, races, and achievements' },
+    { name: 'Sports', slug: 'sports', iconEmoji: '⚽', category: 'fitness',
+      description: 'All sports activities' },
+
+    // Learning
+    { name: 'Languages', slug: 'languages', iconEmoji: '🗣️', category: 'learning',
+      description: 'Language learning journey' },
+    { name: 'Music', slug: 'music', iconEmoji: '🎵', category: 'learning',
+      description: 'Playing instruments and making music' },
+    { name: 'Reading', slug: 'reading', iconEmoji: '📚', category: 'learning',
+      description: 'Books and reading progress' },
+
+    // Tech
+    { name: 'Coding', slug: 'coding', iconEmoji: '💻', category: 'tech',
+      description: 'Programming projects and learning' },
+    { name: '3D Printing', slug: '3d-printing', iconEmoji: '🖨️', category: 'tech',
+      description: '3D prints and designs' },
+    { name: 'Electronics', slug: 'electronics', iconEmoji: '🔌', category: 'tech',
+      description: 'Arduino, Raspberry Pi, and electronics' }
+];
+
+// Run seeder
+export async function seedTopics() {
+    for (const topicData of initialTopics) {
+        await Topic.findOrCreate({
+            where: { slug: topicData.slug },
+            defaults: {
+                ...topicData,
+                isOfficial: true,
+                beginnerBoostEnabled: true,
+                encouragementMultiplier: 1.0
+            }
+        });
+    }
+    console.log('Topics seeded successfully');
+}
+```
+
+---
+
+## PHASE 3.3 COMPLETION CRITERIA
+
+### **Database:**
+- [ ] Topics table created with all fields
+- [ ] Topic follows association works
+- [ ] Post-topics many-to-many working
+- [ ] User favorites table functional
+- [ ] Beginner status tracking accurate
+- [ ] Encouragement streaks record correctly
+
+### **Post Visibility:**
+- [ ] Friends-only posts only appear in friends' feeds
+- [ ] Topics-only posts only appear in topic feeds
+- [ ] Topics+Friends posts appear in both feeds
+- [ ] Favorited users' posts ALWAYS appear in feed
+- [ ] All posts visible on user profile page
+
+### **Topics System:**
+- [ ] 25+ initial topics seeded
+- [ ] Users can follow/unfollow topics
+- [ ] Topic feeds show relevant posts
+- [ ] Beginners-first toggle works
+- [ ] Follower counts update correctly
+
+### **User-Created Topics:**
+- [ ] Anyone can create a topic
+- [ ] Topic creation generates unique invite code
+- [ ] Shareable links work (seeme.app/t/slug and seeme.app/invite/CODE)
+- [ ] Creator auto-follows their topic
+- [ ] New topics visible in browse/discovery immediately
+- [ ] Share sheet integrates with native sharing
+
+### **Encouragement System:**
+- [ ] Coins can be sent to any post
+- [ ] Beginner posts get 50% coin bonus
+- [ ] Encouragement streaks track daily
+- [ ] Leaderboard shows top encouragers
+- [ ] Badge system works for streaks
+
+### **Mobile UI:**
+- [ ] Post creation has visibility selector
+- [ ] Topic picker shows ONLY followed topics (not all topics)
+- [ ] "Join communities" prompt when user has no followed topics
+- [ ] Create Topic screen with emoji picker and category selector
+- [ ] Share button after topic creation (native share sheet)
+- [ ] Favorite button on user profiles
+- [ ] Encouragement modal works smoothly
+- [ ] Beginner badges display on posts
+- [ ] Invite link landing page works for non-logged-in users
+
+### **Topic Page (Community Page):**
+- [ ] Cover image/banner with topic emoji fallback
+- [ ] Topic info card with name, description, stats (members, posts, weekly posts)
+- [ ] Join/Leave community button
+- [ ] Share button with native share sheet
+- [ ] Creator info with link to profile
+- [ ] Tabs: Posts, About, Top Helpers
+- [ ] Posts tab with "Encourage Beginners" / "Recent" toggle
+- [ ] About tab with community values, stats, recent members, invite link
+- [ ] Top Helpers tab with toggle: "This Community" vs "Overall"
+- [ ] Medals for top 3 (🥇🥈🥉) and rank numbers for rest
+- [ ] Shows streaks for community view, coins given for overall view
+- [ ] "View Full Leaderboard" link to CoinLeaderboard screen
+- [ ] Leaderboard API supports topicId filter parameter
+- [ ] Floating action button to create post (when joined)
+- [ ] Empty state encourages first post
+
+### **Performance:**
+- [ ] Feed loads in <500ms
+- [ ] Topic switching is instant
+- [ ] Coin transactions <200ms
+- [ ] No feed duplication bugs
+
+### **User Experience:**
+- [ ] Clear visibility explanations
+- [ ] Easy topic discovery
+- [ ] Intuitive encouragement flow
+- [ ] Favorites easy to manage
 
 ---
 
