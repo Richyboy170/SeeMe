@@ -1,5 +1,6 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { Repost, RepostType } from '../models/Repost';
+import { AuthRequest } from '../middleware/auth';
 import { Post } from '../models/Post';
 import { User } from '../models/User';
 import { logger } from '../utils/logger';
@@ -13,7 +14,7 @@ export class RepostController {
    * Create a repost or quote post
    * POST /api/reposts/:postId
    */
-  static async createRepost(req: Request, res: Response): Promise<void> {
+  static async createRepost(req: AuthRequest, res: Response): Promise<void> {
     const transaction = await sequelize.transaction();
 
     try {
@@ -110,7 +111,7 @@ export class RepostController {
    * Remove a repost
    * DELETE /api/reposts/:postId
    */
-  static async removeRepost(req: Request, res: Response): Promise<void> {
+  static async removeRepost(req: AuthRequest, res: Response): Promise<void> {
     const transaction = await sequelize.transaction();
 
     try {
@@ -159,7 +160,7 @@ export class RepostController {
    * Check if user has reposted a post
    * GET /api/reposts/:postId/status
    */
-  static async getRepostStatus(req: Request, res: Response): Promise<void> {
+  static async getRepostStatus(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { postId } = req.params;
       const userId = req.user?.id;
@@ -188,7 +189,7 @@ export class RepostController {
    * Get all reposts for a post
    * GET /api/reposts/:postId/list
    */
-  static async getPostReposts(req: Request, res: Response): Promise<void> {
+  static async getPostReposts(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { postId } = req.params;
       const { page = 1, limit = 20 } = req.query;
@@ -226,7 +227,7 @@ export class RepostController {
    * Get user's reposts
    * GET /api/reposts/user/:userId
    */
-  static async getUserReposts(req: Request, res: Response): Promise<void> {
+  static async getUserReposts(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { userId } = req.params;
       const { page = 1, limit = 20 } = req.query;

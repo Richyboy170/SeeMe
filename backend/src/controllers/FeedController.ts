@@ -84,7 +84,7 @@ export class FeedController {
           status: PostStatus.COMPLETED,
           [Op.or]: [
             { visibility: { [Op.in]: [PostVisibility.FRIENDS_ONLY, PostVisibility.TOPICS_AND_FRIENDS] } },
-            { visibility: null }  // Backwards compatibility for older posts
+            { visibility: null as any }  // Backwards compatibility for older posts
           ]
         },
         include: [{
@@ -212,7 +212,7 @@ export class FeedController {
           status: PostStatus.COMPLETED,
           [Op.or]: [
             { visibility: PostVisibility.TOPICS_AND_FRIENDS },
-            { visibility: null }  // Backwards compatibility
+            { visibility: null as any }  // Backwards compatibility
           ]
         },
         include: [{

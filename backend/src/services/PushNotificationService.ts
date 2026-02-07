@@ -19,7 +19,7 @@ export class PushNotificationService {
     senderUsername: string,
     messageContent: string,
     conversationId: string,
-    messageType: 'text' | 'image' | 'gif' | 'post_share' | 'system' = 'text'
+    messageType: 'text' | 'image' | 'gif' | 'voice' | 'post_share' | 'system' = 'text'
   ): Promise<void> {
     try {
       const receiver = await User.findByPk(receiverId);

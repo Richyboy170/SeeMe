@@ -98,7 +98,7 @@ export class FeedAlgorithmService {
           status: PostStatus.COMPLETED,
           [Op.or]: [
             { visibility: { [Op.in]: [PostVisibility.FRIENDS_ONLY, PostVisibility.TOPICS_AND_FRIENDS] } },
-            { visibility: null }  // Backwards compatibility
+            { visibility: null as any }  // Backwards compatibility
           ]
         },
         include: [{
@@ -171,8 +171,6 @@ export class FeedAlgorithmService {
       }));
 
       // Convert reposts to feed items (avoid duplicating posts already in feed)
-      const existingPostIds = new Set(posts.map(p => p.id));
-
       for (const repost of reposts) {
         const originalPost = repost.get('originalPost') as Post;
         if (!originalPost) continue;
@@ -514,7 +512,8 @@ export class FeedAlgorithmService {
   /**
    * Score and rank posts based on multiple factors
    */
-  private static async scoreAndRankPosts(
+  // @ts-ignore TS6133 - Reserved for future algorithmic feed use
+  private static async _scoreAndRankPosts(
     posts: Post[],
     _userId: string,
     userAffinities: Map<string, number>
@@ -609,7 +608,8 @@ export class FeedAlgorithmService {
   /**
    * Get discover feed with algorithmic ranking for users with no follows
    */
-  private static async getDiscoverFeedAlgorithmic(
+  // @ts-ignore TS6133 - Reserved for future algorithmic feed use
+  private static async _getDiscoverFeedAlgorithmic(
     userId: string,
     page: number,
     limit: number
@@ -628,7 +628,7 @@ export class FeedAlgorithmService {
         },
         [Op.or]: [
           { visibility: PostVisibility.TOPICS_AND_FRIENDS },
-          { visibility: null }  // Backwards compatibility
+          { visibility: null as any }  // Backwards compatibility
         ]
       },
       include: [{

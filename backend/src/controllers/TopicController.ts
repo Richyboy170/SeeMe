@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { Op } from 'sequelize';
 import { Topic, TopicFollow, TopicAdmin, PostTopic, UserTopicStatus, User, Post, CoinTransaction, Like } from '../models';
-import { PostStatus, PostVisibility } from '../models/Post';
+import { PostStatus } from '../models/Post';
 import { AuthRequest } from '../middleware/auth';
 import { logger } from '../utils/logger';
 
@@ -801,8 +801,6 @@ export class TopicController {
         try {
             const { topicId } = req.params;
             const { limit = 50, offset = 0, search } = req.query;
-            const currentUserId = req.user?.id;
-
             const topic = await Topic.findByPk(topicId);
             if (!topic || !topic.isActive) {
                 res.status(404).json({ error: 'Topic not found' });
