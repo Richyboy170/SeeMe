@@ -32,7 +32,10 @@ const upload = multer({
 router.post(
   '/',
   authenticateToken,
-  upload.single('image'),
+  upload.fields([
+    { name: 'image', maxCount: 1 },
+    { name: 'originalImage', maxCount: 1 }
+  ]),
   PostController.createPost
 );
 

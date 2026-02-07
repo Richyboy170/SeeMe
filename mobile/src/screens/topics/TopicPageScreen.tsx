@@ -5,12 +5,20 @@ import {
     Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api, getImageUrl } from '../../services/api';
 import Avatar from '../../components/Avatar';
 import PostViewerModal from '../../components/PostViewerModal';
+import TopicMembersModal from '../../components/TopicMembersModal';
+import TopicEditModal from '../../components/TopicEditModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// Detect if an icon value is an Ionicons name (lowercase ASCII + hyphens)
+const isIoniconName = (value: string): boolean => /^[a-z][a-z0-9-]*$/.test(value);
 
 interface Topic {
     id: string;
@@ -18,13 +26,16 @@ interface Topic {
     slug: string;
     description: string | null;
     iconEmoji: string | null;
+    iconImageUrl: string | null;
     coverImageUrl: string | null;
     category: string;
     followerCount: number;
     postCount: number;
     weeklyPostCount: number;
     isFollowing: boolean;
+    isAdmin?: boolean;
     inviteCode: string;
+    creatorId?: string;
     creator?: {
         id: string;
         username: string;
@@ -52,6 +63,7 @@ type TabType = 'posts' | 'about' | 'encouragers';
 
 export default function TopicPageScreen({ route, navigation }: any) {
     const { topicSlug } = route.params;
+    const insets = useSafeAreaInsets();
     const [topic, setTopic] = useState<Topic | null>(null);
     const [posts, setPosts] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -67,6 +79,30 @@ export default function TopicPageScreen({ route, navigation }: any) {
     // Post modal state
     const [selectedPost, setSelectedPost] = useState<any>(null);
     const [selectedPostIndex, setSelectedPostIndex] = useState(0);
+
+    // Members and Edit modal state
+    const [showMembersModal, setShowMembersModal] = useState(false);
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+    // Check if current user is admin
+    const isAdmin = topic?.isAdmin || (currentUserId && (topic?.creatorId === currentUserId || topic?.creator?.id === currentUserId));
+
+    // Load current user ID
+    useEffect(() => {
+        const loadUserId = async () => {
+            try {
+                const userData = await AsyncStorage.getItem('user');
+                if (userData) {
+                    const user = JSON.parse(userData);
+                    setCurrentUserId(user.id);
+                }
+            } catch (error) {
+                console.error('Error loading user:', error);
+            }
+        };
+        loadUserId();
+    }, []);
 
     useFocusEffect(
         useCallback(() => {
@@ -158,33 +194,66 @@ export default function TopicPageScreen({ route, navigation }: any) {
 
     const currentLeaderboard = leaderboardView === 'community' ? communityLeaderboard : globalLeaderboard;
 
+    const handleEditSave = (updates: any) => {
+        // Update local topic state with the new values
+        setTopic(prev => prev ? { ...prev, ...updates } : null);
+    };
+
     const renderHeader = () => (
         <View>
             {/* Cover Image */}
-            <View style={styles.coverContainer}>
+            <View style={[styles.coverContainer, { height: 150 + insets.top }]}>
                 {topic?.coverImageUrl ? (
-                    <Image source={{ uri: topic.coverImageUrl }} style={styles.coverImage} />
+                    <Image source={{ uri: getImageUrl(topic.coverImageUrl) || topic.coverImageUrl }} style={styles.coverImage} />
                 ) : (
                     <View style={[styles.coverImage, styles.coverPlaceholder]}>
-                        <Text style={styles.coverEmoji}>{topic?.iconEmoji || '🏷️'}</Text>
+                        {topic?.iconEmoji && isIoniconName(topic.iconEmoji) ? (
+                            <Ionicons name={`${topic.iconEmoji}-outline` as any} size={64} color="rgba(255,255,255,0.3)" />
+                        ) : (
+                            <Text style={styles.coverEmoji}>{topic?.iconEmoji || '🏷️'}</Text>
+                        )}
                     </View>
                 )}
                 <View style={styles.coverOverlay} />
+
+                {/* Admin Edit Button on Cover */}
+                {isAdmin && (
+                    <TouchableOpacity
+                        style={[styles.editCoverButton, { top: Math.max(insets.top + 4, 12) }]}
+                        onPress={() => setShowEditModal(true)}
+                    >
+                        <Ionicons name="pencil" size={18} color="#FFFFFF" />
+                        <Text style={styles.editCoverText}>Edit</Text>
+                    </TouchableOpacity>
+                )}
             </View>
 
             {/* Info Card */}
             <View style={styles.infoCard}>
                 <View style={styles.emojiContainer}>
-                    <Text style={styles.emoji}>{topic?.iconEmoji || '🏷️'}</Text>
+                    {topic?.iconImageUrl ? (
+                        <Image
+                            source={{ uri: getImageUrl(topic.iconImageUrl) || topic.iconImageUrl }}
+                            style={{ width: 64, height: 64, borderRadius: 32 }}
+                        />
+                    ) : topic?.iconEmoji && isIoniconName(topic.iconEmoji) ? (
+                        <Ionicons name={`${topic.iconEmoji}-outline` as any} size={36} color="#7C3AED" />
+                    ) : (
+                        <Text style={styles.emoji}>{topic?.iconEmoji || '🏷️'}</Text>
+                    )}
                 </View>
                 <Text style={styles.topicName}>{topic?.name}</Text>
 
-                {/* Stats */}
+                {/* Stats - Members is now clickable */}
                 <View style={styles.statsRow}>
-                    <View style={styles.stat}>
+                    <TouchableOpacity
+                        style={styles.stat}
+                        onPress={() => setShowMembersModal(true)}
+                    >
                         <Text style={styles.statNumber}>{topic?.followerCount || 0}</Text>
-                        <Text style={styles.statLabel}>Members</Text>
-                    </View>
+                        <Text style={[styles.statLabel, styles.statLabelClickable]}>Members</Text>
+                        <Ionicons name="chevron-forward" size={12} color="#7C3AED" style={styles.statChevron} />
+                    </TouchableOpacity>
                     <View style={styles.statDivider} />
                     <View style={styles.stat}>
                         <Text style={styles.statNumber}>{topic?.postCount || 0}</Text>
@@ -417,17 +486,70 @@ export default function TopicPageScreen({ route, navigation }: any) {
         </View>
     );
 
-    const renderPost = ({ item, index }: { item: any; index: number }) => (
-        <TouchableOpacity
-            style={styles.postItem}
-            onPress={() => openPost(item, index)}
-        >
-            <Image
-                source={{ uri: getImageUrl(item.processedImageUrl) || getImageUrl(item.originalImageUrl) || '' }}
-                style={styles.postImage}
-            />
-        </TouchableOpacity>
+    const renderPostsHeader = () => (
+        <View style={styles.postsHeaderContainer}>
+            <View style={styles.postsHeaderLeft}>
+                <Ionicons name="images" size={20} color="#7C3AED" />
+                <Text style={styles.postsHeaderTitle}>Community Posts</Text>
+            </View>
+            <Text style={styles.postsHeaderCount}>{posts.length} posts</Text>
+        </View>
     );
+
+    const renderPost = ({ item, index }: { item: any; index: number }) => {
+        const hasStats = (item.likesCount > 0) || (item.commentsCount > 0);
+        return (
+            <TouchableOpacity
+                style={styles.postItem}
+                onPress={() => openPost(item, index)}
+                activeOpacity={0.9}
+            >
+                <View style={styles.postImageContainer}>
+                    <Image
+                        source={{ uri: getImageUrl(item.processedImageUrl) || getImageUrl(item.originalImageUrl) || '' }}
+                        style={styles.postImage}
+                    />
+
+                    {/* Gradient overlay at bottom for stats */}
+                    {hasStats && (
+                        <LinearGradient
+                            colors={['transparent', 'rgba(0,0,0,0.6)']}
+                            style={styles.postOverlay}
+                        />
+                    )}
+
+                    {/* Engagement stats */}
+                    {hasStats && (
+                        <View style={styles.postStats}>
+                            {item.likesCount > 0 && (
+                                <View style={styles.postStatItem}>
+                                    <Ionicons name="heart" size={12} color="#FFFFFF" />
+                                    <Text style={styles.postStatText}>{item.likesCount}</Text>
+                                </View>
+                            )}
+                            {item.commentsCount > 0 && (
+                                <View style={styles.postStatItem}>
+                                    <Ionicons name="chatbubble" size={11} color="#FFFFFF" />
+                                    <Text style={styles.postStatText}>{item.commentsCount}</Text>
+                                </View>
+                            )}
+                        </View>
+                    )}
+
+                    {/* User avatar in corner */}
+                    {item.user && (
+                        <View style={styles.postUserBadge}>
+                            <Avatar
+                                size={24}
+                                avatarUrl={item.user.activeAvatarId}
+                                username={item.user.username}
+                            />
+                        </View>
+                    )}
+                </View>
+            </TouchableOpacity>
+        );
+    };
 
     if (loading) {
         return (
@@ -446,18 +568,34 @@ export default function TopicPageScreen({ route, navigation }: any) {
                     renderItem={renderPost}
                     keyExtractor={item => item.id}
                     numColumns={3}
-                    ListHeaderComponent={renderHeader}
+                    ListHeaderComponent={
+                        <>
+                            {renderHeader()}
+                            {posts.length > 0 && renderPostsHeader()}
+                        </>
+                    }
                     refreshControl={
                         <RefreshControl refreshing={refreshing} onRefresh={loadTopicPage} />
                     }
                     contentContainerStyle={styles.postsGrid}
                     ListEmptyComponent={
                         <View style={styles.emptyPosts}>
-                            <Ionicons name="images-outline" size={48} color="#D1D5DB" />
+                            <View style={styles.emptyIconContainer}>
+                                <Ionicons name="camera-outline" size={32} color="#7C3AED" />
+                            </View>
                             <Text style={styles.emptyTitle}>No posts yet</Text>
                             <Text style={styles.emptySubtitle}>
                                 Be the first to share in {topic?.name}!
                             </Text>
+                            {topic?.isFollowing && (
+                                <TouchableOpacity
+                                    style={styles.emptyPostButton}
+                                    onPress={() => navigation.navigate('CreatePost', { preselectedTopic: topic })}
+                                >
+                                    <Ionicons name="add" size={20} color="#FFFFFF" />
+                                    <Text style={styles.emptyPostButtonText}>Create First Post</Text>
+                                </TouchableOpacity>
+                            )}
                         </View>
                     }
                 />
@@ -497,6 +635,30 @@ export default function TopicPageScreen({ route, navigation }: any) {
                     navigation.navigate('UserProfile', { userId, username });
                 }}
             />
+
+            {/* Members Modal */}
+            {topic && (
+                <TopicMembersModal
+                    visible={showMembersModal}
+                    topicId={topic.id}
+                    topicName={topic.name}
+                    onClose={() => setShowMembersModal(false)}
+                    onUserPress={(userId, username) => {
+                        setShowMembersModal(false);
+                        navigation.navigate('UserProfile', { userId, username });
+                    }}
+                />
+            )}
+
+            {/* Edit Modal (Admin only) */}
+            {topic && isAdmin && (
+                <TopicEditModal
+                    visible={showEditModal}
+                    topic={topic}
+                    onClose={() => setShowEditModal(false)}
+                    onSave={handleEditSave}
+                />
+            )}
         </View>
     );
 }
@@ -518,7 +680,6 @@ const styles = StyleSheet.create({
         color: '#6B7280'
     },
     coverContainer: {
-        height: 150,
         position: 'relative'
     },
     coverImage: {
@@ -541,6 +702,22 @@ const styles = StyleSheet.create({
         right: 0,
         bottom: 0,
         backgroundColor: 'rgba(0,0,0,0.2)'
+    },
+    editCoverButton: {
+        position: 'absolute',
+        right: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 20,
+        gap: 6,
+    },
+    editCoverText: {
+        color: '#FFFFFF',
+        fontSize: 14,
+        fontWeight: '600',
     },
     infoCard: {
         backgroundColor: '#FFFFFF',
@@ -597,6 +774,12 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#6B7280',
         marginTop: 2
+    },
+    statLabelClickable: {
+        color: '#7C3AED',
+    },
+    statChevron: {
+        marginTop: 2,
     },
     statDivider: {
         width: 1,
@@ -694,32 +877,136 @@ const styles = StyleSheet.create({
     },
     // Posts tab
     postsGrid: {
-        paddingBottom: 100
+        paddingBottom: 100,
+        paddingHorizontal: 8,
+    },
+    postsHeaderContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 8,
+        paddingVertical: 16,
+        backgroundColor: '#F9FAFB',
+    },
+    postsHeaderLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    postsHeaderTitle: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#1F2937',
+    },
+    postsHeaderCount: {
+        fontSize: 14,
+        color: '#6B7280',
+        fontWeight: '500',
     },
     postItem: {
         flex: 1 / 3,
         aspectRatio: 1,
-        padding: 1
+        padding: 4,
+    },
+    postImageContainer: {
+        flex: 1,
+        borderRadius: 12,
+        overflow: 'hidden',
+        backgroundColor: '#E5E7EB',
     },
     postImage: {
         flex: 1,
-        backgroundColor: '#E5E7EB'
+        width: '100%',
+        height: '100%',
+    },
+    postOverlay: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: 50,
+    },
+    postStats: {
+        position: 'absolute',
+        bottom: 8,
+        left: 8,
+        flexDirection: 'row',
+        gap: 6,
+    },
+    postStatItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 3,
+    },
+    postStatText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#FFFFFF',
+        textShadowColor: 'rgba(0, 0, 0, 0.5)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 2,
+    },
+    postUserBadge: {
+        position: 'absolute',
+        top: 8,
+        right: 8,
+        borderWidth: 2,
+        borderColor: '#FFFFFF',
+        borderRadius: 14,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 3,
+        elevation: 4,
+        overflow: 'hidden',
     },
     emptyPosts: {
-        padding: 40,
-        alignItems: 'center'
+        padding: 48,
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
+        marginHorizontal: 8,
+        marginTop: 16,
+        borderRadius: 16,
+        borderWidth: 2,
+        borderColor: '#F3E8FF',
+        borderStyle: 'dashed',
+    },
+    emptyIconContainer: {
+        width: 72,
+        height: 72,
+        borderRadius: 36,
+        backgroundColor: '#F3E8FF',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 16,
     },
     emptyTitle: {
         fontSize: 18,
-        fontWeight: '600',
-        color: '#374151',
-        marginTop: 16
+        fontWeight: '700',
+        color: '#1F2937',
     },
     emptySubtitle: {
         fontSize: 14,
         color: '#6B7280',
-        marginTop: 4,
-        textAlign: 'center'
+        marginTop: 6,
+        textAlign: 'center',
+        lineHeight: 20,
+    },
+    emptyPostButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#7C3AED',
+        paddingVertical: 12,
+        paddingHorizontal: 24,
+        borderRadius: 24,
+        marginTop: 20,
+        gap: 8,
+    },
+    emptyPostButtonText: {
+        color: '#FFFFFF',
+        fontSize: 15,
+        fontWeight: '600',
     },
     // About tab
     aboutContainer: {

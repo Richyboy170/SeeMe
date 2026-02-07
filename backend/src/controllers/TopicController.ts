@@ -1,11 +1,29 @@
 import { Request, Response } from 'express';
 import { Op } from 'sequelize';
-import { Topic, TopicFollow, PostTopic, UserTopicStatus, User, Post, CoinTransaction, Like } from '../models';
+import { Topic, TopicFollow, TopicAdmin, PostTopic, UserTopicStatus, User, Post, CoinTransaction, Like } from '../models';
 import { PostStatus, PostVisibility } from '../models/Post';
 import { AuthRequest } from '../middleware/auth';
 import { logger } from '../utils/logger';
 
 export class TopicController {
+    /**
+     * Check if user is a topic admin (creator or assigned admin)
+     */
+    static async isTopicAdmin(topicId: string, userId: string): Promise<boolean> {
+        const topic = await Topic.findByPk(topicId);
+        if (!topic) return false;
+        if (topic.creatorId === userId) return true;
+        try {
+            const adminEntry = await TopicAdmin.findOne({
+                where: { topicId, userId }
+            });
+            return !!adminEntry;
+        } catch {
+            // topic_admins table may not exist yet
+            return false;
+        }
+    }
+
     /**
      * GET /api/topics
      * Get all topics with optional filtering
@@ -106,7 +124,7 @@ export class TopicController {
             const previewPostsMap = new Map<string, any[]>();
 
             if (topicIds.length > 0) {
-                // Get top 5 posts for each topic ordered by coins received (most attractive)
+                // Get top 5 posts for each topic ordered by likes (most attractive)
                 for (const topicId of topicIds) {
                     try {
                         const postTopics = await PostTopic.findAll({
@@ -115,27 +133,26 @@ export class TopicController {
                                 model: Post,
                                 as: 'post',
                                 where: {
-                                    status: PostStatus.COMPLETED,
-                                    visibility: {
-                                        [Op.in]: [PostVisibility.TOPICS_ONLY, PostVisibility.TOPICS_AND_FRIENDS]
-                                    }
+                                    status: PostStatus.COMPLETED
                                 },
-                                attributes: ['id', 'processedImageUrl', 'originalImageUrl', 'coinsReceived'],
+                                attributes: ['id', 'processedImageUrl', 'originalImageUrl', 'likesCount'],
                                 required: true
                             }],
                             limit: 10 // Fetch more, then sort in JS
                         });
 
-                        // Sort by coinsReceived in JS and take top 5
+                        // Sort by likesCount in JS and take top 5
                         const posts = postTopics
                             .map(pt => pt.post)
                             .filter(Boolean)
-                            .sort((a: any, b: any) => (b?.coinsReceived || 0) - (a?.coinsReceived || 0))
+                            .map((post: any) => post.toJSON ? post.toJSON() : post)
+                            .sort((a: any, b: any) => (b?.likesCount || 0) - (a?.likesCount || 0))
                             .slice(0, 5);
 
                         previewPostsMap.set(topicId, posts);
                     } catch (err) {
                         // If error fetching posts for this topic, just set empty array
+                        logger.error('Error fetching preview posts for topic', { topicId, error: err });
                         previewPostsMap.set(topicId, []);
                     }
                 }
@@ -248,6 +265,7 @@ export class TopicController {
 
             let isFollowing = false;
             let userStatus = null;
+            let isAdmin = false;
 
             if (userId) {
                 const follow = await TopicFollow.findOne({
@@ -258,6 +276,13 @@ export class TopicController {
                 userStatus = await UserTopicStatus.findOne({
                     where: { userId, topicId: topic.id }
                 });
+
+                // Check admin status - gracefully handle if table doesn't exist yet
+                try {
+                    isAdmin = await TopicController.isTopicAdmin(topic.id, userId);
+                } catch {
+                    isAdmin = topic.creatorId === userId;
+                }
             }
 
             // Get recent members
@@ -271,6 +296,21 @@ export class TopicController {
                     attributes: ['id', 'username', 'activeAvatarId']
                 }]
             });
+
+            // Get admins - gracefully handle if table doesn't exist yet
+            let topicAdmins: any[] = [];
+            try {
+                topicAdmins = await TopicAdmin.findAll({
+                    where: { topicId: topic.id },
+                    include: [{
+                        model: User,
+                        as: 'user',
+                        attributes: ['id', 'username', 'activeAvatarId']
+                    }]
+                });
+            } catch {
+                // topic_admins table may not exist yet
+            }
 
             // Get post count this week
             const weekAgo = new Date();
@@ -287,9 +327,14 @@ export class TopicController {
                 topic: {
                     ...topic.toJSON(),
                     isFollowing,
+                    isAdmin,
                     userStatus,
                     weeklyPosts,
-                    recentMembers: recentFollowers.map(f => f.user)
+                    recentMembers: recentFollowers.map(f => f.user),
+                    admins: topicAdmins.map(a => ({
+                        ...a.user?.toJSON(),
+                        role: a.role
+                    }))
                 }
             });
         } catch (error) {
@@ -305,7 +350,7 @@ export class TopicController {
     static async createTopic(req: AuthRequest, res: Response): Promise<void> {
         try {
             const userId = req.user!.id;
-            const { name, description, iconEmoji, category } = req.body;
+            const { name, description, iconEmoji, iconImageUrl, category, adminIds } = req.body;
 
             if (!name || name.length < 2) {
                 res.status(400).json({ error: 'Topic name must be at least 2 characters' });
@@ -340,11 +385,23 @@ export class TopicController {
                 slug,
                 description,
                 iconEmoji: iconEmoji || '🏷️',
+                iconImageUrl: iconImageUrl || null,
                 category,
                 creatorId: userId,
                 inviteCode,
                 isOfficial: false
             });
+
+            // Create TopicAdmin entry for the creator (non-blocking)
+            try {
+                await TopicAdmin.create({
+                    topicId: topic.id,
+                    userId,
+                    role: 'creator'
+                });
+            } catch (err) {
+                logger.error('Could not create TopicAdmin entry (table may not exist yet)', { error: err });
+            }
 
             // Auto-follow the topic creator
             await TopicFollow.create({
@@ -352,8 +409,36 @@ export class TopicController {
                 topicId: topic.id
             });
 
+            let followerCount = 1;
+
+            // Add co-admins if provided
+            if (adminIds && Array.isArray(adminIds) && adminIds.length > 0) {
+                for (const adminId of adminIds) {
+                    if (adminId === userId) continue; // Skip creator
+                    try {
+                        await TopicAdmin.create({
+                            topicId: topic.id,
+                            userId: adminId,
+                            role: 'admin'
+                        });
+                    } catch (err) {
+                        logger.error('Error adding admin during topic creation', { adminId, error: err });
+                    }
+                    try {
+                        // Auto-follow admin
+                        await TopicFollow.findOrCreate({
+                            where: { userId: adminId, topicId: topic.id },
+                            defaults: { userId: adminId, topicId: topic.id }
+                        });
+                        followerCount++;
+                    } catch (err) {
+                        logger.error('Error auto-following admin', { adminId, error: err });
+                    }
+                }
+            }
+
             // Update follower count
-            await topic.update({ followerCount: 1 });
+            await topic.update({ followerCount });
 
             // Fetch with creator info
             const topicWithCreator = await Topic.findByPk(topic.id, {
@@ -607,11 +692,7 @@ export class TopicController {
                     model: Post,
                     as: 'post',
                     where: {
-                        status: PostStatus.COMPLETED,
-                        // Only show posts that should appear in topic feeds
-                        visibility: {
-                            [Op.in]: [PostVisibility.TOPICS_ONLY, PostVisibility.TOPICS_AND_FRIENDS]
-                        }
+                        status: PostStatus.COMPLETED
                     },
                     include: [{
                         model: User,
@@ -657,6 +738,266 @@ export class TopicController {
         } catch (error) {
             logger.error('Error fetching topic posts', { error });
             res.status(500).json({ error: 'Failed to fetch posts' });
+        }
+    }
+
+    /**
+     * PUT /api/topics/:topicId
+     * Update a topic (only by creator/admin)
+     */
+    static async updateTopic(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const userId = req.user!.id;
+            const { topicId } = req.params;
+            const { name, description, iconEmoji, iconImageUrl, coverImageUrl } = req.body;
+
+            const topic = await Topic.findByPk(topicId);
+            if (!topic) {
+                res.status(404).json({ error: 'Topic not found' });
+                return;
+            }
+
+            // Check if user is the creator or an admin
+            const hasAccess = await TopicController.isTopicAdmin(topicId, userId);
+            if (!hasAccess) {
+                res.status(403).json({ error: 'Only community admins can edit this community' });
+                return;
+            }
+
+            // Build update object
+            const updates: any = {};
+            if (name !== undefined) updates.name = name;
+            if (description !== undefined) updates.description = description;
+            if (iconEmoji !== undefined) updates.iconEmoji = iconEmoji;
+            if (iconImageUrl !== undefined) updates.iconImageUrl = iconImageUrl;
+            if (coverImageUrl !== undefined) updates.coverImageUrl = coverImageUrl;
+
+            await topic.update(updates);
+
+            // Fetch updated topic with creator
+            const updatedTopic = await Topic.findByPk(topicId, {
+                include: [{
+                    model: User,
+                    as: 'creator',
+                    attributes: ['id', 'username', 'activeAvatarId']
+                }]
+            });
+
+            res.json({
+                success: true,
+                topic: updatedTopic
+            });
+        } catch (error) {
+            logger.error('Error updating topic', { error });
+            res.status(500).json({ error: 'Failed to update topic' });
+        }
+    }
+
+    /**
+     * GET /api/topics/:topicId/members
+     * Get all members (followers) of a topic with pagination
+     */
+    static async getTopicMembers(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const { topicId } = req.params;
+            const { limit = 50, offset = 0, search } = req.query;
+            const currentUserId = req.user?.id;
+
+            const topic = await Topic.findByPk(topicId);
+            if (!topic || !topic.isActive) {
+                res.status(404).json({ error: 'Topic not found' });
+                return;
+            }
+
+            // Build user where clause for search
+            const userWhere: any = {};
+            if (search) {
+                userWhere.username = { [Op.like]: `%${search}%` };
+            }
+
+            const followers = await TopicFollow.findAndCountAll({
+                where: { topicId },
+                limit: Number(limit),
+                offset: Number(offset),
+                order: [['createdAt', 'DESC']],
+                include: [{
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'username', 'activeAvatarId'],
+                    where: Object.keys(userWhere).length > 0 ? userWhere : undefined
+                }]
+            });
+
+            // Get user stats in this community
+            const userIds = followers.rows.map(f => f.user?.id).filter(Boolean) as string[];
+
+            // Only query user statuses if there are users
+            let statusMap = new Map<string, any>();
+            if (userIds.length > 0) {
+                const userStatuses = await UserTopicStatus.findAll({
+                    where: {
+                        topicId,
+                        userId: { [Op.in]: userIds }
+                    }
+                });
+                statusMap = new Map(userStatuses.map(s => [s.userId, s]));
+            }
+
+            const members = followers.rows
+                .filter(f => f.user)
+                .map(f => {
+                    const status = statusMap.get(f.user!.id);
+                    return {
+                        user: f.user,
+                        joinedAt: f.createdAt,
+                        postCount: status?.postCount || 0,
+                        coinsReceived: status?.coinsReceived || 0,
+                        isBeginner: status?.isBeginner ?? true,
+                        isCreator: f.user!.id === topic.creatorId
+                    };
+                });
+
+            const total = followers.count || 0;
+            res.json({
+                success: true,
+                members,
+                total,
+                hasMore: Number(offset) + Number(limit) < total
+            });
+        } catch (error) {
+            logger.error('Error fetching topic members', { error });
+            res.status(500).json({ error: 'Failed to fetch members' });
+        }
+    }
+    /**
+     * GET /api/topics/:topicId/admins
+     * Get all admins for a topic
+     */
+    static async getTopicAdmins(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const { topicId } = req.params;
+
+            const admins = await TopicAdmin.findAll({
+                where: { topicId },
+                include: [{
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'username', 'activeAvatarId']
+                }],
+                order: [['createdAt', 'ASC']]
+            });
+
+            res.json({
+                success: true,
+                admins: admins.map(a => ({
+                    ...a.user?.toJSON(),
+                    role: a.role,
+                    addedAt: a.createdAt
+                }))
+            });
+        } catch (error) {
+            logger.error('Error fetching topic admins', { error });
+            res.status(500).json({ error: 'Failed to fetch admins' });
+        }
+    }
+
+    /**
+     * POST /api/topics/:topicId/admins
+     * Add an admin to a topic (creator-only)
+     */
+    static async addTopicAdmin(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const userId = req.user!.id;
+            const { topicId } = req.params;
+            const { userId: adminUserId } = req.body;
+
+            if (!adminUserId) {
+                res.status(400).json({ error: 'userId is required' });
+                return;
+            }
+
+            const topic = await Topic.findByPk(topicId);
+            if (!topic) {
+                res.status(404).json({ error: 'Topic not found' });
+                return;
+            }
+
+            // Only creator can add admins
+            if (topic.creatorId !== userId) {
+                res.status(403).json({ error: 'Only the community creator can add admins' });
+                return;
+            }
+
+            // Check if already admin
+            const existing = await TopicAdmin.findOne({
+                where: { topicId, userId: adminUserId }
+            });
+            if (existing) {
+                res.status(400).json({ error: 'User is already an admin' });
+                return;
+            }
+
+            await TopicAdmin.create({
+                topicId,
+                userId: adminUserId,
+                role: 'admin'
+            });
+
+            // Auto-follow the admin
+            await TopicFollow.findOrCreate({
+                where: { userId: adminUserId, topicId },
+                defaults: { userId: adminUserId, topicId }
+            });
+
+            res.json({ success: true });
+        } catch (error) {
+            logger.error('Error adding topic admin', { error });
+            res.status(500).json({ error: 'Failed to add admin' });
+        }
+    }
+
+    /**
+     * DELETE /api/topics/:topicId/admins/:userId
+     * Remove an admin from a topic (creator-only)
+     */
+    static async removeTopicAdmin(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const currentUserId = req.user!.id;
+            const { topicId, userId: targetUserId } = req.params;
+
+            const topic = await Topic.findByPk(topicId);
+            if (!topic) {
+                res.status(404).json({ error: 'Topic not found' });
+                return;
+            }
+
+            // Only creator can remove admins
+            if (topic.creatorId !== currentUserId) {
+                res.status(403).json({ error: 'Only the community creator can remove admins' });
+                return;
+            }
+
+            // Cannot remove the creator
+            if (targetUserId === topic.creatorId) {
+                res.status(400).json({ error: 'Cannot remove the community creator' });
+                return;
+            }
+
+            const admin = await TopicAdmin.findOne({
+                where: { topicId, userId: targetUserId }
+            });
+
+            if (!admin) {
+                res.status(404).json({ error: 'Admin not found' });
+                return;
+            }
+
+            await admin.destroy();
+
+            res.json({ success: true });
+        } catch (error) {
+            logger.error('Error removing topic admin', { error });
+            res.status(500).json({ error: 'Failed to remove admin' });
         }
     }
 }

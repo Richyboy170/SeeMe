@@ -93,6 +93,7 @@ export default function PostCard({
   const [shareModalVisible, setShareModalVisible] = useState(false);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [showHeartOverlay, setShowHeartOverlay] = useState(false);
+  const [repostExpanded, setRepostExpanded] = useState(false);
 
   const lastTapRef = useRef<number>(0);
   const heartScale = useRef(new Animated.Value(0)).current;
@@ -286,6 +287,52 @@ export default function PostCard({
     </Modal>
   );
 
+  // Render compact repost preview (small image on right, truncated text)
+  const renderCompactRepostPreview = () => {
+    const maxCaptionLength = 80;
+    const truncatedCaption = post.caption && post.caption.length > maxCaptionLength
+      ? post.caption.substring(0, maxCaptionLength) + '...'
+      : post.caption;
+
+    return (
+      <TouchableOpacity
+        style={styles.compactRepostCard}
+        onPress={() => setRepostExpanded(!repostExpanded)}
+        activeOpacity={0.7}
+      >
+        {/* Left side: Text content */}
+        <View style={styles.compactRepostContent}>
+          <View style={styles.compactRepostHeader}>
+            <Avatar
+              size={20}
+              username={post.user.username}
+              customizations={post.user.activeAvatar?.customizations}
+              avatarStyle={post.user.activeAvatar?.style}
+            />
+            <Text style={styles.compactRepostUsername}>@{post.user.username}</Text>
+          </View>
+          {post.caption && (
+            <Text style={styles.compactRepostCaption} numberOfLines={repostExpanded ? undefined : 2}>
+              {repostExpanded ? post.caption : truncatedCaption}
+            </Text>
+          )}
+          {!repostExpanded && (post.caption?.length || 0) > maxCaptionLength && (
+            <Text style={styles.compactRepostExpand}>tap to expand</Text>
+          )}
+        </View>
+
+        {/* Right side: Small thumbnail */}
+        {imageUri && (
+          <Image
+            source={{ uri: imageUri }}
+            style={styles.compactRepostImage}
+            resizeMode="cover"
+          />
+        )}
+      </TouchableOpacity>
+    );
+  };
+
   const renderActions = () => (
     <View style={[styles.actions, isTablet && styles.tabletActions]}>
       <View style={styles.leftActions}>
@@ -343,36 +390,103 @@ export default function PostCard({
   );
 
   // Tablet Layout: Side-by-side with prominent text
-  if (isTablet) {
+  // For reposts on tablet: show reposter as main focus with compact original post
+  if (isTablet && post.isRepost && post.repostedBy) {
     return (
       <View style={styles.tabletContainer}>
-        {/* Repost Header - Shows who reposted this with their avatar */}
-        {post.isRepost && post.repostedBy && (
-          <TouchableOpacity
-            style={styles.tabletRepostHeader}
-            onPress={() => onUserPress?.(post.repostedBy!.id)}
-          >
-            <Avatar
-              size={24}
-              username={post.repostedBy.username}
-              customizations={post.repostedBy.activeAvatar?.customizations}
-              avatarStyle={post.repostedBy.activeAvatar?.style}
-            />
-            <Ionicons name="repeat" size={16} color="#10B981" />
-            <Text style={styles.repostHeaderText}>
-              <Text style={styles.repostHeaderUsername}>{post.repostedBy.username}</Text> reposted
-            </Text>
-          </TouchableOpacity>
-        )}
+        {/* Reposter Header - Main focus */}
+        <TouchableOpacity
+          style={styles.tabletHeader}
+          onPress={() => onUserPress?.(post.repostedBy!.id)}
+        >
+          <Avatar
+            size={48}
+            username={post.repostedBy.username}
+            style={styles.userAvatar}
+            customizations={post.repostedBy.activeAvatar?.customizations}
+            avatarStyle={post.repostedBy.activeAvatar?.style}
+          />
+          <View style={styles.userInfo}>
+            <Text style={styles.tabletUsername}>@{post.repostedBy.username}</Text>
+            <View style={styles.repostIndicator}>
+              <Ionicons name="repeat" size={14} color="#10B981" />
+              <Text style={styles.tabletRepostIndicatorText}>reposted</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
 
         {/* Quote Comment - For quote reposts */}
-        {post.isRepost && post.repostType === 'quote' && post.repostComment && (
+        {post.repostType === 'quote' && post.repostComment && (
           <View style={styles.tabletQuoteContainer}>
             <Text style={styles.tabletQuoteComment}>"{post.repostComment}"</Text>
           </View>
         )}
 
-        <View style={[styles.tabletCard, post.isRepost && styles.tabletRepostedCard]}>
+        {/* Compact Original Post Preview */}
+        <TouchableOpacity
+          style={styles.tabletCompactRepostCard}
+          onPress={() => setRepostExpanded(!repostExpanded)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.tabletCompactRepostContent}>
+            <View style={styles.compactRepostHeader}>
+              <Avatar
+                size={24}
+                username={post.user.username}
+                customizations={post.user.activeAvatar?.customizations}
+                avatarStyle={post.user.activeAvatar?.style}
+              />
+              <Text style={styles.tabletCompactRepostUsername}>@{post.user.username}</Text>
+            </View>
+            {post.caption && (
+              <Text style={styles.tabletCompactRepostCaption} numberOfLines={repostExpanded ? undefined : 2}>
+                {post.caption}
+              </Text>
+            )}
+            {!repostExpanded && (post.caption?.length || 0) > 100 && (
+              <Text style={styles.compactRepostExpand}>tap to expand</Text>
+            )}
+          </View>
+          {imageUri && (
+            <Image
+              source={{ uri: imageUri }}
+              style={styles.tabletCompactRepostImage}
+              resizeMode="cover"
+            />
+          )}
+        </TouchableOpacity>
+
+        {/* Actions - encourage the reposter */}
+        {renderActions()}
+
+        <GiveCoinsModal
+          visible={giveModalVisible}
+          recipientId={post.repostedBy.id}
+          recipientUsername={post.repostedBy.username}
+          contextType="post"
+          contextId={post.id}
+          onClose={() => setGiveModalVisible(false)}
+          onSuccess={() => setGiveModalVisible(false)}
+        />
+
+        <SharePostModal
+          visible={shareModalVisible}
+          postId={post.id}
+          postImageUrl={imageUri}
+          onClose={() => setShareModalVisible(false)}
+          onSuccess={() => setShareModalVisible(false)}
+        />
+
+        {renderImageViewer()}
+      </View>
+    );
+  }
+
+  // Regular tablet layout (non-repost)
+  if (isTablet) {
+    return (
+      <View style={styles.tabletContainer}>
+        <View style={styles.tabletCard}>
           {/* Image Side */}
           <View style={styles.tabletImageContainer}>
             {renderImage()}
@@ -434,66 +548,103 @@ export default function PostCard({
   }
 
   // Phone Layout: Text above image
-  return (
-    <View style={styles.container}>
-      {/* Repost Header - Shows who reposted this with their avatar */}
-      {post.isRepost && post.repostedBy && (
+  // For reposts: show reposter as main focus with compact original post preview
+  if (post.isRepost && post.repostedBy) {
+    return (
+      <View style={styles.container}>
+        {/* Reposter Header - Main focus */}
         <TouchableOpacity
-          style={styles.repostHeader}
+          style={styles.header}
           onPress={() => onUserPress?.(post.repostedBy!.id)}
         >
           <Avatar
-            size={20}
+            size={40}
             username={post.repostedBy.username}
+            style={styles.userAvatar}
             customizations={post.repostedBy.activeAvatar?.customizations}
             avatarStyle={post.repostedBy.activeAvatar?.style}
           />
-          <Ionicons name="repeat" size={14} color="#10B981" />
-          <Text style={styles.repostHeaderText}>
-            <Text style={styles.repostHeaderUsername}>{post.repostedBy.username}</Text> reposted
-          </Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Quote Comment - For quote reposts */}
-      {post.isRepost && post.repostType === 'quote' && post.repostComment && (
-        <View style={styles.quoteCommentContainer}>
-          <Text style={styles.quoteComment}>"{post.repostComment}"</Text>
-        </View>
-      )}
-
-      {/* Original Post Container - Slightly indented for reposts */}
-      <View style={post.isRepost ? styles.repostedPostContainer : undefined}>
-        {/* Header */}
-        <TouchableOpacity style={styles.header} onPress={handleUserPress}>
-          <Avatar
-            size={40}
-            username={post.user.username}
-            style={styles.userAvatar}
-            customizations={post.user.activeAvatar?.customizations}
-            avatarStyle={post.user.activeAvatar?.style}
-          />
           <View style={styles.userInfo}>
-            <Text style={styles.username}>@{post.user.username}</Text>
-            <Text style={styles.timestamp}>{formatTimeAgo(post.createdAt)}</Text>
+            <Text style={styles.username}>@{post.repostedBy.username}</Text>
+            <View style={styles.repostIndicator}>
+              <Ionicons name="repeat" size={12} color="#10B981" />
+              <Text style={styles.repostIndicatorText}>reposted</Text>
+            </View>
           </View>
         </TouchableOpacity>
 
-        {/* Caption - Above image */}
-        {post.caption && (
-          <View style={styles.captionContainer}>
-            <Text style={styles.caption}>{post.caption}</Text>
+        {/* Quote Comment - For quote reposts */}
+        {post.repostType === 'quote' && post.repostComment && (
+          <View style={styles.quoteCommentContainer}>
+            <Text style={styles.quoteComment}>"{post.repostComment}"</Text>
           </View>
         )}
 
-        {/* Image with padding */}
-        <View style={styles.imageWrapper}>
-          {renderImage()}
+        {/* Compact Original Post Preview */}
+        <View style={styles.compactRepostWrapper}>
+          {renderCompactRepostPreview()}
         </View>
 
-        {/* Actions */}
+        {/* Actions - encourage the reposter */}
         {renderActions()}
+
+        {/* Give Coins Modal */}
+        <GiveCoinsModal
+          visible={giveModalVisible}
+          recipientId={post.repostedBy.id}
+          recipientUsername={post.repostedBy.username}
+          contextType="post"
+          contextId={post.id}
+          onClose={() => setGiveModalVisible(false)}
+          onSuccess={() => setGiveModalVisible(false)}
+        />
+
+        {/* Share Post Modal */}
+        <SharePostModal
+          visible={shareModalVisible}
+          postId={post.id}
+          postImageUrl={imageUri}
+          onClose={() => setShareModalVisible(false)}
+          onSuccess={() => setShareModalVisible(false)}
+        />
+
+        {renderImageViewer()}
       </View>
+    );
+  }
+
+  // Regular post layout (non-repost)
+  return (
+    <View style={styles.container}>
+      {/* Header */}
+      <TouchableOpacity style={styles.header} onPress={handleUserPress}>
+        <Avatar
+          size={40}
+          username={post.user.username}
+          style={styles.userAvatar}
+          customizations={post.user.activeAvatar?.customizations}
+          avatarStyle={post.user.activeAvatar?.style}
+        />
+        <View style={styles.userInfo}>
+          <Text style={styles.username}>@{post.user.username}</Text>
+          <Text style={styles.timestamp}>{formatTimeAgo(post.createdAt)}</Text>
+        </View>
+      </TouchableOpacity>
+
+      {/* Caption - Above image */}
+      {post.caption && (
+        <View style={styles.captionContainer}>
+          <Text style={styles.caption}>{post.caption}</Text>
+        </View>
+      )}
+
+      {/* Image with padding */}
+      <View style={styles.imageWrapper}>
+        {renderImage()}
+      </View>
+
+      {/* Actions */}
+      {renderActions()}
 
       {/* Give Coins Modal */}
       <GiveCoinsModal
@@ -525,46 +676,77 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: '#FFF',
   },
-  // Repost styles
-  repostHeader: {
+  // Repost indicator (shown under reposter's name)
+  repostIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 8,
-    gap: 8,
+    gap: 4,
+    marginTop: 2,
   },
-  repostHeaderText: {
-    fontSize: 13,
-    color: '#6B7280',
-    fontWeight: '400',
+  repostIndicatorText: {
+    fontSize: 12,
+    color: '#10B981',
+    fontWeight: '500',
   },
-  repostHeaderUsername: {
-    fontWeight: '600',
-    color: '#374151',
-  },
+  // Quote comment for quote reposts
   quoteCommentContainer: {
     marginHorizontal: 12,
-    marginBottom: 10,
+    marginBottom: 8,
     paddingLeft: 12,
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderLeftWidth: 3,
     borderLeftColor: '#10B981',
   },
   quoteComment: {
-    fontSize: 15,
+    fontSize: 14,
     color: '#1F2937',
-    lineHeight: 22,
+    lineHeight: 20,
     fontStyle: 'italic',
   },
-  repostedPostContainer: {
-    marginHorizontal: 12,
+  // Compact repost preview styles
+  compactRepostWrapper: {
+    paddingHorizontal: 12,
     marginBottom: 8,
+  },
+  compactRepostCard: {
+    flexDirection: 'row',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: '#F9FAFB',
+    padding: 10,
+    alignItems: 'flex-start',
+  },
+  compactRepostContent: {
+    flex: 1,
+    marginRight: 10,
+  },
+  compactRepostHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  compactRepostUsername: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  compactRepostCaption: {
+    fontSize: 13,
+    color: '#374151',
+    lineHeight: 18,
+  },
+  compactRepostExpand: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginTop: 4,
+  },
+  compactRepostImage: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    backgroundColor: '#E5E7EB',
   },
   repostedCount: {
     color: '#10B981',
@@ -695,11 +877,10 @@ const styles = StyleSheet.create({
     lineHeight: 34,
     fontWeight: '400',
   },
-  tabletRepostHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingBottom: 12,
-    gap: 10,
+  tabletRepostIndicatorText: {
+    fontSize: 14,
+    color: '#10B981',
+    fontWeight: '500',
   },
   tabletQuoteContainer: {
     paddingBottom: 12,
@@ -709,15 +890,41 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   tabletQuoteComment: {
-    fontSize: 18,
+    fontSize: 16,
     color: '#1F2937',
-    lineHeight: 28,
+    lineHeight: 24,
     fontStyle: 'italic',
   },
-  tabletRepostedCard: {
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
+  // Tablet compact repost styles
+  tabletCompactRepostCard: {
+    flexDirection: 'row',
     backgroundColor: '#F9FAFB',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    padding: 16,
+    marginBottom: 12,
+    alignItems: 'flex-start',
+  },
+  tabletCompactRepostContent: {
+    flex: 1,
+    marginRight: 16,
+  },
+  tabletCompactRepostUsername: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  tabletCompactRepostCaption: {
+    fontSize: 15,
+    color: '#374151',
+    lineHeight: 22,
+  },
+  tabletCompactRepostImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    backgroundColor: '#E5E7EB',
   },
   tabletActions: {
     paddingHorizontal: 0,

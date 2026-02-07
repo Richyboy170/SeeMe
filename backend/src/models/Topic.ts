@@ -7,6 +7,7 @@ export interface TopicAttributes {
     slug: string;
     description: string | null;
     iconEmoji: string | null;
+    iconImageUrl: string | null;
     coverImageUrl: string | null;
     creatorId: string | null;
     inviteCode: string;
@@ -25,7 +26,7 @@ export interface TopicAttributes {
 }
 
 export interface TopicCreationAttributes extends Optional<TopicAttributes,
-    'id' | 'description' | 'iconEmoji' | 'coverImageUrl' | 'creatorId' |
+    'id' | 'description' | 'iconEmoji' | 'iconImageUrl' | 'coverImageUrl' | 'creatorId' |
     'followerCount' | 'postCount' | 'weeklyPostCount' | 'isOfficial' |
     'isActive' | 'isDiscoverable' | 'minAge' | 'beginnerBoostEnabled' |
     'encouragementMultiplier' | 'createdAt' | 'updatedAt'> {}
@@ -36,6 +37,7 @@ export class Topic extends Model<TopicAttributes, TopicCreationAttributes> imple
     public slug!: string;
     public description!: string | null;
     public iconEmoji!: string | null;
+    public iconImageUrl!: string | null;
     public coverImageUrl!: string | null;
     public creatorId!: string | null;
     public inviteCode!: string;
@@ -99,7 +101,11 @@ Topic.init(
             allowNull: true,
         },
         iconEmoji: {
-            type: DataTypes.STRING(10),
+            type: DataTypes.STRING(50),
+            allowNull: true,
+        },
+        iconImageUrl: {
+            type: DataTypes.STRING(500),
             allowNull: true,
         },
         coverImageUrl: {

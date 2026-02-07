@@ -16,6 +16,8 @@ import {
   ScrollView,
   Alert,
   Animated,
+  PanResponder,
+  Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation, CommonActions } from '@react-navigation/native';
@@ -23,9 +25,10 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 import Avatar from '../../components/Avatar';
 import GiveCoinsModal from '../../components/coins/GiveCoinsModal';
+import CoinCelebration from '../../components/coins/CoinCelebration';
 import { CommentPreview } from '../../components/feed/CommentPreview';
 import { RepostOptionsModal } from '../../components/feed/RepostOptionsModal';
-import ChatDrawer from '../../components/chat/ChatDrawer';
+import ChatDrawer, { ChatDrawerRef } from '../../components/chat/ChatDrawer';
 import { api, getImageUrl } from '../../services/api';
 import { sharePost, ShareablePost } from '../../services/shareService';
 import { RepostType } from '../../services/repostService';
@@ -131,10 +134,13 @@ function TweetCard({
   onComment,
   onUserPress,
   onGiveCoins,
+  onQuickGiveCoins,
   onImagePress,
   onRepost,
   onShare,
   onNavigateToProfile,
+  onCoinPickerChange,
+  currentUserId,
   colors,
 }: {
   post: Post;
@@ -142,10 +148,13 @@ function TweetCard({
   onComment: (postId: string) => void;
   onUserPress: (userId: string) => void;
   onGiveCoins: (post: Post) => void;
+  onQuickGiveCoins: (post: Post, amount: number) => Promise<string | null>;
   onImagePress: (post: Post) => void;
   onRepost: (post: Post) => void;
   onShare: (post: Post) => void;
   onNavigateToProfile: (userId: string, username: string) => void;
+  onCoinPickerChange?: (active: boolean) => void;
+  currentUserId: string;
   colors: ThemeColors;
 }) {
   const { width } = useWindowDimensions();
@@ -154,6 +163,21 @@ function TweetCard({
   const [reposted, setReposted] = React.useState(post.repostedByMe || false);
   const [repostCount, setRepostCount] = React.useState(post.repostCount || 0);
   const [showHeartOverlay, setShowHeartOverlay] = React.useState(false);
+  const [repostExpanded, setRepostExpanded] = React.useState(false);
+
+  // Quick coin drag-to-send state (Instagram-style)
+  const [showCoinPicker, setShowCoinPicker] = React.useState(false);
+  const [hoveredCoinIndex, setHoveredCoinIndex] = React.useState(-1);
+  const [sentCoinAmount, setSentCoinAmount] = React.useState(0);
+  const [showCelebration, setShowCelebration] = React.useState(false);
+  const [isLongPress, setIsLongPress] = React.useState(false);
+  const longPressTimeout = React.useRef<NodeJS.Timeout | null>(null);
+  const startTouchY = React.useRef(0);
+  const startTouchX = React.useRef(0);
+  const touchMoved = React.useRef(false);
+
+  // Check if this is user's own post
+  const isOwnPost = post.user.id === currentUserId || (post.isRepost && post.repostedBy?.id === currentUserId);
 
   // Heart animation refs
   const heartScale = useRef(new Animated.Value(0)).current;
@@ -249,51 +273,360 @@ function TweetCard({
     return count > 0 ? count.toString() : '';
   };
 
+  // Coin amounts for quick selection
+  const coinAmounts = [1, 5, 10, 25, 50, 100];
+  const LONG_PRESS_DELAY = 250; // ms to trigger long press
+
+  // Handle touch start on gift icon - start long press timer
+  const handleGiftTouchStart = (event: any) => {
+    const { pageY, pageX } = event.nativeEvent;
+    startTouchY.current = pageY;
+    startTouchX.current = pageX;
+    touchMoved.current = false;
+    setIsLongPress(false);
+
+    // Start long press timer
+    if (longPressTimeout.current) clearTimeout(longPressTimeout.current);
+    longPressTimeout.current = setTimeout(() => {
+      setIsLongPress(true);
+      setShowCoinPicker(true);
+      onCoinPickerChange?.(true);
+      // Start with middle option pre-selected for easier access
+      setHoveredCoinIndex(2); // 10 coins
+    }, LONG_PRESS_DELAY);
+  };
+
+  // Handle touch move - track which coin option is being hovered
+  const handleGiftTouchMove = (event: any) => {
+    const { pageX, pageY } = event.nativeEvent;
+
+    // Check if finger moved significantly (cancel tap intent)
+    const deltaX = Math.abs(pageX - startTouchX.current);
+    const deltaY = Math.abs(pageY - startTouchY.current);
+    if (deltaX > 5 || deltaY > 5) {
+      touchMoved.current = true;
+    }
+
+    if (!showCoinPicker) return;
+
+    // Calculate which coin option based on horizontal drag from start position
+    // Super smooth: very low threshold for option changes
+    const deltaFromStart = pageX - startTouchX.current;
+
+    // High sensitivity: only ~20px per option change for smooth feel
+    const sensitivity = 20;
+    // Start from middle (index 2), move left/right based on drag
+    const baseIndex = 2;
+    const indexOffset = Math.round(deltaFromStart / sensitivity);
+    const index = Math.max(0, Math.min(coinAmounts.length - 1, baseIndex + indexOffset));
+
+    setHoveredCoinIndex(index);
+  };
+
+  // Handle touch end - either open modal (tap) or send coins (long press + select)
+  const handleGiftTouchEnd = async () => {
+    // Clear long press timer
+    if (longPressTimeout.current) {
+      clearTimeout(longPressTimeout.current);
+      longPressTimeout.current = null;
+    }
+
+    // If it was a quick tap (not long press and didn't move much), open the modal
+    if (!isLongPress && !touchMoved.current) {
+      onGiveCoins(post);
+      setIsLongPress(false);
+      return;
+    }
+
+    // If long press was active, handle coin picker
+    if (showCoinPicker) {
+      setShowCoinPicker(false);
+      onCoinPickerChange?.(false);
+
+      if (hoveredCoinIndex >= 0 && hoveredCoinIndex < coinAmounts.length) {
+        const amount = coinAmounts[hoveredCoinIndex];
+        setSentCoinAmount(amount);
+
+        // Send coins immediately
+        const success = await onQuickGiveCoins(post, amount);
+        if (success) {
+          // Show celebration animation (handled by CoinCelebration component)
+          setShowCelebration(true);
+        }
+      }
+
+      setHoveredCoinIndex(-1);
+    }
+
+    setIsLongPress(false);
+  };
+
+  // Handle touch cancel (e.g., scroll interrupt)
+  const handleGiftTouchCancel = () => {
+    if (longPressTimeout.current) {
+      clearTimeout(longPressTimeout.current);
+      longPressTimeout.current = null;
+    }
+    if (showCoinPicker) {
+      onCoinPickerChange?.(false);
+    }
+    setShowCoinPicker(false);
+    setHoveredCoinIndex(-1);
+    setIsLongPress(false);
+  };
+
+  // Cleanup timeouts
+  React.useEffect(() => {
+    return () => {
+      if (longPressTimeout.current) clearTimeout(longPressTimeout.current);
+    };
+  }, []);
+
   const imageUri = getImageUrl(post.thumbnailUrl) || getImageUrl(post.imageUrl) || getImageUrl(post.originalImageUrl);
   const imageWidth = Math.min(width - 82, MAX_CONTENT_WIDTH - 82);
 
+  // Compact repost layout - reposter is the focus, original post is small preview
+  if (post.isRepost && post.repostedBy) {
+    const maxCaptionLength = 60;
+    const truncatedCaption = post.caption && post.caption.length > maxCaptionLength
+      ? post.caption.substring(0, maxCaptionLength) + '...'
+      : post.caption;
+
+    return (
+      <View style={[styles.tweetContainer, { backgroundColor: colors.cardBackground }]}>
+        {/* Reposter Header - Main focus */}
+        <View style={styles.tweetMainContent}>
+          <TouchableOpacity
+            style={styles.avatarColumn}
+            onPress={() => onNavigateToProfile(post.repostedBy!.id, post.repostedBy!.username)}
+          >
+            <Avatar
+              size={40}
+              username={post.repostedBy.username}
+              customizations={post.repostedBy.activeAvatar?.customizations}
+              avatarStyle={post.repostedBy.activeAvatar?.style}
+            />
+          </TouchableOpacity>
+
+          <View style={styles.contentColumn}>
+            {/* Reposter info */}
+            <View style={styles.headerRow}>
+              <TouchableOpacity
+                style={styles.userInfoRow}
+                onPress={() => onNavigateToProfile(post.repostedBy!.id, post.repostedBy!.username)}
+              >
+                <Text style={[styles.displayName, { color: colors.text }]} numberOfLines={1}>
+                  {post.repostedBy.username}
+                </Text>
+                <View style={styles.repostBadge}>
+                  <Ionicons name="repeat" size={12} color="#10B981" />
+                  <Text style={styles.repostBadgeText}>reposted</Text>
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.moreButton}>
+                <Ionicons name="ellipsis-horizontal" size={16} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Quote Comment - For quote reposts */}
+            {post.repostType === 'quote' && post.repostComment && (
+              <Text style={[styles.quoteText, { color: colors.text }]}>
+                "{post.repostComment}"
+              </Text>
+            )}
+
+            {/* Original Post - Compact or Expanded */}
+            {!repostExpanded ? (
+              /* Compact Original Post Preview */
+              <TouchableOpacity
+                style={[styles.compactOriginalPost, { borderColor: colors.border, backgroundColor: colors.mediaBackground }]}
+                onPress={() => setRepostExpanded(true)}
+                activeOpacity={0.7}
+              >
+                {/* Left: Original post info */}
+                <View style={styles.compactPostContent}>
+                  <View style={styles.compactPostHeader}>
+                    <Avatar
+                      size={16}
+                      username={post.user.username}
+                      customizations={post.user.activeAvatar?.customizations}
+                      avatarStyle={post.user.activeAvatar?.style}
+                    />
+                    <Text style={[styles.compactPostUsername, { color: colors.textSecondary }]}>
+                      @{post.user.username}
+                    </Text>
+                  </View>
+                  {post.caption && (
+                    <Text
+                      style={[styles.compactPostCaption, { color: colors.text }]}
+                      numberOfLines={2}
+                    >
+                      {truncatedCaption}
+                    </Text>
+                  )}
+                  <Text style={[styles.compactExpandHint, { color: colors.textSecondary }]}>
+                    tap to view
+                  </Text>
+                </View>
+
+                {/* Right: Small thumbnail */}
+                {imageUri && (
+                  <Image
+                    source={{ uri: imageUri }}
+                    style={styles.compactPostImage}
+                    resizeMode="cover"
+                  />
+                )}
+              </TouchableOpacity>
+            ) : (
+              /* Expanded Original Post */
+              <TouchableOpacity
+                style={[styles.expandedOriginalPost, { borderColor: colors.border, backgroundColor: colors.mediaBackground }]}
+                onPress={() => setRepostExpanded(false)}
+                activeOpacity={0.9}
+              >
+                <View style={styles.expandedPostHeader}>
+                  <Avatar
+                    size={24}
+                    username={post.user.username}
+                    customizations={post.user.activeAvatar?.customizations}
+                    avatarStyle={post.user.activeAvatar?.style}
+                  />
+                  <Text style={[styles.expandedPostUsername, { color: colors.textSecondary }]}>
+                    @{post.user.username}
+                  </Text>
+                  <Text style={[styles.compactExpandHint, { color: colors.textSecondary, marginLeft: 'auto' }]}>
+                    tap to collapse
+                  </Text>
+                </View>
+                {post.caption && (
+                  <Text style={[styles.expandedPostCaption, { color: colors.text }]}>
+                    {post.caption}
+                  </Text>
+                )}
+                {imageUri && (
+                  <Image
+                    source={{ uri: imageUri }}
+                    style={[styles.expandedPostImage, { backgroundColor: colors.mediaBackground }]}
+                    resizeMode="cover"
+                  />
+                )}
+              </TouchableOpacity>
+            )}
+
+            {/* Action Buttons */}
+            <View style={styles.actionsRow}>
+              <TouchableOpacity style={styles.actionButton} onPress={() => onComment(post.id)}>
+                <Ionicons name="chatbubble-outline" size={18} color={colors.iconDefault} />
+                <Text style={[styles.actionCount, { color: colors.textSecondary }]}>
+                  {formatCount(post.commentsCount)}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.actionButton} onPress={handleRepost}>
+                <Ionicons name="repeat-outline" size={20} color={reposted ? '#00BA7C' : colors.iconDefault} />
+                <Text style={[styles.actionCount, { color: reposted ? '#00BA7C' : colors.textSecondary }]}>
+                  {formatCount(repostCount)}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
+                <Ionicons name={liked ? 'heart' : 'heart-outline'} size={18} color={liked ? colors.like : colors.iconDefault} />
+                <Text style={[styles.actionCount, { color: liked ? colors.like : colors.textSecondary }]}>
+                  {formatCount(likesCount)}
+                </Text>
+              </TouchableOpacity>
+
+              {!isOwnPost && (
+                <View
+                  style={styles.giftButtonContainer}
+                  onTouchStart={handleGiftTouchStart}
+                  onTouchMove={handleGiftTouchMove}
+                  onTouchEnd={handleGiftTouchEnd}
+                  onTouchCancel={handleGiftTouchCancel}
+                >
+                  <View style={styles.actionButton}>
+                    <Ionicons name="gift-outline" size={18} color={colors.gift} />
+                  </View>
+
+                  {/* Instagram-style Coin Picker - appears above when holding */}
+                  {showCoinPicker && (
+                    <View style={[styles.coinPickerOverlay, { backgroundColor: colors.cardBackground }]}>
+                      <View style={styles.coinPickerRow}>
+                        {coinAmounts.map((amount, index) => {
+                          const isHovered = hoveredCoinIndex === index;
+                          return (
+                            <View
+                              key={amount}
+                              style={[
+                                styles.coinPickerOption,
+                                isHovered && styles.coinPickerOptionHovered,
+                              ]}
+                            >
+                              <View style={[
+                                styles.artCoin,
+                                isHovered && styles.artCoinHovered,
+                              ]}>
+                                <View style={[
+                                  styles.artCoinInner,
+                                  isHovered && styles.artCoinInnerHovered,
+                                ]}>
+                                  <View style={styles.kindnessSymbol}>
+                                    <Ionicons name="leaf" size={isHovered ? 6 : 4} color="rgba(255,255,255,0.8)" style={styles.pickerLeafLeft} />
+                                    <Ionicons name="heart" size={isHovered ? 10 : 7} color="#FFF" />
+                                    <Ionicons name="leaf" size={isHovered ? 6 : 4} color="rgba(255,255,255,0.8)" style={styles.pickerLeafRight} />
+                                  </View>
+                                </View>
+                              </View>
+                              <Text style={[
+                                styles.coinPickerAmount,
+                                { color: isHovered ? '#FBBF24' : colors.textSecondary },
+                              ]}>
+                                {amount}
+                              </Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                      <Text style={styles.coinPickerHint}>← drag to select →</Text>
+                      <View style={styles.coinPickerArrow} />
+                    </View>
+                  )}
+                </View>
+              )}
+
+              <TouchableOpacity style={styles.actionButton} onPress={() => onShare(post)}>
+                <Ionicons name="share-outline" size={18} color={colors.iconDefault} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Celebration Animation - Shared Component (Modal style) */}
+            <CoinCelebration
+              visible={showCelebration}
+              amount={sentCoinAmount}
+              source="gift"
+              recipientUsername={post.isRepost && post.repostedBy ? post.repostedBy.username : post.user.username}
+              onClose={() => setShowCelebration(false)}
+              asModal={true}
+            />
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  // Regular post layout (non-repost)
   return (
     <View style={[styles.tweetContainer, { backgroundColor: colors.cardBackground }]}>
-      {/* Repost Header - Shows who reposted this with their avatar */}
-      {post.isRepost && post.repostedBy && (
-        <TouchableOpacity
-          style={styles.repostHeaderRow}
-          onPress={() => onNavigateToProfile(post.repostedBy!.id, post.repostedBy!.username)}
-        >
-          <Avatar
-            size={20}
-            username={post.repostedBy.username}
-            customizations={post.repostedBy.activeAvatar?.customizations}
-            avatarStyle={post.repostedBy.activeAvatar?.style}
-          />
-          <Ionicons name="repeat" size={14} color="#10B981" />
-          <Text style={[styles.repostHeaderText, { color: colors.textSecondary }]}>
-            <Text style={styles.repostHeaderUsername}>{post.repostedBy.username}</Text> reposted
-          </Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Quote Comment - For quote reposts */}
-      {post.isRepost && post.repostType === 'quote' && post.repostComment && (
-        <View style={[styles.quoteCommentRow, { borderLeftColor: '#10B981' }]}>
-          <Text style={[styles.quoteCommentText, { color: colors.text }]}>
-            "{post.repostComment}"
-          </Text>
-        </View>
-      )}
-
       {/* Main Tweet Content */}
-      <View style={[
-        styles.tweetMainContent,
-        post.isRepost && [styles.repostedTweetContent, { borderColor: colors.border, backgroundColor: colors.mediaBackground }]
-      ]}>
+      <View style={styles.tweetMainContent}>
         {/* Avatar Column */}
         <TouchableOpacity
           style={styles.avatarColumn}
           onPress={() => onNavigateToProfile(post.user.id, post.user.username)}
         >
           <Avatar
-            size={post.isRepost ? 32 : 40}
+            size={40}
             username={post.user.username}
             customizations={post.user.activeAvatar?.customizations}
             avatarStyle={post.user.activeAvatar?.style}
@@ -319,128 +652,187 @@ function TweetCard({
                 {formatTimeAgo(post.createdAt)}
               </Text>
             </TouchableOpacity>
-            {!post.isRepost && (
-              <TouchableOpacity style={styles.moreButton}>
-                <Ionicons name="ellipsis-horizontal" size={16} color={colors.textSecondary} />
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity style={styles.moreButton}>
+              <Ionicons name="ellipsis-horizontal" size={16} color={colors.textSecondary} />
+            </TouchableOpacity>
           </View>
 
-        {/* Double-tap area for like (caption + image) */}
-        <Pressable onPress={handleContentTap}>
-          {/* Tweet Text */}
-          {post.caption && (
-            <Text style={[styles.tweetText, { color: colors.text }]}>{post.caption}</Text>
-          )}
-        </Pressable>
-
-        {/* Media - Single tap opens viewer, double tap likes */}
-        {imageUri && (
-          <Pressable
-            style={[styles.mediaContainer, { borderColor: colors.border }]}
-            onPress={handleImageTap}
-          >
-            <Image
-              source={{ uri: imageUri }}
-              style={[styles.mediaImage, { width: imageWidth, height: imageWidth * 0.75, backgroundColor: colors.mediaBackground }]}
-              resizeMode="cover"
-            />
-            {/* Heart overlay animation */}
-            {showHeartOverlay && (
-              <Animated.View
-                style={[
-                  styles.heartOverlay,
-                  {
-                    transform: [{ scale: heartScale }],
-                    opacity: heartOpacity,
-                  },
-                ]}
-              >
-                <Ionicons name="heart" size={80} color="#FFF" />
-              </Animated.View>
+          {/* Double-tap area for like (caption + image) */}
+          <Pressable onPress={handleContentTap}>
+            {/* Tweet Text */}
+            {post.caption && (
+              <Text style={[styles.tweetText, { color: colors.text }]}>{post.caption}</Text>
             )}
           </Pressable>
-        )}
 
-        {/* Action Buttons */}
-        <View style={styles.actionsRow}>
-          {/* Reply/Comment */}
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => onComment(post.id)}
-          >
-            <Ionicons name="chatbubble-outline" size={18} color={colors.iconDefault} />
-            <Text style={[styles.actionCount, { color: colors.textSecondary }]}>
-              {formatCount(post.commentsCount)}
-            </Text>
-          </TouchableOpacity>
+          {/* Media - Single tap opens viewer, double tap likes */}
+          {imageUri && (
+            <Pressable
+              style={[styles.mediaContainer, { borderColor: colors.border }]}
+              onPress={handleImageTap}
+            >
+              <Image
+                source={{ uri: imageUri }}
+                style={[styles.mediaImage, { width: imageWidth, height: imageWidth * 0.75, backgroundColor: colors.mediaBackground }]}
+                resizeMode="cover"
+              />
+              {/* Heart overlay animation */}
+              {showHeartOverlay && (
+                <Animated.View
+                  style={[
+                    styles.heartOverlay,
+                    {
+                      transform: [{ scale: heartScale }],
+                      opacity: heartOpacity,
+                    },
+                  ]}
+                >
+                  <Ionicons name="heart" size={80} color="#FFF" />
+                </Animated.View>
+              )}
+            </Pressable>
+          )}
 
-          {/* Repost */}
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={handleRepost}
-          >
-            <Ionicons
-              name="repeat-outline"
-              size={20}
-              color={reposted ? '#00BA7C' : colors.iconDefault}
-            />
-            <Text style={[styles.actionCount, { color: reposted ? '#00BA7C' : colors.textSecondary }]}>
-              {formatCount(repostCount)}
-            </Text>
-          </TouchableOpacity>
+          {/* Action Buttons */}
+          <View style={styles.actionsRow}>
+            {/* Reply/Comment */}
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => onComment(post.id)}
+            >
+              <Ionicons name="chatbubble-outline" size={18} color={colors.iconDefault} />
+              <Text style={[styles.actionCount, { color: colors.textSecondary }]}>
+                {formatCount(post.commentsCount)}
+              </Text>
+            </TouchableOpacity>
 
-          {/* Like */}
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={handleLike}
-          >
-            <Ionicons
-              name={liked ? 'heart' : 'heart-outline'}
-              size={18}
-              color={liked ? colors.like : colors.iconDefault}
-            />
-            <Text style={[styles.actionCount, { color: liked ? colors.like : colors.textSecondary }]}>
-              {formatCount(likesCount)}
-            </Text>
-          </TouchableOpacity>
+            {/* Repost */}
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={handleRepost}
+            >
+              <Ionicons
+                name="repeat-outline"
+                size={20}
+                color={reposted ? '#00BA7C' : colors.iconDefault}
+              />
+              <Text style={[styles.actionCount, { color: reposted ? '#00BA7C' : colors.textSecondary }]}>
+                {formatCount(repostCount)}
+              </Text>
+            </TouchableOpacity>
 
-          {/* Gift/Coins */}
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => onGiveCoins(post)}
-          >
-            <Ionicons name="gift-outline" size={18} color={colors.gift} />
-          </TouchableOpacity>
+            {/* Like */}
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={handleLike}
+            >
+              <Ionicons
+                name={liked ? 'heart' : 'heart-outline'}
+                size={18}
+                color={liked ? colors.like : colors.iconDefault}
+              />
+              <Text style={[styles.actionCount, { color: liked ? colors.like : colors.textSecondary }]}>
+                {formatCount(likesCount)}
+              </Text>
+            </TouchableOpacity>
 
-          {/* Share */}
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => onShare(post)}
-          >
-            <Ionicons name="share-outline" size={18} color={colors.iconDefault} />
-          </TouchableOpacity>
-        </View>
+            {/* Gift/Coins - Hidden for own posts */}
+            {!isOwnPost && (
+              <View
+                style={styles.giftButtonContainer}
+                onTouchStart={handleGiftTouchStart}
+                onTouchMove={handleGiftTouchMove}
+                onTouchEnd={handleGiftTouchEnd}
+                onTouchCancel={handleGiftTouchCancel}
+              >
+                <View style={styles.actionButton}>
+                  <Ionicons name="gift-outline" size={18} color={colors.gift} />
+                </View>
 
-        {/* Comment Preview */}
-        {post.recentComments && post.recentComments.length > 0 && (
-          <CommentPreview
-            comments={post.recentComments}
-            totalComments={post.commentsCount}
-            onViewAllComments={() => onComment(post.id)}
-            onUserPress={(userId) => {
-              const comment = post.recentComments?.find(c => c.user.id === userId);
-              if (comment) {
-                onNavigateToProfile(userId, comment.user.username);
-              }
-            }}
-            colors={{
-              text: colors.text,
-              textSecondary: colors.textSecondary,
-              accent: colors.accent,
-            }}
+                {/* Instagram-style Coin Picker - appears above when holding */}
+                {showCoinPicker && (
+                  <View style={[styles.coinPickerOverlay, { backgroundColor: colors.cardBackground }]}>
+                    <View style={styles.coinPickerRow}>
+                      {coinAmounts.map((amount, index) => {
+                        const isHovered = hoveredCoinIndex === index;
+                        return (
+                          <View
+                            key={amount}
+                            style={[
+                              styles.coinPickerOption,
+                              isHovered && styles.coinPickerOptionHovered,
+                            ]}
+                          >
+                            <View style={[
+                              styles.artCoin,
+                              isHovered && styles.artCoinHovered,
+                            ]}>
+                              <View style={[
+                                styles.artCoinInner,
+                                isHovered && styles.artCoinInnerHovered,
+                              ]}>
+                                <View style={styles.kindnessSymbol}>
+                                  <Ionicons name="leaf" size={isHovered ? 6 : 4} color="rgba(255,255,255,0.8)" style={styles.pickerLeafLeft} />
+                                  <Ionicons name="heart" size={isHovered ? 10 : 7} color="#FFF" />
+                                  <Ionicons name="leaf" size={isHovered ? 6 : 4} color="rgba(255,255,255,0.8)" style={styles.pickerLeafRight} />
+                                </View>
+                              </View>
+                            </View>
+                            <Text style={[
+                              styles.coinPickerAmount,
+                              { color: isHovered ? '#FBBF24' : colors.textSecondary },
+                            ]}>
+                              {amount}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                    <Text style={styles.coinPickerHint}>← drag to select →</Text>
+                    <View style={styles.coinPickerArrow} />
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Share */}
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => onShare(post)}
+            >
+              <Ionicons name="share-outline" size={18} color={colors.iconDefault} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Celebration Animation - Shared Component (Modal style) */}
+          <CoinCelebration
+            visible={showCelebration}
+            amount={sentCoinAmount}
+            source="gift"
+            recipientUsername={post.user.username}
+            onClose={() => setShowCelebration(false)}
+            asModal={true}
           />
-        )}
+
+          {/* Comment Preview */}
+          {post.recentComments && post.recentComments.length > 0 && (
+            <CommentPreview
+              comments={post.recentComments}
+              totalComments={post.commentsCount}
+              onViewAllComments={() => onComment(post.id)}
+              onUserPress={(userId) => {
+                const comment = post.recentComments?.find(c => c.user.id === userId);
+                if (comment) {
+                  onNavigateToProfile(userId, comment.user.username);
+                }
+              }}
+              colors={{
+                text: colors.text,
+                textSecondary: colors.textSecondary,
+                accent: colors.accent,
+              }}
+            />
+          )}
         </View>
       </View>
     </View>
@@ -653,6 +1045,8 @@ function ImageViewerModal({
   );
 }
 
+const SWIPE_THRESHOLD = 80; // Minimum swipe distance to trigger
+
 export default function FeedScreen() {
   const navigation = useNavigation<FeedScreenNavigationProp>();
   const { width } = useWindowDimensions();
@@ -674,50 +1068,156 @@ export default function FeedScreen() {
   const [repostModalVisible, setRepostModalVisible] = React.useState(false);
   const [repostModalPost, setRepostModalPost] = React.useState<Post | null>(null);
   const [chatDrawerVisible, setChatDrawerVisible] = React.useState(false);
+  const [currentUserId, setCurrentUserId] = React.useState<string>('');
 
-  // Update header style based on theme with chat icon
+  // Animated value for page position (0 = Feed visible, 1 = Messages visible)
+  const screenWidth = Dimensions.get('window').width;
+  const pageAnim = useRef(new Animated.Value(0)).current;
+  const isSwipingPage = useRef(false);
+  const currentPagePosition = useRef(0); // Track current page position (0 = Feed, 1 = Messages)
+
+  // Ref to ChatDrawer for triggering fast animations
+  const chatDrawerRef = useRef<ChatDrawerRef>(null);
+  // Track if any coin picker is active (to block page swipe)
+  const coinPickerActiveRef = useRef(false);
+
+  // Listen to pageAnim changes to track position
+  React.useEffect(() => {
+    const listenerId = pageAnim.addListener(({ value }) => {
+      currentPagePosition.current = value;
+    });
+    return () => {
+      pageAnim.removeListener(listenerId);
+    };
+  }, []);
+
+  // PanResponder for swipe between Feed and Messages pages
+  // Only handles swipe LEFT to open Messages (from Feed)
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        // Don't capture if a coin picker is active (user is dragging to select coins)
+        if (coinPickerActiveRef.current) return false;
+        // Don't capture if Messages is already visible or mostly visible
+        if (chatDrawerVisible || currentPagePosition.current > 0.5) return false;
+        // Only activate on horizontal LEFT swipe (to open Messages)
+        const isSwipingLeft = gestureState.dx < -15;
+        const isHorizontalSwipe = Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.5;
+        return isSwipingLeft && isHorizontalSwipe;
+      },
+      onPanResponderGrant: () => {
+        isSwipingPage.current = true;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        // Calculate page position based on swipe (0 to 1)
+        // dx is negative when swiping left
+        const progress = Math.min(1, Math.max(0, -gestureState.dx / screenWidth));
+        pageAnim.setValue(progress);
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        isSwipingPage.current = false;
+        // Open Messages if swiped left enough or with enough velocity
+        if (gestureState.dx < -SWIPE_THRESHOLD || gestureState.vx < -0.5) {
+          // Set visible - this triggers the useEffect which animates pageAnim to 1
+          setChatDrawerVisible(true);
+        } else {
+          // Snap back to Feed with smooth animation
+          Animated.spring(pageAnim, {
+            toValue: 0,
+            useNativeDriver: true,
+            damping: 20,
+            stiffness: 200,
+            mass: 0.8,
+          }).start();
+        }
+      },
+    })
+  ).current;
+
+  // Animate page position when chatDrawerVisible changes
+  React.useEffect(() => {
+    if (chatDrawerVisible) {
+      // When opening Messages (via tap or swipe), animate pageAnim to 1
+      Animated.spring(pageAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        damping: 20,
+        stiffness: 200,
+        mass: 0.8,
+      }).start();
+    } else {
+      // When closing Messages, animate pageAnim back to 0
+      Animated.spring(pageAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        damping: 20,
+        stiffness: 200,
+        mass: 0.8,
+      }).start();
+    }
+  }, [chatDrawerVisible]);
+
+  // Messages slides in from right, Feed stays in place
+  const messagesTranslateX = pageAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [screenWidth, 0], // Messages slides in from right
+  });
+
+  // Track if Messages page is currently visible (for hiding header)
+  const [isMessagesShowing, setIsMessagesShowing] = React.useState(false);
+
+  // Listen to pageAnim to track when Messages is visible
+  React.useEffect(() => {
+    const listenerId = pageAnim.addListener(({ value }) => {
+      setIsMessagesShowing(value > 0.5);
+    });
+    return () => {
+      pageAnim.removeListener(listenerId);
+    };
+  }, []);
+
+  // Hide navigation header - we'll use custom headers for each page
   React.useLayoutEffect(() => {
     navigation.setOptions({
-      headerStyle: {
-        backgroundColor: colors.background,
-        shadowColor: 'transparent',
-        elevation: 0,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.separator,
-      },
-      headerTintColor: colors.text,
-      headerTitleStyle: {
-        color: colors.text,
-        fontWeight: '700',
-        fontSize: 20,
-      },
-      headerRight: () => (
-        <TouchableOpacity
-          style={styles.headerChatButton}
-          onPress={() => setChatDrawerVisible(true)}
-        >
-          <Ionicons
-            name="chatbubbles-outline"
-            size={24}
-            color={colors.text}
-          />
-          {unreadCount > 0 && (
-            <View style={styles.headerChatBadge}>
-              <Text style={styles.headerChatBadgeText}>
-                {unreadCount > 99 ? '99+' : unreadCount}
-              </Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      ),
+      headerShown: false,
     });
-  }, [navigation, colors, unreadCount]);
+  }, [navigation]);
+
+  // Listen for tab press to trigger fast animation when Messages/Chatbox is open
+  React.useEffect(() => {
+    const parent = navigation.getParent();
+    if (!parent) return;
+
+    const unsubscribe = parent.addListener('tabPress', (e) => {
+      // If Messages page is visible, trigger fast animation to go back to Home
+      if (chatDrawerVisible || currentPagePosition.current > 0.1) {
+        // Prevent default behavior (which would do nothing since we're already on this tab)
+        e.preventDefault();
+        // Trigger fast animated transition back to Home
+        chatDrawerRef.current?.triggerGoHome();
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation, chatDrawerVisible]);
 
   useFocusEffect(
     useCallback(() => {
       loadFeed();
+      loadCurrentUser();
     }, [])
   );
+
+  const loadCurrentUser = async () => {
+    try {
+      const response = await api.getProfile();
+      const user = response.user || response;
+      setCurrentUserId(user.id);
+    } catch (error) {
+      console.error('Error loading current user:', error);
+    }
+  };
 
   const loadFeed = async () => {
     try {
@@ -770,6 +1270,28 @@ export default function FeedScreen() {
   const handleGiveCoins = (post: Post) => {
     setSelectedPost(post);
     setGiveModalVisible(true);
+  };
+
+  // Quick give coins without modal - returns success flag
+  const handleQuickGiveCoins = async (post: Post, amount: number): Promise<string | null> => {
+    try {
+      const toUserId = post.isRepost && post.repostedBy ? post.repostedBy.id : post.user.id;
+      const response = await api.giveCoins({
+        toUserId,
+        amount,
+        contextType: 'post',
+        contextId: post.id,
+      });
+      return response.transactionId || response.id || 'success';
+    } catch (error: any) {
+      console.error('Error giving coins:', error);
+      // Extract error message from API response
+      const errorMessage = error?.response?.data?.error ||
+                          error?.message ||
+                          'Failed to send coins. Please try again.';
+      Alert.alert('Could not send coins', errorMessage);
+      return null;
+    }
   };
 
   const handleImagePress = (post: Post) => {
@@ -861,10 +1383,13 @@ export default function FeedScreen() {
       onComment={handleComment}
       onUserPress={handleUserPress}
       onGiveCoins={handleGiveCoins}
+      onQuickGiveCoins={handleQuickGiveCoins}
       onImagePress={handleImagePress}
       onRepost={handleRepost}
       onShare={handleShare}
       onNavigateToProfile={handleNavigateToProfile}
+      onCoinPickerChange={(active: boolean) => { coinPickerActiveRef.current = active; }}
+      currentUserId={currentUserId}
       colors={colors}
     />
   );
@@ -882,12 +1407,50 @@ export default function FeedScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[
-        styles.feedContainer,
+    <View
+      style={[
+        styles.container,
         { backgroundColor: colors.background },
-        isTablet && { maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center', width: '100%' }
-      ]}>
+        // Remove overflow hidden when Messages is showing so ChatDrawer can extend beyond container
+        isMessagesShowing && { overflow: 'visible' },
+      ]}
+      {...panResponder.panHandlers}
+    >
+      {/* Feed Page - stays in place */}
+      <View
+        style={[
+          styles.feedContainer,
+          { backgroundColor: colors.background },
+          isTablet && { maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center', width: '100%' }
+        ]}
+      >
+        {/* Custom Home Header */}
+        <View
+          style={[
+            styles.customHeader,
+            {
+              backgroundColor: colors.background,
+              borderBottomColor: colors.separator,
+              paddingTop: insets.top,
+            },
+          ]}
+        >
+          <Text style={[styles.customHeaderTitle, { color: colors.text }]}>Home</Text>
+          <TouchableOpacity
+            style={styles.headerChatButton}
+            onPress={() => setChatDrawerVisible(true)}
+          >
+            <Ionicons name="chatbubbles-outline" size={24} color={colors.text} />
+            {unreadCount > 0 && (
+              <View style={styles.headerChatBadge}>
+                <Text style={styles.headerChatBadgeText}>
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+
         <FlatList
           data={posts}
           keyExtractor={(item) => item.feedItemId || item.id}
@@ -973,10 +1536,20 @@ export default function FeedScreen() {
         />
       )}
 
-      {/* Chat Drawer - slides from right */}
+      {/* Swipe indicator on right edge */}
+      {!chatDrawerVisible && (
+        <View style={styles.swipeIndicator} pointerEvents="none">
+          <View style={[styles.swipeIndicatorBar, { backgroundColor: colors.textSecondary }]} />
+        </View>
+      )}
+
+      {/* Messages Page - Full screen, slides in from right */}
       <ChatDrawer
+        ref={chatDrawerRef}
         visible={chatDrawerVisible}
         onClose={() => setChatDrawerVisible(false)}
+        pageAnim={pageAnim}
+        isPageStyle={true}
       />
     </View>
   );
@@ -985,9 +1558,22 @@ export default function FeedScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    overflow: 'hidden',
   },
   feedContainer: {
     flex: 1,
+  },
+  customHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+  },
+  customHeaderTitle: {
+    fontSize: 20,
+    fontWeight: '700',
   },
   centered: {
     justifyContent: 'center',
@@ -999,39 +1585,89 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  // Repost header styles
-  repostHeaderRow: {
+  // Compact repost styles
+  repostBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginLeft: 6,
+    gap: 3,
+  },
+  repostBadgeText: {
+    fontSize: 12,
+    color: '#10B981',
+    fontWeight: '500',
+  },
+  quoteText: {
+    fontSize: 14,
+    fontStyle: 'italic',
+    marginTop: 4,
     marginBottom: 8,
-    gap: 8,
   },
-  repostHeaderText: {
-    fontSize: 13,
-    fontWeight: '400',
+  compactOriginalPost: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 10,
+    marginTop: 8,
+    marginBottom: 4,
   },
-  repostHeaderUsername: {
+  compactPostContent: {
+    flex: 1,
+    marginRight: 10,
+  },
+  compactPostHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  compactPostUsername: {
+    fontSize: 12,
     fontWeight: '600',
   },
-  quoteCommentRow: {
-    marginBottom: 10,
-    paddingLeft: 12,
-    paddingVertical: 8,
-    borderLeftWidth: 3,
+  compactPostCaption: {
+    fontSize: 13,
+    lineHeight: 18,
   },
-  quoteCommentText: {
+  compactExpandHint: {
+    fontSize: 11,
+    marginTop: 4,
+  },
+  compactPostImage: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+  },
+  // Expanded original post styles
+  expandedOriginalPost: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  expandedPostHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  expandedPostUsername: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  expandedPostCaption: {
     fontSize: 15,
     lineHeight: 20,
-    fontStyle: 'italic',
+    marginBottom: 10,
+  },
+  expandedPostImage: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 10,
   },
   tweetMainContent: {
     flexDirection: 'row',
-  },
-  repostedTweetContent: {
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 12,
-    marginTop: 4,
   },
   avatarColumn: {
     marginRight: 12,
@@ -1109,6 +1745,169 @@ const styles = StyleSheet.create({
   actionCount: {
     fontSize: 13,
     minWidth: 20,
+  },
+
+  // Coin Slider Styles
+  coinSliderOverlay: {
+    position: 'absolute',
+    top: -80,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    alignItems: 'center',
+  },
+  coinSliderContainer: {
+    borderRadius: 16,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(251, 191, 36, 0.3)',
+  },
+  coinSliderTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  coinSliderTrack: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  coinSliderOption: {
+    alignItems: 'center',
+    padding: 8,
+    borderRadius: 8,
+    minWidth: 36,
+  },
+  coinSliderOptionSelected: {
+    backgroundColor: 'rgba(251, 191, 36, 0.2)',
+  },
+  coinSliderAmount: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  coinSliderHint: {
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+
+  // Instagram-style Coin Picker Styles
+  giftButtonContainer: {
+    position: 'relative',
+    zIndex: 50,
+  },
+  coinPickerOverlay: {
+    position: 'absolute',
+    bottom: 45,
+    right: -20,
+    width: 220,
+    borderRadius: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 15,
+    borderWidth: 2,
+    borderColor: 'rgba(251, 191, 36, 0.5)',
+  },
+  coinPickerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  coinPickerOption: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 4,
+    borderRadius: 12,
+    width: 34,
+    height: 50,
+  },
+  coinPickerOptionHovered: {
+    backgroundColor: 'rgba(251, 191, 36, 0.4)',
+    transform: [{ scale: 1.3 }],
+  },
+  // Art Gold Coin Styles (for picker)
+  artCoin: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FBBF24',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  artCoinHovered: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    shadowOpacity: 0.6,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  artCoinInner: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  artCoinInnerHovered: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+  },
+  kindnessSymbol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pickerLeafLeft: {
+    transform: [{ rotate: '-45deg' }],
+    marginRight: -2,
+    marginTop: -3,
+  },
+  pickerLeafRight: {
+    transform: [{ rotate: '45deg' }, { scaleX: -1 }],
+    marginLeft: -2,
+    marginTop: -3,
+  },
+  coinPickerAmount: {
+    fontSize: 9,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  coinPickerArrow: {
+    position: 'absolute',
+    bottom: -10,
+    right: 30,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderTopWidth: 10,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: 'rgba(251, 191, 36, 0.5)',
+  },
+  coinPickerHint: {
+    fontSize: 9,
+    color: 'rgba(255, 255, 255, 0.6)',
+    textAlign: 'center',
+    marginTop: 6,
   },
 
   // Separator
@@ -1252,6 +2051,11 @@ const styles = StyleSheet.create({
     padding: 4,
     position: 'relative',
   },
+  headerChatButtonLeft: {
+    marginLeft: 16,
+    padding: 4,
+    position: 'relative',
+  },
   headerChatBadge: {
     position: 'absolute',
     top: -2,
@@ -1268,5 +2072,23 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 10,
     fontWeight: 'bold',
+  },
+
+  // Swipe indicator on right edge
+  swipeIndicator: {
+    position: 'absolute',
+    right: 0,
+    top: '40%',
+    bottom: '40%',
+    width: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  swipeIndicatorBar: {
+    width: 3,
+    height: 40,
+    borderRadius: 2,
+    opacity: 0.3,
   },
 });

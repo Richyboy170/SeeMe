@@ -202,7 +202,7 @@ export default function PeopleTab({ searchQuery, navigation }: PeopleTabProps) {
       if (conversation) {
         navigation.dispatch(
           CommonActions.navigate({
-            name: 'Messages',
+            name: 'Feed',
             params: {
               screen: 'Chat',
               params: {

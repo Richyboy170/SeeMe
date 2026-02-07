@@ -46,13 +46,37 @@ export class PostController {
         return;
       }
 
-      if (!req.file) {
+      // Check coin balance before proceeding
+      const COINS_REQUIRED = 3;
+      try {
+        const userCoins = await CoinsService.getUserCoins(userId);
+        if (userCoins.totalCoins < COINS_REQUIRED) {
+          res.status(402).json({
+            error: 'Insufficient coins',
+            required: COINS_REQUIRED,
+            balance: userCoins.totalCoins
+          });
+          return;
+        }
+      } catch (error) {
+        logger.error('Failed to check coin balance', { error, userId });
+        res.status(500).json({ error: 'Failed to verify coin balance' });
+        return;
+      }
+
+      // Handle both single and dual image uploads
+      const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+      const singleFile = req.file;
+      const imageFile = files?.image?.[0] || singleFile;
+      const originalImageFile = files?.originalImage?.[0];
+
+      if (!imageFile) {
         res.status(400).json({ error: 'Image file required' });
         return;
       }
 
-      // Validate image
-      const validation = await ImageProcessor.validateImage(req.file.buffer);
+      // Validate the main (cropped) image
+      const validation = await ImageProcessor.validateImage(imageFile.buffer);
       if (!validation.valid) {
         res.status(400).json({ error: validation.error });
         return;
@@ -67,21 +91,36 @@ export class PostController {
       const imageWidth = metadata.width;
       const imageHeight = metadata.height;
 
-      // Optimize image
-      const optimizedBuffer = await ImageProcessor.optimizeImage(req.file.buffer);
+      // Optimize the cropped image
+      const optimizedBuffer = await ImageProcessor.optimizeImage(imageFile.buffer);
 
-      // Upload original image
-      const originalKey = `originals/${userId}/${uuidv4()}.jpg`;
-      const originalUrl = await S3Service.uploadImage(
+      // Upload cropped image
+      const croppedKey = `originals/${userId}/${uuidv4()}.jpg`;
+      const croppedUrl = await S3Service.uploadImage(
         optimizedBuffer,
-        originalKey,
+        croppedKey,
         'image/jpeg'
       );
 
-      // Create post record
+      // Upload original (uncropped) image if provided, otherwise use the cropped one
+      let fullOriginalUrl = croppedUrl;
+      if (originalImageFile) {
+        const origValidation = await ImageProcessor.validateImage(originalImageFile.buffer);
+        if (origValidation.valid) {
+          const origOptimized = await ImageProcessor.optimizeImage(originalImageFile.buffer);
+          const origKey = `originals/${userId}/${uuidv4()}.jpg`;
+          fullOriginalUrl = await S3Service.uploadImage(
+            origOptimized,
+            origKey,
+            'image/jpeg'
+          );
+        }
+      }
+
+      // Create post record - originalImageUrl stores the full uncropped image
       const post = await Post.create({
         userId,
-        originalImageUrl: originalUrl,
+        originalImageUrl: fullOriginalUrl,
         caption: caption || null,
         status: PostStatus.PROCESSING,
         visibility: validVisibility,
@@ -110,20 +149,25 @@ export class PostController {
         logger.info('Post associated with topics', { postId: post.id, topicIds: parsedTopicIds });
       }
 
-      // Check if post is "meaningful" (has caption with >20 chars) and award coins
+      // Deduct coins for posting
+      let coinsDeducted = 0;
+      try {
+        coinsDeducted = await CoinsService.deductCoinsForPost(userId, post.id);
+        logger.info('Coins deducted for post', { userId, postId: post.id, coinsDeducted });
+      } catch (error) {
+        logger.error('Failed to deduct coins for post', { error, userId, postId: post.id });
+        // If coin deduction fails, delete the post and return error
+        await post.destroy();
+        res.status(402).json({ error: 'Failed to deduct coins for post' });
+        return;
+      }
+
+      // Check if post is "meaningful" (has caption with >20 chars) and award coins back
       let coinsEarned = 0;
       if (caption && caption.trim().length >= 20) {
         try {
           coinsEarned = await CoinsService.awardCoinsForPost(userId, post.id);
           logger.info('Coins awarded for meaningful post', { userId, postId: post.id, coinsEarned });
-
-          // TODO: Send notification to user about coins earned
-          // await NotificationService.sendNotification(userId, {
-          //   type: 'coins_earned',
-          //   title: 'Coins Earned! 🎉',
-          //   body: 'You earned 2 coins for your meaningful post!',
-          //   data: { coinsEarned }
-          // });
         } catch (error) {
           logger.error('Failed to award coins for post', { error, userId, postId: post.id });
           // Don't fail post creation if coin awarding fails
@@ -135,7 +179,7 @@ export class PostController {
         const taskId = uuidv4();
         const queueResult = await celeryClient.queueImageProcessing(
           taskId,
-          originalUrl,
+          croppedUrl,
           userId,
           avatarId
         );
@@ -159,8 +203,8 @@ export class PostController {
               if (checkPost && checkPost.status === PostStatus.PROCESSING) {
                 await checkPost.update({
                   status: PostStatus.COMPLETED,
-                  processedImageUrl: originalUrl,
-                  thumbnailUrl: originalUrl,
+                  processedImageUrl: croppedUrl,
+                  thumbnailUrl: croppedUrl,
                   processingCompletedAt: new Date(),
                   processingTimeSeconds: 0
                 });
@@ -177,7 +221,8 @@ export class PostController {
           status: 'processing',
           message: 'Post created, processing avatar...',
           estimatedTime: 10, // seconds
-          coinsEarned
+          coinsEarned,
+          coinsDeducted
         });
 
       } catch (error) {

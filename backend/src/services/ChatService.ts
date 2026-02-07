@@ -1,6 +1,7 @@
 import { Op } from 'sequelize';
 import Conversation from '../models/Conversation';
 import Message from '../models/Message';
+import { MessageReaction } from '../models/MessageReaction';
 import User from '../models/User';
 import BlockedUser from '../models/BlockedUser';
 import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
@@ -231,6 +232,29 @@ export class ChatService {
             model: User,
             as: 'sender',
             attributes: ['id', 'username', 'activeAvatarId']
+          },
+          {
+            model: MessageReaction,
+            as: 'reactions',
+            include: [
+              {
+                model: User,
+                as: 'user',
+                attributes: ['id', 'username']
+              }
+            ]
+          },
+          {
+            model: Message,
+            as: 'replyTo',
+            attributes: ['id', 'content', 'senderId', 'messageType'],
+            include: [
+              {
+                model: User,
+                as: 'sender',
+                attributes: ['id', 'username']
+              }
+            ]
           }
         ],
         order: [['createdAt', 'DESC']],
@@ -251,7 +275,7 @@ export class ChatService {
   static async sendMessage(
     conversationId: string,
     senderId: string,
-    messageType: 'text' | 'image' | 'post_share' | 'system',
+    messageType: 'text' | 'image' | 'gif' | 'voice' | 'post_share' | 'system',
     content?: string,
     mediaUrl?: string,
     sharedPostId?: string
@@ -305,9 +329,11 @@ export class ChatService {
             ? (content || '')
             : messageType === 'image'
               ? '📷 Sent an image'
-              : messageType === 'post_share'
-                ? '📤 Shared a post'
-                : 'New message';
+              : messageType === 'gif'
+                ? '🎞️ Sent a GIF'
+                : messageType === 'post_share'
+                  ? '📤 Shared a post'
+                  : 'New message';
 
           await PushNotificationService.sendMessageNotification(
             receiverId,

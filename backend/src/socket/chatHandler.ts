@@ -1,5 +1,6 @@
 import { Server, Socket } from 'socket.io';
 import Message from '../models/Message';
+import { MessageReaction } from '../models/MessageReaction';
 import Conversation from '../models/Conversation';
 import User from '../models/User';
 import { redisClient, redisAvailable } from '../config/redis';
@@ -12,11 +13,25 @@ import { PushNotificationService } from '../services/PushNotificationService';
 interface SendMessageData {
   conversationId: string;
   receiverId: string;
-  messageType: 'text' | 'image' | 'post_share' | 'system';
+  messageType: 'text' | 'image' | 'gif' | 'voice' | 'post_share' | 'system';
   content?: string;
   mediaUrl?: string;
   sharedPostId?: string;
+  replyToId?: string;
+  duration?: number;
+  waveform?: string;
   tempId?: string;
+}
+
+interface ReactionData {
+  messageId: string;
+  emoji: string;
+  conversationId: string;
+}
+
+interface UnsendData {
+  messageId: string;
+  conversationId: string;
 }
 
 interface MarkReadData {
@@ -38,7 +53,7 @@ export const handleChatEvents = (io: Server, socket: Socket) => {
   // Send message
   socket.on('chat:send_message', async (data: SendMessageData) => {
     try {
-      const { conversationId, receiverId, messageType, content, mediaUrl, sharedPostId, tempId } = data;
+      const { conversationId, receiverId, messageType, content, mediaUrl, sharedPostId, replyToId, duration, waveform, tempId } = data;
 
       logger.debug('Sending message', {
         userId,
@@ -55,7 +70,10 @@ export const handleChatEvents = (io: Server, socket: Socket) => {
         messageType: messageType || 'text',
         content: content || null,
         mediaUrl: mediaUrl || null,
-        sharedPostId: sharedPostId || null
+        sharedPostId: sharedPostId || null,
+        replyToId: replyToId || null,
+        duration: duration || null,
+        waveform: waveform || null,
       });
 
       // Update conversation last message
@@ -92,9 +110,13 @@ export const handleChatEvents = (io: Server, socket: Socket) => {
             ? (content || '')
             : messageType === 'image'
               ? '📷 Sent an image'
-              : messageType === 'post_share'
-                ? '📤 Shared a post'
-                : 'New message';
+              : messageType === 'gif'
+                ? '🎞️ Sent a GIF'
+                : messageType === 'voice'
+                  ? '🎤 Voice message'
+                  : messageType === 'post_share'
+                    ? '📤 Shared a post'
+                    : 'New message';
 
           await PushNotificationService.sendMessageNotification(
             receiverId,
@@ -266,5 +288,137 @@ export const handleChatEvents = (io: Server, socket: Socket) => {
       conversationId,
       socketId: socket.id
     });
+  });
+
+  // Add reaction to message
+  socket.on('chat:add_reaction', async (data: ReactionData) => {
+    try {
+      const { messageId, emoji, conversationId } = data;
+
+      const message = await Message.findByPk(messageId);
+      if (!message) {
+        socket.emit('chat:error', { message: 'Message not found' });
+        return;
+      }
+
+      // Upsert: destroy existing then create new
+      await MessageReaction.destroy({
+        where: { messageId, userId }
+      });
+
+      const reaction = await MessageReaction.create({
+        messageId,
+        userId,
+        emoji: emoji as any,
+      });
+
+      const user = await User.findByPk(userId, {
+        attributes: ['id', 'username']
+      });
+
+      const reactionData = {
+        ...reaction.toJSON(),
+        user: user ? user.toJSON() : null,
+      };
+
+      // Get the other user in the conversation
+      const conversation = await Conversation.findByPk(conversationId);
+      if (conversation) {
+        const otherUserId = conversation.user1Id === userId ? conversation.user2Id : conversation.user1Id;
+        io.to(`user:${otherUserId}`).emit('chat:reaction_added', {
+          conversationId,
+          messageId,
+          reaction: reactionData,
+        });
+      }
+
+      // Acknowledge sender
+      socket.emit('chat:reaction_added', {
+        conversationId,
+        messageId,
+        reaction: reactionData,
+      });
+
+      logger.info('Reaction added', { messageId, userId, emoji });
+    } catch (error) {
+      logger.error('Failed to add reaction', { userId, error });
+      socket.emit('chat:error', { message: 'Failed to add reaction' });
+    }
+  });
+
+  // Remove reaction from message
+  socket.on('chat:remove_reaction', async (data: ReactionData) => {
+    try {
+      const { messageId, conversationId } = data;
+
+      await MessageReaction.destroy({
+        where: { messageId, userId }
+      });
+
+      const conversation = await Conversation.findByPk(conversationId);
+      if (conversation) {
+        const otherUserId = conversation.user1Id === userId ? conversation.user2Id : conversation.user1Id;
+        io.to(`user:${otherUserId}`).emit('chat:reaction_removed', {
+          conversationId,
+          messageId,
+          userId,
+        });
+      }
+
+      socket.emit('chat:reaction_removed', {
+        conversationId,
+        messageId,
+        userId,
+      });
+
+      logger.info('Reaction removed', { messageId, userId });
+    } catch (error) {
+      logger.error('Failed to remove reaction', { userId, error });
+      socket.emit('chat:error', { message: 'Failed to remove reaction' });
+    }
+  });
+
+  // Unsend message
+  socket.on('chat:unsend_message', async (data: UnsendData) => {
+    try {
+      const { messageId, conversationId } = data;
+
+      const message = await Message.findByPk(messageId);
+      if (!message) {
+        socket.emit('chat:error', { message: 'Message not found' });
+        return;
+      }
+
+      // Only the sender can unsend
+      if (message.senderId !== userId) {
+        socket.emit('chat:error', { message: 'You can only unsend your own messages' });
+        return;
+      }
+
+      await message.update({
+        isUnsent: true,
+        content: null,
+        mediaUrl: null,
+      });
+
+      const conversation = await Conversation.findByPk(conversationId);
+      if (conversation) {
+        const otherUserId = conversation.user1Id === userId ? conversation.user2Id : conversation.user1Id;
+        io.to(`user:${otherUserId}`).emit('chat:message_unsent', {
+          conversationId,
+          messageId,
+        });
+      }
+
+      socket.emit('chat:message_unsent', {
+        conversationId,
+        messageId,
+      });
+
+      logger.info('Message unsent', { messageId, userId });
+    } catch (error) {
+      logger.error('Failed to unsend message', { userId, error });
+      socket.emit('chat:error', { message: 'Failed to unsend message' });
+    }
   });
 };

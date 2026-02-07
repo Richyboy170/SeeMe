@@ -19,7 +19,7 @@ export class PushNotificationService {
     senderUsername: string,
     messageContent: string,
     conversationId: string,
-    messageType: 'text' | 'image' | 'post_share' | 'system' = 'text'
+    messageType: 'text' | 'image' | 'gif' | 'post_share' | 'system' = 'text'
   ): Promise<void> {
     try {
       const receiver = await User.findByPk(receiverId);
@@ -40,6 +40,9 @@ export class PushNotificationService {
       switch (messageType) {
         case 'image':
           notificationBody = '📷 Sent an image';
+          break;
+        case 'gif':
+          notificationBody = '🎞️ Sent a GIF';
           break;
         case 'post_share':
           notificationBody = '📤 Shared a post';

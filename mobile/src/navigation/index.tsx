@@ -1,10 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { NavigationContainer, NavigationContainerRef } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, TouchableOpacity, View, Text } from 'react-native';
+
+// Account management
+import { AccountProvider, useAccountContext } from '../contexts/AccountContext';
+import { accountManager, StoredAccount } from '../services/accountManager';
+import AccountSwitcherModal from '../components/AccountSwitcherModal';
+import ProfileTabButton from '../components/ProfileTabButton';
 
 // Auth screens
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -30,6 +36,10 @@ import GivingActivityScreen from '../screens/coins/GivingActivityScreen';
 import TopicPageScreen from '../screens/topics/TopicPageScreen';
 import CreateTopicScreen from '../screens/topics/CreateTopicScreen';
 
+// Chat screens
+import ConversationsScreen from '../screens/chat/ConversationsScreen';
+import ChatScreen from '../screens/chat/ChatScreen';
+
 // Socket service
 import { socketService } from '../services/socket';
 
@@ -40,9 +50,9 @@ import { api } from '../services/api';
 import {
   UnreadContext,
   UnreadContextType,
+  useUnreadCount,
   AuthStackParamList,
   CoinsStackParamList,
-  ChatStackParamList,
   SearchStackParamList,
   DiscoverStackParamList,
   FeedStackParamList,
@@ -58,7 +68,6 @@ export {
   UnreadContextType,
   AuthStackParamList,
   CoinsStackParamList,
-  ChatStackParamList,
   SearchStackParamList,
   DiscoverStackParamList,
   FeedStackParamList,
@@ -182,6 +191,7 @@ function FeedNavigator() {
         options={{
           title: 'Home',
           headerShown: true,
+          // Messages button is now on the LEFT side, handled by FeedScreen's headerLeft with ChatDrawer
         }}
       />
       <FeedStack.Screen
@@ -200,6 +210,22 @@ function FeedNavigator() {
           headerBackTitle: 'Back',
         })}
       />
+      <FeedStack.Screen
+        name="Conversations"
+        component={ConversationsScreen}
+        options={{
+          title: 'Messages',
+          headerBackTitle: 'Back',
+        }}
+      />
+      <FeedStack.Screen
+        name="Chat"
+        component={ChatScreen}
+        options={({ route }) => ({
+          title: route.params.otherUser.username,
+          headerBackTitle: 'Back',
+        })}
+      />
     </FeedStack.Navigator>
   );
 }
@@ -211,8 +237,7 @@ function CreatePostNavigator() {
         name="CreatePostHome"
         component={CreatePostScreen}
         options={{
-          title: 'Create Post',
-          headerShown: true
+          headerShown: false
         }}
       />
       <CreatePostStack.Screen
@@ -304,16 +329,31 @@ function MainNavigator() {
       <MainTab.Screen
         name="Profile"
         component={ProfileNavigator}
-        options={{ headerShown: false }}
+        options={{
+          headerShown: false,
+          tabBarButton: (props) => <ProfileTabButton {...props} />,
+        }}
       />
     </MainTab.Navigator>
   );
 }
 
-export function RootNavigator() {
+// Inner component that uses AccountContext
+function RootNavigatorContent() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
+  const navigationRef = useRef<NavigationContainerRef<any>>(null);
+  // Track when user is adding a new account to prevent auto-login
+  const isAddingAccountRef = useRef(false);
+  // Track the account ID before adding new account
+  const previousAccountIdRef = useRef<string | null>(null);
+  const {
+    showAccountSwitcher,
+    setShowAccountSwitcher,
+    refreshAccounts,
+    activeAccount,
+  } = useAccountContext();
 
   // Fetch unread count from API
   const refreshUnreadCount = useCallback(async () => {
@@ -348,9 +388,13 @@ export function RootNavigator() {
   // Initialize socket connection when authenticated
   useEffect(() => {
     if (isAuthenticated) {
+      // Reset add account flag on successful login
+      isAddingAccountRef.current = false;
       socketService.connect();
       // Fetch unread count on auth
       refreshUnreadCount();
+      // Refresh accounts to pick up newly logged in account
+      refreshAccounts();
     } else {
       socketService.disconnect();
       setUnreadCount(0);
@@ -359,7 +403,7 @@ export function RootNavigator() {
     return () => {
       socketService.disconnect();
     };
-  }, [isAuthenticated, refreshUnreadCount]);
+  }, [isAuthenticated, refreshUnreadCount, refreshAccounts]);
 
   // Listen for new messages to update unread count
   useEffect(() => {
@@ -420,6 +464,26 @@ export function RootNavigator() {
 
   async function checkAuth() {
     try {
+      // First check multi-account system
+      const activeAcc = await accountManager.getActiveAccount();
+
+      // If user is adding a new account, only allow login if a different account is now active
+      if (isAddingAccountRef.current) {
+        if (activeAcc && activeAcc.id !== previousAccountIdRef.current) {
+          // New account was added and is now active - allow login
+          setIsAuthenticated(true);
+        }
+        // Otherwise, don't auto-login with the previous account
+        setIsLoading(false);
+        return;
+      }
+
+      if (activeAcc) {
+        setIsAuthenticated(true);
+        return;
+      }
+
+      // Fallback to old AsyncStorage token (for migration)
       const token = await AsyncStorage.getItem('auth_token');
       setIsAuthenticated(!!token);
     } catch (error) {
@@ -429,6 +493,43 @@ export function RootNavigator() {
       setIsLoading(false);
     }
   }
+
+  // Track previous account to detect actual switches (not just initial load)
+  const lastActiveAccountIdRef = useRef<string | null>(null);
+
+  // Handle account switch - force remount of MainNavigator to refresh all data
+  useEffect(() => {
+    if (activeAccount) {
+      const previousId = lastActiveAccountIdRef.current;
+      lastActiveAccountIdRef.current = activeAccount.id;
+
+      // If this is an actual switch (not initial load), force remount
+      if (previousId && previousId !== activeAccount.id) {
+        console.log('Account switched, forcing app refresh...');
+        // Briefly set to false to unmount MainNavigator, then back to true
+        setIsAuthenticated(false);
+        setTimeout(() => {
+          setIsAuthenticated(true);
+          // Navigate to Profile tab so user knows which account they're on
+          setTimeout(() => {
+            if (navigationRef.current) {
+              navigationRef.current.navigate('Profile' as never);
+            }
+          }, 100);
+        }, 50);
+      }
+    }
+  }, [activeAccount]);
+
+  // Navigate to login for adding account
+  const handleAddAccount = async () => {
+    // Store current account ID to detect when a new account is added
+    const currentAccount = await accountManager.getActiveAccount();
+    previousAccountIdRef.current = currentAccount?.id || null;
+    // Set flag to prevent auto-login from existing account
+    isAddingAccountRef.current = true;
+    setIsAuthenticated(false);
+  };
 
   if (isLoading) {
     return null; // Or a loading screen
@@ -442,10 +543,30 @@ export function RootNavigator() {
 
   return (
     <UnreadContext.Provider value={contextValue}>
-      <NavigationContainer>
+      <NavigationContainer ref={navigationRef}>
         {isAuthenticated ? <MainNavigator /> : <AuthNavigator />}
       </NavigationContainer>
+
+      {/* Account Switcher Modal */}
+      <AccountSwitcherModal
+        visible={showAccountSwitcher}
+        onClose={() => setShowAccountSwitcher(false)}
+        onAddAccount={handleAddAccount}
+      />
     </UnreadContext.Provider>
+  );
+}
+
+// Main export with AccountProvider wrapper
+export function RootNavigator() {
+  const handleAccountSwitch = async (account: StoredAccount) => {
+    console.log('Switched to account:', account.username);
+  };
+
+  return (
+    <AccountProvider onAccountSwitch={handleAccountSwitch}>
+      <RootNavigatorContent />
+    </AccountProvider>
   );
 }
 

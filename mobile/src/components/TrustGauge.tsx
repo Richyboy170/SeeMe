@@ -56,14 +56,14 @@ export const TrustGauge: React.FC<TrustGaugeProps> = ({
     <View style={[styles.container, isLight && styles.containerLight]}>
       <View style={styles.header}>
         <Ionicons
-          name={isMutualFollow ? 'heart' : 'heart-outline'}
+          name={isMutualFollow ? 'sparkles' : 'sparkles-outline'}
           size={18}
           color={gaugeColor}
         />
-        <Text style={[styles.label, isLight && styles.labelLight]}>Trust Score</Text>
+        <Text style={[styles.label, isLight && styles.labelLight]}>Friendship Score</Text>
         {currentStreak > 0 && (
           <View style={[styles.streakBadge, isLight && styles.streakBadgeLight]}>
-            <Ionicons name="flame" size={12} color="#F59E0B" />
+            <Ionicons name="flame" size={12} color="#F97316" />
             <Text style={styles.streakText}>{currentStreak}d</Text>
           </View>
         )}
@@ -83,15 +83,15 @@ export const TrustGauge: React.FC<TrustGaugeProps> = ({
 
       <Text style={[styles.statusText, isLight && styles.statusTextLight]}>
         {!isMutualFollow
-          ? 'Follow each other to activate'
+          ? 'Follow each other to unlock colors'
           : trustScore >= 80
-          ? 'Strong bond'
+          ? 'Best friends forever!'
           : trustScore >= 60
-          ? 'Growing trust'
+          ? 'Great consistency!'
           : trustScore >= 40
-          ? 'Building connection'
+          ? 'Building friendship'
           : trustScore >= 20
-          ? 'Getting started'
+          ? 'Getting to know you'
           : 'New connection'}
       </Text>
     </View>
@@ -100,13 +100,15 @@ export const TrustGauge: React.FC<TrustGaugeProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#1F2937',
-    borderRadius: 12,
+    backgroundColor: '#1E1B4B',
+    borderRadius: 16,
     padding: 16,
     marginVertical: 8,
   },
   containerLight: {
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   header: {
     flexDirection: 'row',
@@ -116,28 +118,28 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#E5E7EB',
+    color: '#E0E7FF',
     marginLeft: 8,
     flex: 1,
   },
   labelLight: {
-    color: '#374151',
+    color: '#1E293B',
   },
   streakBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#374151',
+    backgroundColor: '#312E81',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
   },
   streakBadgeLight: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: '#FFF7ED',
   },
   streakText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#F59E0B',
+    color: '#F97316',
     marginLeft: 4,
   },
   gaugeContainer: {
@@ -147,12 +149,12 @@ const styles = StyleSheet.create({
   gaugeBackground: {
     flex: 1,
     height: 8,
-    backgroundColor: '#374151',
+    backgroundColor: '#312E81',
     borderRadius: 4,
     overflow: 'hidden',
   },
   gaugeBackgroundLight: {
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#E2E8F0',
   },
   gaugeFill: {
     height: '100%',
@@ -167,12 +169,12 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#A5B4FC',
     marginTop: 8,
     textAlign: 'center',
   },
   statusTextLight: {
-    color: '#6B7280',
+    color: '#64748B',
   },
   // Compact styles
   compactContainer: {

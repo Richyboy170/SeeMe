@@ -18,6 +18,7 @@ export { CoinGivingActivity } from './CoinGivingActivity';
 // Chat Models
 export { Conversation } from './Conversation';
 export { Message } from './Message';
+export { MessageReaction } from './MessageReaction';
 export { BlockedUser } from './BlockedUser';
 
 // Algorithm/Analytics Models
@@ -30,6 +31,7 @@ export { FullBodyAvatar } from './FullBodyAvatar';
 // Community/Topic Models (Phase 3.3)
 export { Topic } from './Topic';
 export { TopicFollow } from './TopicFollow';
+export { TopicAdmin } from './TopicAdmin';
 export { PostTopic } from './PostTopic';
 export { UserFavorite } from './UserFavorite';
 export { UserTopicStatus } from './UserTopicStatus';

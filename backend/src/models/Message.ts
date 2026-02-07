@@ -9,19 +9,24 @@ export interface MessageAttributes {
   conversationId: string;
   senderId: string;
   receiverId: string;
-  messageType: 'text' | 'image' | 'post_share' | 'system';
+  messageType: 'text' | 'image' | 'gif' | 'voice' | 'post_share' | 'system';
   content: string | null;
   mediaUrl: string | null;
   sharedPostId: string | null;
+  replyToId: string | null;
   isRead: boolean;
   readAt: Date | null;
   isDeletedBySender: boolean;
   isDeletedByReceiver: boolean;
+  isUnsent: boolean;
   // Image message fields
   imageViewMode: 'keep' | 'view_once' | 'time_bomb' | null;
   viewedAt: Date | null;
   expiresAt: Date | null;
   isExpired: boolean;
+  // Voice message fields
+  duration: number | null;
+  waveform: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -29,7 +34,7 @@ export interface MessageAttributes {
 /**
  * Optional attributes for message creation
  */
-interface MessageCreationAttributes extends Optional<MessageAttributes, 'id' | 'content' | 'mediaUrl' | 'sharedPostId' | 'isRead' | 'readAt' | 'isDeletedBySender' | 'isDeletedByReceiver' | 'imageViewMode' | 'viewedAt' | 'expiresAt' | 'isExpired' | 'createdAt' | 'updatedAt'> {}
+interface MessageCreationAttributes extends Optional<MessageAttributes, 'id' | 'content' | 'mediaUrl' | 'sharedPostId' | 'replyToId' | 'isRead' | 'readAt' | 'isDeletedBySender' | 'isDeletedByReceiver' | 'isUnsent' | 'imageViewMode' | 'viewedAt' | 'expiresAt' | 'isExpired' | 'duration' | 'waveform' | 'createdAt' | 'updatedAt'> {}
 
 /**
  * Message model representing a chat message
@@ -39,19 +44,24 @@ export class Message extends Model<MessageAttributes, MessageCreationAttributes>
   public conversationId!: string;
   public senderId!: string;
   public receiverId!: string;
-  public messageType!: 'text' | 'image' | 'post_share' | 'system';
+  public messageType!: 'text' | 'image' | 'gif' | 'voice' | 'post_share' | 'system';
   public content!: string | null;
   public mediaUrl!: string | null;
   public sharedPostId!: string | null;
+  public replyToId!: string | null;
   public isRead!: boolean;
   public readAt!: Date | null;
   public isDeletedBySender!: boolean;
   public isDeletedByReceiver!: boolean;
+  public isUnsent!: boolean;
   // Image message fields
   public imageViewMode!: 'keep' | 'view_once' | 'time_bomb' | null;
   public viewedAt!: Date | null;
   public expiresAt!: Date | null;
   public isExpired!: boolean;
+  // Voice message fields
+  public duration!: number | null;
+  public waveform!: string | null;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 }
@@ -100,11 +110,11 @@ Message.init(
       defaultValue: 'text',
       validate: {
         isIn: {
-          args: [['text', 'image', 'post_share', 'system']],
+          args: [['text', 'image', 'gif', 'voice', 'post_share', 'system']],
           msg: 'Invalid message type'
         }
       },
-      comment: 'Type of message: text, image, post_share, or system'
+      comment: 'Type of message: text, image, gif, voice, post_share, or system'
     },
     content: {
       type: DataTypes.TEXT,
@@ -129,6 +139,17 @@ Message.init(
       onDelete: 'SET NULL',
       comment: 'ID of shared post if message type is post_share'
     },
+    replyToId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      defaultValue: null,
+      references: {
+        model: 'messages',
+        key: 'id'
+      },
+      onDelete: 'SET NULL',
+      comment: 'ID of the message being replied to'
+    },
     isRead: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
@@ -152,6 +173,12 @@ Message.init(
       defaultValue: false,
       allowNull: false,
       comment: 'Whether receiver has deleted this message'
+    },
+    isUnsent: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+      comment: 'Whether the message has been unsent by the sender'
     },
     imageViewMode: {
       type: DataTypes.STRING(20),
@@ -182,6 +209,18 @@ Message.init(
       defaultValue: false,
       allowNull: false,
       comment: 'Whether the image message has expired'
+    },
+    duration: {
+      type: DataTypes.FLOAT,
+      allowNull: true,
+      defaultValue: null,
+      comment: 'Duration of voice message in seconds'
+    },
+    waveform: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+      comment: 'Waveform amplitude data for voice messages (JSON string)'
     },
     createdAt: {
       type: DataTypes.DATE,

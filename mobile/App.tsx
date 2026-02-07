@@ -1,12 +1,29 @@
 import 'react-native-gesture-handler';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import { RootNavigator } from './src/navigation';
+import { ThemeProvider, useTheme } from './src/theme';
+import { CoinCelebrationProvider } from './src/contexts/CoinCelebrationContext';
 
-export default function App() {
+function AppContent() {
+  const { isDark } = useTheme();
+
   return (
     <>
       <RootNavigator />
-      <StatusBar style="auto" />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
     </>
+  );
+}
+
+export default function App() {
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
+        <CoinCelebrationProvider>
+          <AppContent />
+        </CoinCelebrationProvider>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }

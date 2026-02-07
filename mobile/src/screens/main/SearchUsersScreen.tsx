@@ -199,10 +199,10 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
       const conversation = response.conversation;
 
       if (conversation) {
-        // Navigate to Messages tab and then to Chat screen
+        // Navigate to Feed tab and then to Chat screen
         navigation.dispatch(
           CommonActions.navigate({
-            name: 'Messages',
+            name: 'Feed',
             params: {
               screen: 'Chat',
               params: {

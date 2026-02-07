@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import { accountManager } from './accountManager';
 
 // Auto-detect dev server IP from Expo
 const getDevApiUrl = () => {
@@ -81,7 +82,14 @@ class ApiClient {
     // Request interceptor: Add auth token
     this.client.interceptors.request.use(
       async (config) => {
-        const token = await AsyncStorage.getItem('auth_token');
+        // First try multi-account system
+        let token = await accountManager.getActiveToken();
+
+        // Fallback to legacy AsyncStorage for migration
+        if (!token) {
+          token = await AsyncStorage.getItem('auth_token');
+        }
+
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
@@ -122,7 +130,15 @@ class ApiClient {
       password,
     });
 
-    if (response.data.token) {
+    if (response.data.token && response.data.user) {
+      // Store in multi-account system
+      await accountManager.addAccount(response.data.token, {
+        id: response.data.user.id,
+        username: response.data.user.username,
+        email: response.data.user.email,
+        avatarUrl: response.data.user.avatarUrl,
+      });
+      // Also keep in AsyncStorage for backward compatibility
       await AsyncStorage.setItem('auth_token', response.data.token);
     }
 
@@ -135,7 +151,15 @@ class ApiClient {
       password,
     });
 
-    if (response.data.token) {
+    if (response.data.token && response.data.user) {
+      // Store in multi-account system
+      await accountManager.addAccount(response.data.token, {
+        id: response.data.user.id,
+        username: response.data.user.username,
+        email: response.data.user.email,
+        avatarUrl: response.data.user.avatarUrl,
+      });
+      // Also keep in AsyncStorage for backward compatibility
       await AsyncStorage.setItem('auth_token', response.data.token);
     }
 
@@ -143,6 +167,12 @@ class ApiClient {
   }
 
   async logout() {
+    // Get active account to remove
+    const activeAccount = await accountManager.getActiveAccount();
+    if (activeAccount) {
+      await accountManager.removeAccount(activeAccount.id);
+    }
+    // Also clear legacy storage
     await AsyncStorage.removeItem('auth_token');
   }
 
@@ -151,7 +181,15 @@ class ApiClient {
       idToken,
     });
 
-    if (response.data.token) {
+    if (response.data.token && response.data.user) {
+      // Store in multi-account system
+      await accountManager.addAccount(response.data.token, {
+        id: response.data.user.id,
+        username: response.data.user.username,
+        email: response.data.user.email,
+        avatarUrl: response.data.user.avatarUrl,
+      });
+      // Also keep in AsyncStorage for backward compatibility
       await AsyncStorage.setItem('auth_token', response.data.token);
     }
 
@@ -186,12 +224,13 @@ class ApiClient {
     imageUri: string,
     caption: string,
     visibility: 'friends_only' | 'topics_only' | 'topics_and_friends' = 'friends_only',
-    topicIds: string[] = []
+    topicIds: string[] = [],
+    originalImageUri?: string
   ) {
     try {
       const formData = new FormData();
 
-      // Create file object for the image
+      // Create file object for the cropped image
       const filename = imageUri.split('/').pop() || 'photo.jpg';
       const match = /\.(\w+)$/.exec(filename);
       const type = match ? `image/${match[1]}` : 'image/jpeg';
@@ -202,11 +241,24 @@ class ApiClient {
         name: filename,
       } as any);
 
+      // Append original (uncropped) image if different from cropped
+      if (originalImageUri && originalImageUri !== imageUri) {
+        const origFilename = originalImageUri.split('/').pop() || 'original.jpg';
+        const origMatch = /\.(\w+)$/.exec(origFilename);
+        const origType = origMatch ? `image/${origMatch[1]}` : 'image/jpeg';
+
+        formData.append('originalImage', {
+          uri: originalImageUri,
+          type: origType,
+          name: origFilename,
+        } as any);
+      }
+
       if (caption) {
         formData.append('caption', caption);
       }
 
-      // Add visibility and topicIds (Phase 3.3)
+      // Add visibility and topicIds
       formData.append('visibility', visibility);
       if (topicIds.length > 0) {
         formData.append('topicIds', JSON.stringify(topicIds));
@@ -315,19 +367,19 @@ class ApiClient {
 
   // Chat methods
   async getConversations() {
-    const response = await this.client.get('/chat/conversations');
+    const response = await this.client.get('/messages/conversations');
     return response.data;
   }
 
   async createConversation(otherUserId: string) {
-    const response = await this.client.post('/chat/conversations', { otherUserId });
+    const response = await this.client.post('/messages/conversations', { otherUserId });
     return response.data;
   }
 
   async getMessages(conversationId: string, limit: number = 50, before?: string) {
     const params = new URLSearchParams({ limit: limit.toString() });
     if (before) params.append('before', before);
-    const response = await this.client.get(`/chat/conversations/${conversationId}/messages?${params}`);
+    const response = await this.client.get(`/messages/conversations/${conversationId}/messages?${params}`);
     return response.data;
   }
 
@@ -337,43 +389,43 @@ class ApiClient {
     mediaUrl?: string;
     sharedPostId?: string;
   }) {
-    const response = await this.client.post(`/chat/conversations/${conversationId}/messages`, data);
+    const response = await this.client.post(`/messages/conversations/${conversationId}/messages`, data);
     return response.data;
   }
 
   async deleteMessage(messageId: string) {
-    const response = await this.client.delete(`/chat/messages/${messageId}`);
+    const response = await this.client.delete(`/messages/messages/${messageId}`);
     return response.data;
   }
 
   async searchMessages(query: string, limit: number = 50) {
-    const response = await this.client.get(`/chat/messages/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+    const response = await this.client.get(`/messages/messages/search?q=${encodeURIComponent(query)}&limit=${limit}`);
     return response.data;
   }
 
   async blockUser(userId: string, reason?: string) {
-    const response = await this.client.post(`/chat/users/${userId}/block`, { reason });
+    const response = await this.client.post(`/messages/users/${userId}/block`, { reason });
     return response.data;
   }
 
   async unblockUser(userId: string) {
-    const response = await this.client.delete(`/chat/users/${userId}/block`);
+    const response = await this.client.delete(`/messages/users/${userId}/block`);
     return response.data;
   }
 
   async getBlockedUsers() {
-    const response = await this.client.get('/chat/blocked-users');
+    const response = await this.client.get('/messages/blocked-users');
     return response.data;
   }
 
   async getUserOnlineStatus(userId: string) {
-    const response = await this.client.get(`/chat/users/${userId}/online-status`);
+    const response = await this.client.get(`/messages/users/${userId}/online-status`);
     return response.data;
   }
 
   // Image message methods
   async sendImageMessage(formData: FormData) {
-    const response = await this.client.post('/chat/messages/image', formData, {
+    const response = await this.client.post('/messages/messages/image', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -382,12 +434,12 @@ class ApiClient {
   }
 
   async markImageViewed(messageId: string) {
-    const response = await this.client.post(`/chat/messages/${messageId}/viewed`);
+    const response = await this.client.post(`/messages/messages/${messageId}/viewed`);
     return response.data;
   }
 
   async getTotalUnreadCount() {
-    const response = await this.client.get('/chat/unread-count');
+    const response = await this.client.get('/messages/unread-count');
     return response.data;
   }
 
@@ -579,7 +631,9 @@ class ApiClient {
     name: string;
     description?: string;
     iconEmoji?: string;
+    iconImageUrl?: string;
     category: string;
+    adminIds?: string[];
   }) {
     const response = await this.client.post('/topics', data);
     return response.data;
@@ -618,6 +672,59 @@ class ApiClient {
   async getMyFollowedTopics() {
     // Get all topics and filter to only those the user follows
     const response = await this.client.get('/topics?following=true');
+    return response.data;
+  }
+
+  async updateTopic(topicId: string, data: {
+    name?: string;
+    description?: string;
+    iconEmoji?: string;
+    iconImageUrl?: string;
+    coverImageUrl?: string;
+  }) {
+    const response = await this.client.put(`/topics/${topicId}`, data);
+    return response.data;
+  }
+
+  async getTopicMembers(topicId: string, page: number = 1, search?: string) {
+    const params = new URLSearchParams();
+    params.append('limit', '50');
+    params.append('offset', String((page - 1) * 50));
+    if (search) params.append('search', search);
+    const response = await this.client.get(`/topics/${topicId}/members?${params.toString()}`);
+    return response.data;
+  }
+
+  async uploadTopicCover(formData: FormData) {
+    const response = await this.client.post('/upload/topic-cover', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  }
+
+  async uploadTopicIcon(formData: FormData) {
+    const response = await this.client.post('/upload/topic-icon', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  }
+
+  async getTopicAdmins(topicId: string) {
+    const response = await this.client.get(`/topics/${topicId}/admins`);
+    return response.data;
+  }
+
+  async addTopicAdmin(topicId: string, userId: string) {
+    const response = await this.client.post(`/topics/${topicId}/admins`, { userId });
+    return response.data;
+  }
+
+  async removeTopicAdmin(topicId: string, userId: string) {
+    const response = await this.client.delete(`/topics/${topicId}/admins/${userId}`);
     return response.data;
   }
 

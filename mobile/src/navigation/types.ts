@@ -72,6 +72,15 @@ export type FeedStackParamList = {
     userId: string;
     username: string;
   };
+  Conversations: undefined;
+  Chat: {
+    conversationId: string;
+    otherUser: {
+      id: string;
+      username: string;
+      avatarUrl?: string;
+    };
+  };
 };
 
 export type ProfileStackParamList = {

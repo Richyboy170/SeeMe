@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { getImageUrl } from '../services/api';
 
 interface TrustConnection {
@@ -21,30 +22,28 @@ interface TrustConnection {
 interface TrustConnectionItemProps {
   connection: TrustConnection;
   onPress?: (connection: TrustConnection) => void;
+  onMessagePress?: (connection: TrustConnection) => void;
+  onProfilePress?: (connection: TrustConnection) => void;
 }
 
 export const TrustConnectionItem: React.FC<TrustConnectionItemProps> = ({
   connection,
   onPress,
+  onMessagePress,
+  onProfilePress,
 }) => {
-  const { otherUser, trustScore, currentStreak, isMutualFollow, totalExchangeDays, lastExchangeDate } = connection;
+  const { otherUser, trustScore, currentStreak, longestStreak, isMutualFollow, totalExchangeDays, lastExchangeDate } = connection;
 
-  // Determine color based on mutual follow status and score
-  // Using a warm-to-cool gradient for better visual hierarchy
-  const getGaugeColor = () => {
-    if (!isMutualFollow) {
-      return '#94A3B8'; // Slate gray for non-mutual follows
-    }
-
-    if (trustScore >= 80) return '#8B5CF6'; // Violet - strong bond
-    if (trustScore >= 60) return '#A855F7'; // Purple - great consistency
-    if (trustScore >= 40) return '#EC4899'; // Pink - building friendship
-    if (trustScore >= 20) return '#F97316'; // Orange - getting started
-    return '#64748B'; // Slate - new connection
+  // Get rank info based on trust score
+  const getRankInfo = () => {
+    if (trustScore >= 80) return { label: 'Best Friend', color: '#8B5CF6', bgColor: '#EDE9FE', gradient: ['#8B5CF6', '#A855F7'] as [string, string], icon: 'heart' as const };
+    if (trustScore >= 60) return { label: 'Close Friend', color: '#EC4899', bgColor: '#FCE7F3', gradient: ['#EC4899', '#F472B6'] as [string, string], icon: 'heart-half' as const };
+    if (trustScore >= 40) return { label: 'Good Friend', color: '#F59E0B', bgColor: '#FEF3C7', gradient: ['#F59E0B', '#FBBF24'] as [string, string], icon: 'sunny' as const };
+    if (trustScore >= 20) return { label: 'Building', color: '#10B981', bgColor: '#D1FAE5', gradient: ['#10B981', '#34D399'] as [string, string], icon: 'leaf' as const };
+    return { label: 'New', color: '#6B7280', bgColor: '#F3F4F6', gradient: ['#9CA3AF', '#D1D5DB'] as [string, string], icon: 'sparkles' as const };
   };
 
-  const gaugeColor = getGaugeColor();
-  const percentage = Math.min(100, Math.max(0, trustScore));
+  const rankInfo = getRankInfo();
 
   // Format the last exchange date
   const formatLastExchange = () => {
@@ -55,8 +54,8 @@ export const TrustConnectionItem: React.FC<TrustConnectionItemProps> = ({
 
     if (diffDays === 0) return 'Today';
     if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return `${diffDays} days ago`;
-    return date.toLocaleDateString();
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
   const avatarUrl = getImageUrl(otherUser.avatarUrl);
@@ -64,54 +63,82 @@ export const TrustConnectionItem: React.FC<TrustConnectionItemProps> = ({
   return (
     <TouchableOpacity
       style={styles.container}
-      onPress={() => onPress?.(connection)}
+      onPress={() => onProfilePress?.(connection) || onPress?.(connection)}
       activeOpacity={0.7}
     >
-      {/* Avatar */}
-      <View style={styles.avatarContainer}>
-        {avatarUrl ? (
-          <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-        ) : (
-          <View style={[styles.avatar, styles.avatarPlaceholder]}>
-            <Ionicons name="person" size={24} color="#9CA3AF" />
-          </View>
-        )}
-        {isMutualFollow && (
-          <View style={[styles.mutualBadge, { backgroundColor: gaugeColor }]}>
-            <Ionicons name="heart" size={10} color="#FFF" />
+      {/* Avatar with ring */}
+      <View style={styles.avatarSection}>
+        <View style={[styles.avatarRing, { borderColor: rankInfo.color }]}>
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+          ) : (
+            <View style={[styles.avatar, styles.avatarPlaceholder]}>
+              <Ionicons name="person" size={18} color="#9CA3AF" />
+            </View>
+          )}
+        </View>
+        {currentStreak > 0 && (
+          <View style={styles.streakBadge}>
+            <Ionicons name="flame" size={9} color="#FFF" />
+            <Text style={styles.streakBadgeText}>{currentStreak}</Text>
           </View>
         )}
       </View>
 
       {/* User Info */}
-      <View style={styles.infoContainer}>
-        <Text style={styles.username}>@{otherUser.username}</Text>
+      <View style={styles.infoSection}>
+        <View style={styles.nameRow}>
+          <Text style={styles.username} numberOfLines={1}>@{otherUser.username}</Text>
+          {isMutualFollow && (
+            <View style={styles.mutualIcon}>
+              <Ionicons name="people" size={10} color="#8B5CF6" />
+            </View>
+          )}
+          <View style={[styles.rankBadge, { backgroundColor: rankInfo.bgColor }]}>
+            <Ionicons name={rankInfo.icon} size={10} color={rankInfo.color} />
+            <Text style={[styles.rankText, { color: rankInfo.color }]}>{rankInfo.label}</Text>
+          </View>
+        </View>
+
+        {/* Stats Row */}
         <View style={styles.statsRow}>
-          <Text style={styles.statsText}>{totalExchangeDays} days exchanged</Text>
-          <Text style={styles.dot}>•</Text>
-          <Text style={styles.statsText}>{formatLastExchange()}</Text>
+          <View style={styles.statItem}>
+            <Ionicons name="calendar-outline" size={10} color="#9CA3AF" />
+            <Text style={styles.statText}>{totalExchangeDays}d</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Ionicons name="time-outline" size={10} color="#9CA3AF" />
+            <Text style={styles.statText}>{formatLastExchange()}</Text>
+          </View>
+          {longestStreak > 0 && (
+            <>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Ionicons name="trophy-outline" size={10} color="#F59E0B" />
+                <Text style={[styles.statText, { color: '#F59E0B' }]}>{longestStreak}</Text>
+              </View>
+            </>
+          )}
         </View>
       </View>
 
-      {/* Trust Score Gauge */}
-      <View style={styles.gaugeContainer}>
-        {currentStreak > 0 && (
-          <View style={styles.streakContainer}>
-            <Ionicons name="flame" size={12} color="#F59E0B" />
-            <Text style={styles.streakText}>{currentStreak}</Text>
-          </View>
-        )}
-        <View style={styles.gaugeWrapper}>
-          <View style={styles.gaugeBackground}>
-            <View
-              style={[
-                styles.gaugeFill,
-                { width: `${percentage}%`, backgroundColor: gaugeColor },
-              ]}
-            />
-          </View>
-          <Text style={[styles.scoreText, { color: gaugeColor }]}>{trustScore}</Text>
-        </View>
+      {/* Score + Message */}
+      <View style={styles.rightSection}>
+        <LinearGradient
+          colors={rankInfo.gradient}
+          style={styles.scoreCircle}
+        >
+          <Text style={styles.scoreValue}>{trustScore}</Text>
+        </LinearGradient>
+        <TouchableOpacity
+          style={styles.messageIconBtn}
+          onPress={() => onMessagePress?.(connection)}
+          activeOpacity={0.7}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="chatbubble" size={14} color="#3B82F6" />
+        </TouchableOpacity>
       </View>
     </TouchableOpacity>
   );
@@ -121,96 +148,144 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    marginBottom: 8,
+    padding: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  avatarContainer: {
+
+  // Avatar Section
+  avatarSection: {
     position: 'relative',
   },
+  avatarRing: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 2,
+    padding: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
   },
   avatarPlaceholder: {
-    backgroundColor: '#E2E8F0',
+    backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  mutualBadge: {
+  streakBadge: {
     position: 'absolute',
-    bottom: -2,
-    right: -2,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    justifyContent: 'center',
+    bottom: -3,
+    right: -3,
+    flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#F8FAFC',
+    backgroundColor: '#F97316',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#FFF',
+    gap: 1,
   },
-  infoContainer: {
+  streakBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#FFF',
+  },
+
+  // Info Section
+  infoSection: {
     flex: 1,
-    marginLeft: 12,
+    marginLeft: 10,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 3,
   },
   username: {
-    fontSize: 15,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+    flexShrink: 1,
+  },
+  mutualIcon: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#EDE9FE',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  rankBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    gap: 3,
+  },
+  rankText: {
+    fontSize: 10,
     fontWeight: '600',
-    color: '#1E293B',
-    marginBottom: 4,
   },
   statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  statsText: {
-    fontSize: 12,
-    color: '#64748B',
-  },
-  dot: {
-    color: '#94A3B8',
-    marginHorizontal: 4,
-  },
-  gaugeContainer: {
-    alignItems: 'flex-end',
-    minWidth: 80,
-  },
-  streakContainer: {
+  statItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    gap: 2,
   },
-  streakText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#F59E0B',
-    marginLeft: 2,
+  statText: {
+    fontSize: 10,
+    color: '#9CA3AF',
+    fontWeight: '500',
   },
-  gaugeWrapper: {
-    flexDirection: 'row',
+  statDivider: {
+    width: 2,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: '#D1D5DB',
+    marginHorizontal: 5,
+  },
+
+  // Right Section (Score + Message)
+  rightSection: {
     alignItems: 'center',
-  },
-  gaugeBackground: {
-    width: 50,
-    height: 6,
-    backgroundColor: '#E2E8F0',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  gaugeFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  scoreText: {
-    fontSize: 14,
-    fontWeight: '700',
     marginLeft: 8,
-    minWidth: 24,
-    textAlign: 'right',
+    gap: 6,
+  },
+  scoreCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scoreValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFF',
+  },
+  messageIconBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#EFF6FF',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

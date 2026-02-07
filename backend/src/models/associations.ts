@@ -11,10 +11,12 @@ import { CoinGivingActivity } from './CoinGivingActivity';
 import { Conversation } from './Conversation';
 import { Message } from './Message';
 import { BlockedUser } from './BlockedUser';
+import { MessageReaction } from './MessageReaction';
 
 // Phase 3.3: Community/Topic imports
 import { Topic } from './Topic';
 import { TopicFollow } from './TopicFollow';
+import { TopicAdmin } from './TopicAdmin';
 import { PostTopic } from './PostTopic';
 import { UserFavorite } from './UserFavorite';
 import { UserTopicStatus } from './UserTopicStatus';
@@ -377,6 +379,31 @@ export const setupAssociations = () => {
     as: 'sharedPost'
   });
 
+  // Message -> Message (reply): Self-referential
+  Message.belongsTo(Message, {
+    foreignKey: 'replyToId',
+    as: 'replyTo'
+  });
+
+  // Message -> MessageReaction: One-to-Many
+  Message.hasMany(MessageReaction, {
+    foreignKey: 'messageId',
+    as: 'reactions',
+    onDelete: 'CASCADE'
+  });
+
+  // MessageReaction -> Message: Many-to-One
+  MessageReaction.belongsTo(Message, {
+    foreignKey: 'messageId',
+    as: 'message'
+  });
+
+  // MessageReaction -> User: Many-to-One
+  MessageReaction.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user'
+  });
+
   // BlockedUser -> User (blocker): Many-to-One
   BlockedUser.belongsTo(User, {
     foreignKey: 'blockerId',
@@ -483,6 +510,34 @@ export const setupAssociations = () => {
     as: 'posts',
     foreignKey: 'topicId',
     otherKey: 'postId'
+  });
+
+  // ===== TOPIC ADMIN ASSOCIATIONS =====
+
+  // TopicAdmin -> User: Many-to-One
+  TopicAdmin.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user'
+  });
+
+  // TopicAdmin -> Topic: Many-to-One
+  TopicAdmin.belongsTo(Topic, {
+    foreignKey: 'topicId',
+    as: 'topic'
+  });
+
+  // User -> TopicAdmin: One-to-Many
+  User.hasMany(TopicAdmin, {
+    foreignKey: 'userId',
+    as: 'topicAdminRoles',
+    onDelete: 'CASCADE'
+  });
+
+  // Topic -> TopicAdmin: One-to-Many
+  Topic.hasMany(TopicAdmin, {
+    foreignKey: 'topicId',
+    as: 'admins',
+    onDelete: 'CASCADE'
   });
 
   // UserFavorite -> User (who favorites): Many-to-One

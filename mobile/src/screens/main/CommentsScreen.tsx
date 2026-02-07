@@ -14,6 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import { api } from '../../services/api';
+import { useCoinCelebration } from '../../contexts/CoinCelebrationContext';
 import Avatar from '../../components/Avatar';
 import { AvatarCustomizations } from '../../components/AvatarRenderer';
 
@@ -42,6 +43,7 @@ type CommentsScreenRouteProp = RouteProp<{ Comments: { postId: string } }, 'Comm
 export default function CommentsScreen() {
   const route = useRoute<CommentsScreenRouteProp>();
   const { postId } = route.params;
+  const { showCelebration } = useCoinCelebration();
 
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,12 +100,9 @@ export default function CommentsScreen() {
           setComments(prevComments => [result.comment, ...prevComments]);
         }
 
-        // Show coins earned message if applicable
+        // Show coin celebration animation if applicable
         if (result.coinsEarned && result.coinsEarned > 0) {
-          Alert.alert(
-            'Kindness Rewarded!',
-            `You earned ${result.coinsEarned} coin for spreading positivity!`
-          );
+          showCelebration(result.coinsEarned, 'comment');
         }
       }
 

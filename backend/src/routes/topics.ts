@@ -12,11 +12,16 @@ router.get('/:topicSlug', optionalAuth, TopicController.getTopicPage);
 
 // Authenticated routes
 router.post('/', authenticateToken, TopicController.createTopic);
+router.put('/:topicId', authenticateToken, TopicController.updateTopic);
 router.post('/:topicId/follow', authenticateToken, TopicController.followTopic);
 router.delete('/:topicId/follow', authenticateToken, TopicController.unfollowTopic);
 router.get('/:topicId/beginners', authenticateToken, TopicController.getTopicBeginners);
 router.get('/:topicId/share', authenticateToken, TopicController.getShareableLinks);
 router.get('/:topicId/leaderboard', optionalAuth, TopicController.getLeaderboard);
 router.get('/:topicId/posts', optionalAuth, TopicController.getTopicPosts);
+router.get('/:topicId/members', optionalAuth, TopicController.getTopicMembers);
+router.get('/:topicId/admins', optionalAuth, TopicController.getTopicAdmins);
+router.post('/:topicId/admins', authenticateToken, TopicController.addTopicAdmin);
+router.delete('/:topicId/admins/:userId', authenticateToken, TopicController.removeTopicAdmin);
 
 export default router;

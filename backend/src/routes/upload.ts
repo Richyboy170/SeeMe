@@ -44,7 +44,7 @@ router.post(
         });
       }
 
-      const userId = (req as any).user?.userId;
+      const userId = (req as any).user?.id || (req as any).user?.userId;
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -80,7 +80,7 @@ router.post(
     } catch (error: any) {
       logger.error('Chat image upload failed', {
         error: error.message,
-        userId: (req as any).user?.userId
+        userId: (req as any).user?.id
       });
 
       return res.status(500).json({
@@ -109,7 +109,7 @@ router.post(
         });
       }
 
-      const userId = (req as any).user?.userId;
+      const userId = (req as any).user?.id || (req as any).user?.userId;
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -145,12 +145,142 @@ router.post(
     } catch (error: any) {
       logger.error('Avatar upload failed', {
         error: error.message,
-        userId: (req as any).user?.userId
+        userId: (req as any).user?.id
       });
 
       return res.status(500).json({
         success: false,
         error: 'Failed to upload avatar'
+      });
+    }
+  }
+);
+
+/**
+ * @route   POST /api/upload/topic-cover
+ * @desc    Upload a topic/community cover image
+ * @access  Private
+ */
+router.post(
+  '/topic-cover',
+  authenticateToken,
+  upload.single('image'),
+  async (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          error: 'No image file provided'
+        });
+      }
+
+      const userId = (req as any).user?.id || (req as any).user?.userId;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          error: 'Unauthorized'
+        });
+      }
+
+      // Generate unique filename for topic cover
+      const imageId = uuidv4();
+      const extension = req.file.mimetype.split('/')[1];
+      const key = `topic-covers/${userId}/${imageId}.${extension}`;
+
+      // Upload to S3 or local storage
+      const imageUrl = await S3Service.uploadImage(
+        req.file.buffer,
+        key,
+        req.file.mimetype
+      );
+
+      logger.info('Topic cover uploaded', {
+        userId,
+        imageId,
+        size: req.file.size,
+        mimetype: req.file.mimetype
+      });
+
+      return res.status(200).json({
+        success: true,
+        url: imageUrl,
+        imageId
+      });
+
+    } catch (error: any) {
+      logger.error('Topic cover upload failed', {
+        error: error.message,
+        userId: (req as any).user?.id
+      });
+
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to upload topic cover'
+      });
+    }
+  }
+);
+
+/**
+ * @route   POST /api/upload/topic-icon
+ * @desc    Upload a topic/community icon image
+ * @access  Private
+ */
+router.post(
+  '/topic-icon',
+  authenticateToken,
+  upload.single('image'),
+  async (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          error: 'No image file provided'
+        });
+      }
+
+      const userId = (req as any).user?.id || (req as any).user?.userId;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          error: 'Unauthorized'
+        });
+      }
+
+      // Generate unique filename for topic icon
+      const imageId = uuidv4();
+      const extension = req.file.mimetype.split('/')[1];
+      const key = `topic-icons/${userId}/${imageId}.${extension}`;
+
+      // Upload to S3 or local storage
+      const imageUrl = await S3Service.uploadImage(
+        req.file.buffer,
+        key,
+        req.file.mimetype
+      );
+
+      logger.info('Topic icon uploaded', {
+        userId,
+        imageId,
+        size: req.file.size,
+        mimetype: req.file.mimetype
+      });
+
+      return res.status(200).json({
+        success: true,
+        url: imageUrl,
+        imageId
+      });
+
+    } catch (error: any) {
+      logger.error('Topic icon upload failed', {
+        error: error.message,
+        userId: (req as any).user?.id
+      });
+
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to upload topic icon'
       });
     }
   }

@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useCallback, useLayoutEffect } from 'react';
 import {
     View, Text, StyleSheet, FlatList, TouchableOpacity,
-    TextInput, RefreshControl, ActivityIndicator
+    TextInput, RefreshControl, ActivityIndicator, Image
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { api } from '../../services/api';
+import { api, getImageUrl } from '../../services/api';
+
+// Detect if an icon value is an Ionicons name (lowercase ASCII + hyphens)
+const isIoniconName = (value: string): boolean => /^[a-z][a-z0-9-]*$/.test(value);
 
 interface Topic {
     id: string;
@@ -13,6 +16,7 @@ interface Topic {
     slug: string;
     description: string | null;
     iconEmoji: string | null;
+    iconImageUrl: string | null;
     category: string;
     followerCount: number;
     postCount: number;
@@ -136,7 +140,15 @@ export default function BrowseTopicsScreen({ navigation }: any) {
             onPress={() => navigation.navigate('TopicPage', { topicSlug: item.slug })}
         >
             <View style={styles.topicHeader}>
-                <Text style={styles.topicEmoji}>{item.iconEmoji || '🏷️'}</Text>
+                {item.iconImageUrl ? (
+                    <Image source={{ uri: getImageUrl(item.iconImageUrl) || item.iconImageUrl }} style={styles.topicIconImage} />
+                ) : item.iconEmoji && isIoniconName(item.iconEmoji) ? (
+                    <View style={styles.topicIconWrap}>
+                        <Ionicons name={`${item.iconEmoji}-outline` as any} size={24} color="#7C3AED" />
+                    </View>
+                ) : (
+                    <Text style={styles.topicEmoji}>{item.iconEmoji || '🏷️'}</Text>
+                )}
                 <View style={styles.topicInfo}>
                     <Text style={styles.topicName}>{item.name}</Text>
                     <Text style={styles.topicStats}>
@@ -319,6 +331,21 @@ const styles = StyleSheet.create({
     topicEmoji: {
         fontSize: 36,
         marginRight: 12
+    },
+    topicIconImage: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        marginRight: 12,
+    },
+    topicIconWrap: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: '#F3E8FF',
+        justifyContent: 'center' as const,
+        alignItems: 'center' as const,
+        marginRight: 12,
     },
     topicInfo: {
         flex: 1

@@ -22,8 +22,8 @@ import ViewShot from 'react-native-view-shot';
 import * as MediaLibrary from 'expo-media-library';
 import { useFocusEffect, useNavigation, CommonActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../../theme';
 import { api, getImageUrl } from '../../services/api';
-import GiveCounterBadge from '../../components/coins/GiveCounterBadge';
 import GiveCoinsModal from '../../components/coins/GiveCoinsModal';
 import PostViewerModal from '../../components/PostViewerModal';
 import Avatar from '../../components/Avatar';
@@ -36,6 +36,20 @@ const { width } = Dimensions.get('window');
 const GRID_GAP = 1;
 const IMAGE_SIZE = (width - GRID_GAP * 2) / 3;
 
+const getRankInfo = (rank: string) => {
+  const rankData: { [key: string]: {
+    color: string;
+    ringColor: string;
+  } } = {
+    beginner: { color: '#9CA3AF', ringColor: '#9CA3AF' },
+    kind: { color: '#60A5FA', ringColor: '#60A5FA' },
+    generous: { color: '#A78BFA', ringColor: '#A78BFA' },
+    inspirational: { color: '#F59E0B', ringColor: '#F59E0B' },
+    legend: { color: '#EF4444', ringColor: '#EF4444' },
+  };
+  return rankData[rank] || rankData.beginner;
+};
+
 interface ProfileScreenProps {
   route?: {
     params?: {
@@ -47,6 +61,7 @@ interface ProfileScreenProps {
 
 export default function ProfileScreen({ route }: ProfileScreenProps) {
   const navigation = useNavigation<any>();
+  const { colors, isDark } = useTheme();
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [posts, setPosts] = useState<any[]>([]);
@@ -174,10 +189,18 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
 
   const loadTrustScore = async (targetUserId: string) => {
     try {
+      // Don't try to load trust score if no valid target user ID
+      if (!targetUserId) {
+        setTrustData(null);
+        return;
+      }
       const response = await api.getTrustScore(targetUserId);
       setTrustData(response);
-    } catch (error) {
-      console.error('Error loading trust score:', error);
+    } catch (error: any) {
+      // Silently handle 400 errors (e.g., trying to get trust score with yourself)
+      if (error?.response?.status !== 400) {
+        console.error('Error loading trust score:', error);
+      }
       setTrustData(null);
     }
   };
@@ -263,12 +286,6 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     return 'Follow';
   };
 
-  const getFollowButtonStyle = () => {
-    if (isFollowing) return [styles.followButton, styles.followingButton];
-    if (followRequestStatus === 'pending') return [styles.followButton, styles.requestedButton];
-    return [styles.followButton];
-  };
-
   const handleMessage = async () => {
     if (messageLoading || !user?.id) return;
 
@@ -279,10 +296,10 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
       const conversation = response.conversation;
 
       if (conversation) {
-        // Navigate to Messages tab and then to Chat screen
+        // Navigate to Feed tab and then to Chat screen
         navigation.dispatch(
           CommonActions.navigate({
-            name: 'Messages',
+            name: 'Feed',
             params: {
               screen: 'Chat',
               params: {
@@ -461,18 +478,21 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     return `${Math.floor(diffInSeconds / 604800)} weeks ago`;
   };
 
+  const userRank = user?.positivityRank || 'beginner';
+  const rankInfo = getRankInfo(userRank);
+
   if (loading) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
-        <ActivityIndicator size="large" color="#000" />
+      <View style={[styles.container, styles.centerContent, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.text.secondary} />
       </View>
     );
   }
 
   if (!user) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
-        <Text style={styles.errorText}>User not found</Text>
+      <View style={[styles.container, styles.centerContent, { backgroundColor: colors.background }]}>
+        <Text style={[styles.errorText, { color: colors.text.secondary }]}>User not found</Text>
       </View>
     );
   }
@@ -507,8 +527,8 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
             )}
           </View>
         ) : (
-          <View style={[styles.gridImage, styles.placeholderImage]}>
-            <Ionicons name="image-outline" size={24} color="#C7C7CC" />
+          <View style={[styles.gridImage, styles.placeholderImage, { backgroundColor: colors.surface }]}>
+            <Ionicons name="image-outline" size={24} color={colors.text.tertiary} />
           </View>
         )}
       </TouchableOpacity>
@@ -516,35 +536,34 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Profile Header Card */}
-        <View style={styles.profileHeader}>
-          {/* Top Bar with Username and Settings */}
+        {/* Profile Header */}
+        <View style={[styles.profileHeader, { backgroundColor: colors.background }]}>
+          {/* Top Bar */}
           <View style={styles.topBar}>
             <View style={styles.usernameRow}>
               {isPrivate && (
-                <Ionicons name="lock-closed" size={16} color="#8E8E93" style={{ marginRight: 6 }} />
+                <Ionicons name="lock-closed" size={14} color={colors.text.tertiary} style={{ marginRight: 6 }} />
               )}
-              <Text style={styles.topUsername}>{user.username}</Text>
+              <Text style={[styles.topUsername, { color: colors.text.primary }]}>{user.username}</Text>
             </View>
             {isOwnProfile && (
               <TouchableOpacity
                 style={styles.settingsButton}
                 onPress={() => setSettingsMenuVisible(true)}
               >
-                <Ionicons name="menu-outline" size={24} color="#262626" />
+                <Ionicons name="menu-outline" size={22} color={colors.icon.secondary} />
               </TouchableOpacity>
             )}
           </View>
 
-          {/* Avatar and Stats Row */}
-          <View style={styles.profileTop}>
-            {/* Avatar with gradient ring */}
-            <View style={styles.avatarWrapper}>
-              <View style={styles.avatarRing}>
+          {/* Avatar with rank-colored ring */}
+          <View style={styles.avatarSection}>
+            <View style={styles.avatarOuter}>
+              <View style={[styles.avatarRing, { borderColor: rankInfo.ringColor, backgroundColor: colors.surface }]}>
                 <Avatar
-                  size={90}
+                  size={84}
                   avatarUrl={!activeAvatar ? user.avatarUrl : undefined}
                   username={user.username}
                   showBorder={false}
@@ -553,47 +572,60 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
                 />
               </View>
             </View>
+          </View>
 
-            {/* Stats Cards */}
-            <View style={styles.statsContainer}>
-              <TouchableOpacity style={styles.statCard}>
-                <Text style={styles.statNumber}>{posts.length}</Text>
-                <Text style={styles.statLabel}>Posts</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.statCard}>
-                <Text style={styles.statNumber}>{user.followersCount || 0}</Text>
-                <Text style={styles.statLabel}>Followers</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.statCard}>
-                <Text style={styles.statNumber}>{user.followingCount || 0}</Text>
-                <Text style={styles.statLabel}>Following</Text>
-              </TouchableOpacity>
+          {/* Bio */}
+          {(user.bio || isOwnProfile) && (
+            <View style={styles.bioSection}>
+              {user.bio ? (
+                <Text style={[styles.bio, { color: colors.text.secondary }]}>{user.bio}</Text>
+              ) : (
+                <Text style={[styles.bioPlaceholder, { color: colors.text.tertiary }]}>Add a bio to tell people about yourself</Text>
+              )}
             </View>
+          )}
+
+          {/* Stats */}
+          <View style={[styles.statsRow, { borderColor: colors.borderLight }]}>
+            <TouchableOpacity style={styles.statCard}>
+              <Text style={[styles.statNumber, { color: colors.text.primary }]}>{posts.length}</Text>
+              <Text style={[styles.statLabel, { color: colors.text.secondary }]}>Posts</Text>
+            </TouchableOpacity>
+            <View style={[styles.statDivider, { backgroundColor: colors.borderLight }]} />
+            <TouchableOpacity style={styles.statCard}>
+              <Text style={[styles.statNumber, { color: colors.text.primary }]}>{user.followersCount || 0}</Text>
+              <Text style={[styles.statLabel, { color: colors.text.secondary }]}>Followers</Text>
+            </TouchableOpacity>
+            <View style={[styles.statDivider, { backgroundColor: colors.borderLight }]} />
+            <TouchableOpacity style={styles.statCard}>
+              <Text style={[styles.statNumber, { color: colors.text.primary }]}>{user.followingCount || 0}</Text>
+              <Text style={[styles.statLabel, { color: colors.text.secondary }]}>Following</Text>
+            </TouchableOpacity>
           </View>
 
-          {/* Bio Section */}
-          <View style={styles.bioSection}>
-            <Text style={styles.displayName}>{user.username}</Text>
-            {user.bio ? (
-              <Text style={styles.bio}>{user.bio}</Text>
-            ) : isOwnProfile ? (
-              <Text style={styles.bioPlaceholder}>Add a bio to tell people about yourself</Text>
-            ) : null}
-          </View>
-
-          {/* Positivity Counters */}
-          {user.positivityGiveCounter !== undefined && user.positivityRank && (
-            <View style={styles.badgeContainer}>
-              <GiveCounterBadge
-                giveCounter={user.positivityGiveCounter}
-                rank={user.positivityRank}
-              />
-              <View style={styles.receivedMini}>
-                <Ionicons name="heart" size={14} color="#EC4899" />
-                <Text style={styles.receivedMiniText}>
-                  {(user.positivityReceiveCounter || 0).toLocaleString()} received
-                </Text>
-              </View>
+          {/* Rank & Coins indicator */}
+          {(user.positivityRank || user.positivityGiveCounter !== undefined) && (
+            <View style={styles.rankBar}>
+              {user.positivityRank && (
+                <View style={styles.rankBadge}>
+                  <View style={[styles.rankDot, { backgroundColor: rankInfo.color }]} />
+                  <Text style={[styles.rankLabel, { color: colors.text.secondary }]}>
+                    {userRank.charAt(0).toUpperCase() + userRank.slice(1)}
+                  </Text>
+                </View>
+              )}
+              {user.positivityGiveCounter !== undefined && (
+                <>
+                  <Text style={[styles.rankSep, { color: colors.text.tertiary }]}>&middot;</Text>
+                  <Text style={[styles.rankStat, { color: colors.text.tertiary }]}>
+                    {(user.positivityGiveCounter || 0).toLocaleString()} given
+                  </Text>
+                  <Text style={[styles.rankSep, { color: colors.text.tertiary }]}>&middot;</Text>
+                  <Text style={[styles.rankStat, { color: colors.text.tertiary }]}>
+                    {(user.positivityReceiveCounter || 0).toLocaleString()} received
+                  </Text>
+                </>
+              )}
             </View>
           )}
 
@@ -601,13 +633,11 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
           <View style={styles.actionButtons}>
             {isOwnProfile ? (
               <>
-                <TouchableOpacity style={styles.editButton} onPress={handleEditProfile}>
-                  <Ionicons name="person-outline" size={16} color="#262626" style={{ marginRight: 6 }} />
-                  <Text style={styles.editButtonText}>Edit Profile</Text>
+                <TouchableOpacity style={[styles.editButton, { backgroundColor: colors.surfaceVariant, borderColor: colors.border }]} onPress={handleEditProfile}>
+                  <Text style={[styles.editButtonText, { color: colors.text.primary }]}>Edit Profile</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.shareButton} onPress={handleShareProfile}>
-                  <Ionicons name="share-outline" size={16} color="#262626" style={{ marginRight: 6 }} />
-                  <Text style={styles.editButtonText}>Share</Text>
+                <TouchableOpacity style={[styles.shareButton, { backgroundColor: colors.surfaceVariant, borderColor: colors.border }]} onPress={handleShareProfile}>
+                  <Text style={[styles.editButtonText, { color: colors.text.primary }]}>Share</Text>
                 </TouchableOpacity>
                 {followRequestCount > 0 && (
                   <TouchableOpacity
@@ -624,63 +654,64 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
             ) : (
               <>
                 <TouchableOpacity
-                  style={getFollowButtonStyle()}
+                  style={[
+                    styles.followButton,
+                    {
+                      backgroundColor: isFollowing || followRequestStatus === 'pending'
+                        ? colors.surfaceVariant
+                        : '#0095F6',
+                      borderWidth: isFollowing || followRequestStatus === 'pending' ? StyleSheet.hairlineWidth : 0,
+                      borderColor: colors.border,
+                    },
+                  ]}
                   onPress={handleFollow}
                   disabled={followLoading}
                 >
                   {followLoading ? (
-                    <ActivityIndicator size="small" color={isFollowing || followRequestStatus === 'pending' ? '#262626' : '#FFF'} />
+                    <ActivityIndicator size="small" color={isFollowing || followRequestStatus === 'pending' ? colors.text.primary : '#FFF'} />
                   ) : (
-                    <>
-                      <Ionicons
-                        name={isFollowing ? 'checkmark' : followRequestStatus === 'pending' ? 'time-outline' : 'person-add-outline'}
-                        size={16}
-                        color={isFollowing || followRequestStatus === 'pending' ? '#262626' : '#FFF'}
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={[
-                        styles.followButtonText,
-                        (isFollowing || followRequestStatus === 'pending') && styles.followingButtonText
-                      ]}>
-                        {getFollowButtonText()}
-                      </Text>
-                    </>
+                    <Text style={[
+                      styles.followButtonText,
+                      { color: isFollowing || followRequestStatus === 'pending' ? colors.text.primary : '#FFF' },
+                    ]}>
+                      {getFollowButtonText()}
+                    </Text>
                   )}
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={styles.messageButton}
+                  style={[styles.messageButton, { backgroundColor: colors.surfaceVariant, borderColor: colors.border }]}
                   onPress={handleMessage}
                   disabled={messageLoading}
                 >
                   {messageLoading ? (
-                    <ActivityIndicator size="small" color="#262626" />
+                    <ActivityIndicator size="small" color={colors.icon.secondary} />
                   ) : (
-                    <Ionicons name="chatbubble-outline" size={20} color="#262626" />
+                    <Ionicons name="chatbubble-outline" size={18} color={colors.icon.secondary} />
                   )}
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={styles.giveCoinsButton}
+                  style={[styles.giveCoinsButton, { backgroundColor: colors.surfaceVariant, borderColor: colors.border }]}
                   onPress={() => setGiveModalVisible(true)}
                 >
-                  <Ionicons name="gift" size={20} color="#FFF" />
+                  <Ionicons name="gift-outline" size={18} color={colors.icon.secondary} />
                 </TouchableOpacity>
                 <FavoriteButton
                   userId={user.id}
-                  size={20}
-                  style={styles.favoriteButton}
+                  size={18}
+                  style={[styles.favoriteButton, { backgroundColor: colors.surfaceVariant, borderColor: colors.border }]}
                 />
               </>
             )}
           </View>
 
-          {/* Trust Score Gauge - Only shown when viewing another user's profile */}
+          {/* Friendship Score */}
           {!isOwnProfile && trustData?.hasConnection && (
             <View style={styles.trustGaugeContainer}>
               <TrustGauge
                 trustScore={trustData.trustScore}
                 currentStreak={trustData.currentStreak}
                 isMutualFollow={trustData.isMutualFollow}
-                theme="light"
+                theme={isDark ? 'dark' : 'light'}
               />
             </View>
           )}
@@ -690,19 +721,19 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
         <ProfileMedalsSection userId={user.id} isOwnProfile={isOwnProfile} />
 
         {/* Grid/Tabs Header */}
-        <View style={styles.tabsContainer}>
+        <View style={[styles.tabsContainer, { backgroundColor: colors.background, borderBottomColor: colors.borderLight }]}>
           <TouchableOpacity
-            style={[styles.tab, activeTab === 'posts' && styles.activeTab]}
+            style={[styles.tab, activeTab === 'posts' && [styles.activeTab, { borderBottomColor: colors.text.primary }]]}
             onPress={() => setActiveTab('posts')}
           >
-            <Ionicons name="grid" size={22} color={activeTab === 'posts' ? '#262626' : '#8E8E93'} />
+            <Ionicons name="grid" size={22} color={activeTab === 'posts' ? colors.text.primary : colors.text.tertiary} />
           </TouchableOpacity>
           {isOwnProfile && (
             <TouchableOpacity
-              style={[styles.tab, activeTab === 'saved' && styles.activeTab]}
+              style={[styles.tab, activeTab === 'saved' && [styles.activeTab, { borderBottomColor: colors.text.primary }]]}
               onPress={() => setActiveTab('saved')}
             >
-              <Ionicons name="bookmark" size={22} color={activeTab === 'saved' ? '#262626' : '#8E8E93'} />
+              <Ionicons name="bookmark" size={22} color={activeTab === 'saved' ? colors.text.primary : colors.text.tertiary} />
             </TouchableOpacity>
           )}
         </View>
@@ -710,11 +741,11 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
         {/* Posts Grid */}
         {activeTab === 'posts' ? (
           loadingPosts ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#FBBF24" />
+            <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
+              <ActivityIndicator size="small" color={colors.text.tertiary} />
             </View>
           ) : posts.length > 0 ? (
-            <View style={styles.gridContainer}>
+            <View style={[styles.gridContainer, { backgroundColor: colors.background }]}>
               {posts.map((item, index) => (
                 <View key={item.id}>
                   {renderGridItem({ item, index })}
@@ -722,12 +753,12 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
               ))}
             </View>
           ) : (
-            <View style={styles.emptyState}>
-              <View style={styles.emptyIcon}>
-                <Ionicons name="camera-outline" size={44} color="#8E8E93" />
+            <View style={[styles.emptyState, { backgroundColor: colors.background }]}>
+              <View style={[styles.emptyIcon, { borderColor: colors.borderLight, backgroundColor: colors.surface }]}>
+                <Ionicons name="camera-outline" size={44} color={colors.text.tertiary} />
               </View>
-              <Text style={styles.emptyTitle}>No Posts Yet</Text>
-              <Text style={styles.emptySubtitle}>
+              <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>No Posts Yet</Text>
+              <Text style={[styles.emptySubtitle, { color: colors.text.secondary }]}>
                 {isOwnProfile ? 'Share your first photo' : 'No posts to show'}
               </Text>
             </View>
@@ -735,11 +766,11 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
         ) : (
           /* Saved Posts Tab */
           loadingSaved ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#FBBF24" />
+            <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
+              <ActivityIndicator size="small" color={colors.text.tertiary} />
             </View>
           ) : savedPosts.length > 0 ? (
-            <View style={styles.gridContainer}>
+            <View style={[styles.gridContainer, { backgroundColor: colors.background }]}>
               {savedPosts.map((item, index) => (
                 <View key={item.id}>
                   {renderGridItem({ item, index })}
@@ -747,12 +778,12 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
               ))}
             </View>
           ) : (
-            <View style={styles.emptyState}>
-              <View style={styles.emptyIcon}>
-                <Ionicons name="bookmark-outline" size={44} color="#8E8E93" />
+            <View style={[styles.emptyState, { backgroundColor: colors.background }]}>
+              <View style={[styles.emptyIcon, { borderColor: colors.borderLight, backgroundColor: colors.surface }]}>
+                <Ionicons name="bookmark-outline" size={44} color={colors.text.tertiary} />
               </View>
-              <Text style={styles.emptyTitle}>No Saved Posts</Text>
-              <Text style={styles.emptySubtitle}>
+              <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>No Saved Posts</Text>
+              <Text style={[styles.emptySubtitle, { color: colors.text.secondary }]}>
                 Save posts you love and they'll appear here
               </Text>
             </View>
@@ -1195,18 +1226,15 @@ const styles = StyleSheet.create({
 
   // Profile Header
   profileHeader: {
-    backgroundColor: '#FFF',
+    paddingTop: 52,
+    paddingBottom: 24,
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EFEFEF',
   },
   topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 24,
   },
   usernameRow: {
     flexDirection: 'row',
@@ -1215,85 +1243,103 @@ const styles = StyleSheet.create({
   topUsername: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#262626',
+    letterSpacing: 0.3,
   },
   settingsButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F5F5F5',
-    justifyContent: 'center',
-    alignItems: 'center',
+    padding: 8,
   },
-  profileTop: {
-    flexDirection: 'row',
+
+  // Avatar
+  avatarSection: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 14,
   },
-  avatarWrapper: {
-    marginRight: 24,
+  avatarOuter: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 4,
   },
   avatarRing: {
-    padding: 3,
-    borderRadius: 50,
-    borderWidth: 2,
-    borderColor: '#FBBF24',
+    borderRadius: 46,
+    borderWidth: 2.5,
+    padding: 2,
   },
-  statsContainer: {
-    flex: 1,
+
+  // Stats
+  statsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 14,
+    marginBottom: 14,
   },
   statCard: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 8,
   },
   statNumber: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
-    color: '#262626',
     marginBottom: 2,
   },
   statLabel: {
     fontSize: 11,
-    color: '#8E8E93',
-    fontWeight: '400',
+    fontWeight: '500',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  statDivider: {
+    width: StyleSheet.hairlineWidth,
+    height: 24,
   },
 
-  // Bio Section
+  // Bio
   bioSection: {
-    marginBottom: 16,
-  },
-  displayName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#262626',
-    marginBottom: 4,
+    marginBottom: 14,
+    alignItems: 'center',
+    paddingHorizontal: 10,
   },
   bio: {
     fontSize: 14,
-    color: '#262626',
     lineHeight: 20,
+    textAlign: 'center',
   },
   bioPlaceholder: {
     fontSize: 13,
-    color: '#8E8E93',
     fontStyle: 'italic',
   },
-  badgeContainer: {
-    marginBottom: 16,
-  },
-  receivedMini: {
+
+  // Rank Bar
+  rankBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
-    paddingLeft: 4,
+    justifyContent: 'center',
+    marginBottom: 18,
+    gap: 8,
   },
-  receivedMiniText: {
+  rankBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  rankDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  rankLabel: {
     fontSize: 12,
-    color: '#9CA3AF',
-    marginLeft: 4,
+    fontWeight: '600',
+  },
+  rankSep: {
+    fontSize: 12,
+  },
+  rankStat: {
+    fontSize: 12,
+    fontWeight: '500',
   },
 
   // Action Buttons
@@ -1304,112 +1350,87 @@ const styles = StyleSheet.create({
   editButton: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: '#F5F5F5',
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
   },
   shareButton: {
-    flex: 0.7,
+    flex: 0.6,
     flexDirection: 'row',
-    backgroundColor: '#F5F5F5',
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
   },
   editButtonText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#262626',
   },
   followButton: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: '#FBBF24',
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#FBBF24',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
   },
   followButtonText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#FFF',
   },
-  followingButton: {
-    backgroundColor: '#F5F5F5',
-    shadowColor: 'transparent',
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  requestedButton: {
-    backgroundColor: '#FEF3C7',
-    shadowColor: 'transparent',
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  followingButtonText: {
-    color: '#262626',
-  },
+  followingButton: {},
+  requestedButton: {},
+  followingButtonText: {},
   requestsButton: {
-    backgroundColor: '#FBBF24',
+    backgroundColor: '#0095F6',
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: 8,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: 6,
   },
   requestsBadge: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: '#FFF',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: 5,
   },
   requestsBadgeText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
-    color: '#FBBF24',
+    color: '#0095F6',
   },
   messageButton: {
-    backgroundColor: '#F5F5F5',
-    width: 44,
-    height: 44,
-    borderRadius: 10,
+    width: 42,
+    height: 42,
+    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
   },
   giveCoinsButton: {
-    backgroundColor: '#FBBF24',
-    width: 44,
-    height: 44,
-    borderRadius: 10,
+    width: 42,
+    height: 42,
+    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#FBBF24',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   favoriteButton: {
-    backgroundColor: '#F5F5F5',
-    width: 44,
-    height: 44,
-    borderRadius: 10,
+    width: 42,
+    height: 42,
+    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
   },
 
   // Trust Gauge

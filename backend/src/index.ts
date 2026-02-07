@@ -36,6 +36,7 @@ import repostsRoutes from './routes/reposts';
 // Trust Score routes
 import trustRoutes from './routes/trust';
 import { celeryClient } from './config/celery';
+import { seedDefaultTopics } from './utils/seedDefaultTopics';
 
 const app = express();
 
@@ -94,7 +95,7 @@ app.use('/api', likeRoutes);
 app.use('/api', commentRoutes);
 app.use('/api/coins', coinsRoutes);
 app.use('/api/upload', uploadRoutes);
-app.use('/api/chat', chatRoutes);
+app.use('/api/messages', chatRoutes);
 
 // Phase 3.3: Community/Topic routes
 app.use('/api/topics', topicsRoutes);
@@ -172,6 +173,9 @@ const startServer = async () => {
     await connectMongoDB();
     await connectRedis();
     logger.info('Database connections established');
+
+    // Seed default communities if none exist
+    await seedDefaultTopics();
 
     // Initialize Socket.io
     io = initializeSocket(httpServer);

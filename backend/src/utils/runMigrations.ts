@@ -10,6 +10,8 @@ import * as addPhase33CommunityTables from '../migrations/add-phase-3-3-communit
 import * as addSavedPostsTable from '../migrations/add-saved-posts-table';
 import * as addRepostsTable from '../migrations/add-reposts-table';
 import * as addFriendTrustTables from '../migrations/add-friend-trust-tables';
+import * as addTopicAdminsAndIconImage from '../migrations/add-topic-admins-and-icon-image';
+import * as addChatEnhancements from '../migrations/add-chat-enhancements';
 
 /**
  * Run database migrations
@@ -66,6 +68,16 @@ const migrations = [
     name: 'add-friend-trust-tables',
     up: addFriendTrustTables.up,
     down: addFriendTrustTables.down
+  },
+  {
+    name: 'add-topic-admins-and-icon-image',
+    up: addTopicAdminsAndIconImage.up,
+    down: addTopicAdminsAndIconImage.down
+  },
+  {
+    name: 'add-chat-enhancements',
+    up: addChatEnhancements.up,
+    down: addChatEnhancements.down
   }
   // Add more migrations here as needed
 ];

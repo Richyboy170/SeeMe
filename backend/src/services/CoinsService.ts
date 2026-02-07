@@ -9,6 +9,7 @@ import { TrustScoreService } from './TrustScoreService';
 
 const COOLDOWN_DURATION_MS = 3 * 60 * 60 * 1000; // 3 hours
 const MAX_COOLDOWN_COINS = 3;
+const COINS_PER_POST_COST = 3;
 
 // Positivity rank thresholds based on lifetime coins given
 const RANK_THRESHOLDS = {
@@ -270,6 +271,67 @@ export class CoinsService {
     } catch (error) {
       await transaction.rollback();
       logger.error('Error awarding coins for post', { error, userId, postId });
+      throw error;
+    }
+  }
+
+  /**
+   * Deduct coins for creating a post (investment cost)
+   */
+  static async deductCoinsForPost(userId: string, postId: string): Promise<number> {
+    // Auto-initialize coins if needed (outside transaction)
+    let coins = await PositivityCoins.findByPk(userId);
+    if (!coins) {
+      coins = await this.initializeUserCoins(userId);
+    }
+
+    // Check balance before starting transaction
+    if (coins.totalCoins < COINS_PER_POST_COST) {
+      throw new Error(`Insufficient coins. You have ${coins.totalCoins}, need ${COINS_PER_POST_COST}`);
+    }
+
+    const transaction = await sequelize.transaction();
+
+    try {
+      // Re-fetch within transaction for consistency
+      const coinsInTx = await PositivityCoins.findByPk(userId, { transaction });
+      if (!coinsInTx) {
+        await transaction.rollback();
+        throw new Error('Coins not initialized');
+      }
+
+      // Re-check balance within transaction
+      if (coinsInTx.totalCoins < COINS_PER_POST_COST) {
+        await transaction.rollback();
+        throw new Error(`Insufficient coins. You have ${coinsInTx.totalCoins}, need ${COINS_PER_POST_COST}`);
+      }
+
+      await coinsInTx.update(
+        {
+          totalCoins: coinsInTx.totalCoins - COINS_PER_POST_COST
+        },
+        { transaction }
+      );
+
+      await CoinTransaction.create(
+        {
+          fromUserId: userId,
+          toUserId: null, // System
+          amount: COINS_PER_POST_COST,
+          transactionType: 'spent_on_post',
+          relatedPostId: postId
+        },
+        { transaction }
+      );
+
+      await transaction.commit();
+
+      logger.info('Coins deducted for post', { userId, postId, coins: COINS_PER_POST_COST });
+
+      return COINS_PER_POST_COST;
+    } catch (error) {
+      await transaction.rollback();
+      logger.error('Error deducting coins for post', { error, userId, postId });
       throw error;
     }
   }
@@ -564,6 +626,8 @@ export class CoinsService {
           [Op.or]: [
             // User sent coins - show given_to_user transactions
             { fromUserId: userId, transactionType: 'given_to_user' },
+            // User spent coins on posts
+            { fromUserId: userId, transactionType: 'spent_on_post' },
             // User received coins or system rewards - show where they are the recipient
             { toUserId: userId, transactionType: { [Op.ne]: 'given_to_user' } }
           ]
@@ -596,7 +660,8 @@ export class CoinsService {
         'earned_post': 'post_reward',
         'earned_comment': 'comment_reward',
         'earned_ad': 'ad_reward',
-        'welcome_bonus': 'welcome_bonus'
+        'welcome_bonus': 'welcome_bonus',
+        'spent_on_post': 'post_cost'
       };
 
       // Transform transactions (newest first, calculate balance backwards)
@@ -605,7 +670,7 @@ export class CoinsService {
         const toUser = tx.get('toUser') as User | null;
 
         // Determine if this is an incoming or outgoing transaction for the user
-        const isOutgoing = tx.transactionType === 'given_to_user' && tx.fromUserId === userId;
+        const isOutgoing = (tx.transactionType === 'given_to_user' || tx.transactionType === 'spent_on_post') && tx.fromUserId === userId;
 
         // Calculate balance after this transaction
         const balanceAfter = runningBalance;

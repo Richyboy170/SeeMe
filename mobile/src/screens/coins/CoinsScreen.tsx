@@ -7,15 +7,17 @@ import {
     RefreshControl,
     TouchableOpacity,
     Alert,
-    Animated
+    Animated,
+    Dimensions
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { CommonActions } from '@react-navigation/native';
 import { api } from '../../services/api';
-import CooldownCoinsWidget from '../../components/coins/CooldownCoinsWidget';
-import CoinsBalance from '../../components/coins/CoinsBalance';
-import GiveCounterBadge from '../../components/coins/GiveCounterBadge';
 import TrustConnectionItem from '../../components/TrustConnectionItem';
+import { useCoinCelebration } from '../../contexts/CoinCelebrationContext';
 import { Ionicons } from '@expo/vector-icons';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface ReceivedCoin {
     id: string;
@@ -53,12 +55,18 @@ export default function CoinsScreen({ navigation }: any) {
         rank: 'beginner'
     });
     const [receivedCoins, setReceivedCoins] = useState<ReceivedCoin[]>([]);
-    const [showAllReceived, setShowAllReceived] = useState(false);
     const [trustConnections, setTrustConnections] = useState<TrustConnection[]>([]);
     const [showAllTrust, setShowAllTrust] = useState(false);
 
+    // Coin celebration hook
+    const { showCelebration } = useCoinCelebration();
+
     // Animation for notification cards
     const notificationAnim = useRef(new Animated.Value(0)).current;
+
+    // Animations for hero section
+    const coinPulse = useRef(new Animated.Value(1)).current;
+    const rankGlow = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
         loadCoins();
@@ -68,6 +76,41 @@ export default function CoinsScreen({ navigation }: any) {
         // Refresh every minute to update cooldown timer
         const interval = setInterval(loadCoins, 60000);
         return () => clearInterval(interval);
+    }, []);
+
+    // Hero animations
+    useEffect(() => {
+        // Coin pulse animation
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(coinPulse, {
+                    toValue: 1.08,
+                    duration: 1500,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(coinPulse, {
+                    toValue: 1,
+                    duration: 1500,
+                    useNativeDriver: true,
+                }),
+            ])
+        ).start();
+
+        // Rank glow animation
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(rankGlow, {
+                    toValue: 1,
+                    duration: 2000,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(rankGlow, {
+                    toValue: 0,
+                    duration: 2000,
+                    useNativeDriver: true,
+                }),
+            ])
+        ).start();
     }, []);
 
     const loadReceivedCoins = async () => {
@@ -124,11 +167,10 @@ export default function CoinsScreen({ navigation }: any) {
     const handleClaimCooldown = async () => {
         try {
             const response = await api.claimCooldownCoins();
-            Alert.alert(
-                'Coins Claimed!',
-                `You received ${response.coinsClaimed} free coins!`,
-                [{ text: 'Awesome!', onPress: loadCoins }]
-            );
+            // Show celebration animation
+            showCelebration(response.coinsClaimed, 'claim');
+            // Reload coins after short delay
+            setTimeout(loadCoins, 500);
         } catch (error: any) {
             const errorMessage = error.response?.data?.error ||
                                 error.response?.data?.message ||
@@ -146,6 +188,10 @@ export default function CoinsScreen({ navigation }: any) {
     };
 
     const handleTrustConnectionPress = (connection: TrustConnection) => {
+        handleProfilePress(connection);
+    };
+
+    const handleProfilePress = (connection: TrustConnection) => {
         // Navigate to Feed stack's UserProfile screen
         navigation.dispatch(
             CommonActions.navigate({
@@ -155,6 +201,23 @@ export default function CoinsScreen({ navigation }: any) {
                     params: {
                         userId: connection.otherUser.id,
                         username: connection.otherUser.username,
+                    },
+                },
+            })
+        );
+    };
+
+    const handleMessagePress = (connection: TrustConnection) => {
+        // Navigate to Messages tab and open chat with this user
+        navigation.dispatch(
+            CommonActions.navigate({
+                name: 'Messages',
+                params: {
+                    screen: 'Chat',
+                    params: {
+                        recipientId: connection.otherUser.id,
+                        recipientUsername: connection.otherUser.username,
+                        recipientAvatarUrl: connection.otherUser.avatarUrl,
                     },
                 },
             })
@@ -191,7 +254,7 @@ export default function CoinsScreen({ navigation }: any) {
                 ]}
             >
                 <View style={styles.notificationIcon}>
-                    <Ionicons name="gift" size={24} color="#FBBF24" />
+                    <Ionicons name="gift" size={18} color="#FBBF24" />
                 </View>
                 <View style={styles.notificationContent}>
                     <Text style={styles.notificationTitle}>
@@ -213,365 +276,781 @@ export default function CoinsScreen({ navigation }: any) {
         );
     };
 
+    const getRankInfo = (rank: string) => {
+        const rankData: { [key: string]: {
+            color: string;
+            gradient: [string, string];
+            heroGradient: [string, string, string];
+            coinGradient: [string, string, string];
+            emoji: string;
+            coinEmoji: string;
+        } } = {
+            beginner: {
+                color: '#9CA3AF',
+                gradient: ['#E5E7EB', '#D1D5DB'],
+                heroGradient: ['#6B7280', '#4B5563', '#374151'],
+                coinGradient: ['#E5E7EB', '#D1D5DB', '#9CA3AF'],
+                emoji: '🌱',
+                coinEmoji: '🌱',
+            },
+            kind: {
+                color: '#60A5FA',
+                gradient: ['#BFDBFE', '#93C5FD'],
+                heroGradient: ['#3B82F6', '#2563EB', '#1D4ED8'],
+                coinGradient: ['#BFDBFE', '#93C5FD', '#60A5FA'],
+                emoji: '💙',
+                coinEmoji: '🌿',
+            },
+            generous: {
+                color: '#A78BFA',
+                gradient: ['#DDD6FE', '#C4B5FD'],
+                heroGradient: ['#8B5CF6', '#7C3AED', '#6D28D9'],
+                coinGradient: ['#EDE9FE', '#DDD6FE', '#A78BFA'],
+                emoji: '💜',
+                coinEmoji: '🌸',
+            },
+            inspirational: {
+                color: '#F59E0B',
+                gradient: ['#FDE68A', '#FCD34D'],
+                heroGradient: ['#F59E0B', '#D97706', '#B45309'],
+                coinGradient: ['#FEF3C7', '#FDE68A', '#F59E0B'],
+                emoji: '⭐',
+                coinEmoji: '🌻',
+            },
+            legend: {
+                color: '#EF4444',
+                gradient: ['#FECACA', '#FCA5A5'],
+                heroGradient: ['#EF4444', '#DC2626', '#B91C1C'],
+                coinGradient: ['#FECACA', '#FCA5A5', '#EF4444'],
+                emoji: '🏆',
+                coinEmoji: '🌳',
+            }
+        };
+        return rankData[rank] || rankData.beginner;
+    };
+
+    const rankInfo = getRankInfo(coinsData.rank);
+
     return (
         <ScrollView
             style={styles.container}
+            contentContainerStyle={styles.contentContainer}
             refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+                <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#9CA3AF" />
             }
         >
-            {/* Received Coins Notifications */}
-            {receivedCoins.length > 0 && (
-                <View style={styles.notificationsSection}>
-                    <View style={styles.notificationHeader}>
-                        <View style={styles.notificationHeaderLeft}>
-                            <Ionicons name="heart" size={20} color="#EF4444" />
-                            <Text style={styles.notificationHeaderTitle}>Kindness Received</Text>
+            {/* ============ HERO SECTION ============ */}
+            <View style={styles.heroWrapper}>
+                {/* Rank-colored half circle accent */}
+                <LinearGradient
+                    colors={rankInfo.heroGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.heroArc}
+                />
+
+                {/* Main Balance */}
+                <View style={styles.heroContent}>
+                    <Animated.View style={[styles.coinContainer, { transform: [{ scale: coinPulse }] }]}>
+                        {/* Custom Kindness Coin */}
+                        <View style={styles.coinOuter}>
+                            <LinearGradient
+                                colors={rankInfo.coinGradient}
+                                style={styles.coinRim}
+                            >
+                                <View style={styles.coinInner}>
+                                    <LinearGradient
+                                        colors={[rankInfo.coinGradient[0], rankInfo.coinGradient[2]]}
+                                        start={{ x: 0, y: 0 }}
+                                        end={{ x: 1, y: 1 }}
+                                        style={styles.coinFace}
+                                    >
+                                        {/* Heart with leaves - Kindness symbol */}
+                                        <View style={styles.coinSymbolContainer}>
+                                            <Ionicons name="leaf" size={11} color="rgba(255,255,255,0.9)" style={styles.coinLeafLeft} />
+                                            <Ionicons name="heart" size={22} color="#FFF" />
+                                            <Ionicons name="leaf" size={11} color="rgba(255,255,255,0.9)" style={styles.coinLeafRight} />
+                                        </View>
+                                        {/* Coin shine effect */}
+                                        <View style={styles.coinShine} />
+                                    </LinearGradient>
+                                </View>
+                            </LinearGradient>
                         </View>
-                        {receivedCoins.length > 3 && (
-                            <TouchableOpacity onPress={() => setShowAllReceived(!showAllReceived)}>
-                                <Text style={styles.showMoreText}>
-                                    {showAllReceived ? 'Show less' : `See all (${receivedCoins.length})`}
-                                </Text>
-                            </TouchableOpacity>
-                        )}
+                    </Animated.View>
+
+                    <Text style={styles.balanceAmount}>
+                        {coinsData.totalCoins.toLocaleString()}
+                    </Text>
+                    <Text style={styles.balanceLabel}>Positivity Coins</Text>
+                    {/* Stats Row */}
+                    <View style={styles.heroStatsRow}>
+                        <View style={styles.heroStatHalf}>
+                            <Text style={styles.heroStatValue}>{coinsData.lifetimeGiven}</Text>
+                            <Text style={styles.heroStatLabel}>Given</Text>
+                        </View>
+                        <View style={styles.heroStatDivider} />
+                        <TouchableOpacity style={styles.heroStatHalf} onPress={() => navigation.navigate('GiveLeaderboard')}>
+                            <View style={[styles.rankDotInline, { backgroundColor: rankInfo.heroGradient[0] }]} />
+                            <Text style={styles.heroStatValue}>
+                                {coinsData.rank.charAt(0).toUpperCase() + coinsData.rank.slice(1)}
+                            </Text>
+                            <Ionicons name="chevron-forward" size={11} color="#9CA3AF" />
+                        </TouchableOpacity>
                     </View>
-                    {(showAllReceived ? receivedCoins : receivedCoins.slice(0, 3)).map((item, index) =>
-                        renderReceivedNotification(item, index)
-                    )}
                 </View>
-            )}
-
-            {/* Balance Card */}
-            <View style={styles.balanceCard}>
-                <Text style={styles.balanceLabel}>Your Balance</Text>
-                <CoinsBalance totalCoins={coinsData.totalCoins} size="large" />
             </View>
 
-            {/* Cooldown Coins */}
-            <View style={styles.section}>
-                <CooldownCoinsWidget
-                    cooldownCoinsAvailable={coinsData.cooldownCoinsAvailable}
-                    minutesUntilNext={coinsData.minutesUntilNextCooldown}
-                    secondsUntilNext={coinsData.secondsUntilNextCooldown}
-                    onPress={handleClaimCooldown}
-                />
-                <Text style={styles.cooldownInfo}>
-                    Free coins regenerate every 3 hours (max 3)
-                </Text>
+            {/* ============ GET MORE COINS - UNIFIED SECTION ============ */}
+            <View style={styles.getCoinsSection}>
+                {/* Free Coins Card */}
+                <View style={styles.freeCoinsCard}>
+                    <LinearGradient
+                        colors={['#10B981', '#059669']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.freeCoinsGradient}
+                    >
+                        <View style={styles.freeCoinsLeft}>
+                            <View style={styles.freeCoinsBadge}>
+                                <Ionicons name="gift" size={20} color="#10B981" />
+                            </View>
+                            <View style={styles.freeCoinsInfo}>
+                                <Text style={styles.freeCoinsTitle}>Free Coins</Text>
+                                <Text style={styles.freeCoinsSubtitle}>
+                                    {coinsData.cooldownCoinsAvailable > 0
+                                        ? `${coinsData.cooldownCoinsAvailable} ready to claim!`
+                                        : 'Regenerates every 3 hours'}
+                                </Text>
+                            </View>
+                        </View>
+                        <TouchableOpacity
+                            style={[
+                                styles.claimButton,
+                                coinsData.cooldownCoinsAvailable === 0 && styles.claimButtonDisabled
+                            ]}
+                            onPress={handleClaimCooldown}
+                            disabled={coinsData.cooldownCoinsAvailable === 0}
+                        >
+                            {coinsData.cooldownCoinsAvailable > 0 ? (
+                                <>
+                                    <Ionicons name="sparkles" size={16} color="#10B981" />
+                                    <Text style={styles.claimButtonText}>Claim {coinsData.cooldownCoinsAvailable}</Text>
+                                </>
+                            ) : (
+                                <CooldownTimer secondsUntilNext={coinsData.secondsUntilNextCooldown} />
+                            )}
+                        </TouchableOpacity>
+                    </LinearGradient>
+
+                    {/* Coin slots indicator */}
+                    <View style={styles.coinSlots}>
+                        {[0, 1, 2].map((i) => (
+                            <View
+                                key={i}
+                                style={[
+                                    styles.coinSlot,
+                                    i < coinsData.cooldownCoinsAvailable && styles.coinSlotFilled
+                                ]}
+                            >
+                                {i < coinsData.cooldownCoinsAvailable && (
+                                    <Ionicons name="checkmark" size={10} color="#FFF" />
+                                )}
+                            </View>
+                        ))}
+                    </View>
+                </View>
+
+                {/* Earn Options - Compact Row */}
+                <View style={styles.earnRow}>
+                    <EarnChip
+                        icon="create"
+                        iconColor="#8B5CF6"
+                        iconBg="#EDE9FE"
+                        label="Post"
+                        reward="+2"
+                        onPress={() => navigation.dispatch(
+                            CommonActions.navigate({ name: 'CreatePost' })
+                        )}
+                    />
+                    <EarnChip
+                        icon="chatbubble"
+                        iconColor="#10B981"
+                        iconBg="#D1FAE5"
+                        label="Comment"
+                        reward="+1"
+                        onPress={() => navigation.dispatch(
+                            CommonActions.navigate({ name: 'Feed' })
+                        )}
+                    />
+                    <EarnChip
+                        icon="play"
+                        iconColor="#F59E0B"
+                        iconBg="#FEF3C7"
+                        label="Ad"
+                        reward="+5"
+                        disabled
+                        onPress={() => Alert.alert('Coming Soon', 'Ad rewards feature coming soon!')}
+                    />
+                </View>
             </View>
 
-            {/* Give Counter */}
-            <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Your Impact</Text>
-                <GiveCounterBadge
-                    giveCounter={coinsData.lifetimeGiven}
-                    rank={coinsData.rank}
-                />
-                <Text style={styles.giveInfo}>
-                    You've spread {coinsData.lifetimeGiven} positive vibes! Keep it up!
-                </Text>
-            </View>
-
-            {/* Earn More Coins */}
-            <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Earn More Coins</Text>
-
-                <EarnOption
-                    icon="create-outline"
-                    title="Write a Meaningful Post"
-                    reward="+2 coins"
-                    description="Write a caption with 20+ characters"
-                    onPress={() => navigation.navigate('CreatePost')}
-                />
-
-                <EarnOption
-                    icon="chatbubble-outline"
-                    title="Leave a Kind Comment"
-                    reward="+1 coin"
-                    description="10+ characters with positive words or emojis"
-                    onPress={() => navigation.navigate('Feed')}
-                />
-
-                <EarnOption
-                    icon="play-circle-outline"
-                    title="Watch an Ad"
-                    reward="+5 coins"
-                    description="Max 3 per day"
-                    onPress={() => Alert.alert('Coming Soon', 'Ad rewards feature coming soon!')}
-                />
-            </View>
-
-            {/* Quick Actions */}
-            <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Quick Actions</Text>
-
-                <TouchableOpacity
-                    style={styles.actionButton}
-                    onPress={() => navigation.navigate('CoinHistory')}
-                >
-                    <Ionicons name="list-outline" size={24} color="#007AFF" />
-                    <Text style={styles.actionText}>Transaction History</Text>
-                    <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                    style={styles.actionButton}
-                    onPress={() => navigation.navigate('GiveLeaderboard')}
-                >
-                    <Ionicons name="trophy-outline" size={24} color="#F59E0B" />
-                    <Text style={styles.actionText}>Kindness Leaderboard</Text>
-                    <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                    style={styles.actionButton}
-                    onPress={() => navigation.navigate('GivingActivity')}
-                >
-                    <Ionicons name="heart-outline" size={24} color="#EF4444" />
-                    <Text style={styles.actionText}>Recent Giving Activity</Text>
-                    <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
-                </TouchableOpacity>
-            </View>
-
-            {/* Friendship Consistency Score Section */}
+            {/* ============ FRIENDSHIP BONDS ============ */}
             {trustConnections.length > 0 && (
                 <View style={styles.trustSection}>
-                    <View style={styles.trustHeader}>
-                        <View style={styles.trustHeaderLeft}>
-                            <Ionicons name="sparkles" size={20} color="#8B5CF6" />
-                            <Text style={styles.trustHeaderTitle}>Friendship Consistency</Text>
-                        </View>
+                    {/* Compact inline label row */}
+                    <View style={styles.trustLabelRow}>
+                        <View style={styles.trustLabelAccent} />
+                        <Ionicons name="people" size={13} color="#8B5CF6" />
+                        <Text style={styles.trustLabelText}>Bonds</Text>
                         {trustConnections.length > 3 && (
-                            <TouchableOpacity onPress={() => setShowAllTrust(!showAllTrust)}>
-                                <Text style={styles.showMoreText}>
-                                    {showAllTrust ? 'Show less' : `See all (${trustConnections.length})`}
+                            <TouchableOpacity
+                                style={styles.seeAllBtn}
+                                onPress={() => setShowAllTrust(!showAllTrust)}
+                            >
+                                <Text style={styles.seeAllText}>
+                                    {showAllTrust ? 'Less' : `All (${trustConnections.length})`}
                                 </Text>
                             </TouchableOpacity>
                         )}
                     </View>
-                    <Text style={styles.trustDescription}>
-                        Consistency builds stronger friendships over time
-                    </Text>
                     {(showAllTrust ? trustConnections : trustConnections.slice(0, 3)).map((connection) => (
                         <TrustConnectionItem
                             key={connection.id}
                             connection={connection}
                             onPress={handleTrustConnectionPress}
+                            onMessagePress={handleMessagePress}
+                            onProfilePress={handleProfilePress}
                         />
                     ))}
                 </View>
             )}
+
+            {/* ============ KINDNESS RECEIVED + TRANSACTION HISTORY ============ */}
+            <View style={styles.receivedSection}>
+                <View style={styles.sectionHeader}>
+                    <View style={[styles.sectionIcon, { backgroundColor: '#FEE2E2' }]}>
+                        <Ionicons name="heart" size={16} color="#EF4444" />
+                    </View>
+                    <Text style={styles.sectionTitle}>Kindness Received</Text>
+                </View>
+
+                {receivedCoins.length > 0 ? (
+                    <>
+                        {receivedCoins.slice(0, 3).map((item, index) =>
+                            renderReceivedNotification(item, index)
+                        )}
+                    </>
+                ) : (
+                    <View style={styles.emptyReceived}>
+                        <Ionicons name="gift-outline" size={24} color="#D1D5DB" />
+                        <Text style={styles.emptyReceivedText}>No coins received yet</Text>
+                    </View>
+                )}
+
+                <TouchableOpacity
+                    style={styles.viewAllActivityBtn}
+                    onPress={() => navigation.navigate('CoinHistory')}
+                >
+                    <Ionicons name="receipt-outline" size={16} color="#6366F1" />
+                    <Text style={styles.viewAllActivityText}>View All Activity</Text>
+                    <Ionicons name="chevron-forward" size={14} color="#6366F1" />
+                </TouchableOpacity>
+            </View>
+
+            <View style={styles.bottomSpacer} />
         </ScrollView>
     );
 }
 
-interface EarnOptionProps {
-    icon: any;
-    title: string;
+// Earn Chip Component with press animation
+function EarnChip({ icon, iconColor, iconBg, label, reward, disabled, onPress }: {
+    icon: keyof typeof Ionicons.glyphMap;
+    iconColor: string;
+    iconBg: string;
+    label: string;
     reward: string;
-    description: string;
+    disabled?: boolean;
     onPress: () => void;
+}) {
+    const scale = React.useRef(new Animated.Value(1)).current;
+
+    const handlePressIn = () => {
+        Animated.spring(scale, {
+            toValue: 0.93,
+            friction: 8,
+            tension: 200,
+            useNativeDriver: true,
+        }).start();
+    };
+
+    const handlePressOut = () => {
+        Animated.spring(scale, {
+            toValue: 1,
+            friction: 5,
+            tension: 150,
+            useNativeDriver: true,
+        }).start();
+    };
+
+    return (
+        <Animated.View style={[styles.earnChip, { transform: [{ scale }] }]}>
+            <TouchableOpacity
+                style={styles.earnChipInner}
+                onPress={onPress}
+                onPressIn={handlePressIn}
+                onPressOut={handlePressOut}
+                activeOpacity={1}
+            >
+                <View style={[styles.earnChipIcon, { backgroundColor: iconBg }]}>
+                    <Ionicons name={icon} size={15} color={iconColor} />
+                </View>
+                <Text style={styles.earnChipLabel}>{label}</Text>
+                <View style={[styles.earnChipBadge, disabled && styles.earnChipBadgeDisabled]}>
+                    <Text style={[styles.earnChipReward, disabled && styles.earnChipRewardDisabled]}>{reward}</Text>
+                </View>
+                <Ionicons
+                    name={disabled ? 'lock-closed' : 'chevron-forward'}
+                    size={10}
+                    color={disabled ? '#D1D5DB' : '#9CA3AF'}
+                    style={styles.earnChipArrow}
+                />
+            </TouchableOpacity>
+        </Animated.View>
+    );
 }
 
-function EarnOption({ icon, title, reward, description, onPress }: EarnOptionProps) {
+// Cooldown Timer Component
+function CooldownTimer({ secondsUntilNext }: { secondsUntilNext: number | null }) {
+    const [seconds, setSeconds] = React.useState(secondsUntilNext);
+
+    React.useEffect(() => {
+        setSeconds(secondsUntilNext);
+    }, [secondsUntilNext]);
+
+    React.useEffect(() => {
+        if (seconds === null || seconds <= 0) return;
+        const interval = setInterval(() => {
+            setSeconds(prev => (prev && prev > 0 ? prev - 1 : 0));
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [seconds]);
+
+    const formatTime = (secs: number | null) => {
+        if (secs === null || secs <= 0) return '0:00';
+        const h = Math.floor(secs / 3600);
+        const m = Math.floor((secs % 3600) / 60);
+        const s = secs % 60;
+        if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        return `${m}:${s.toString().padStart(2, '0')}`;
+    };
+
     return (
-        <TouchableOpacity style={styles.earnOption} onPress={onPress}>
-            <View style={styles.earnIcon}>
-                <Ionicons name={icon} size={28} color="#007AFF" />
-            </View>
-            <View style={styles.earnContent}>
-                <View style={styles.earnHeader}>
-                    <Text style={styles.earnTitle}>{title}</Text>
-                    <View style={styles.rewardBadge}>
-                        <Text style={styles.rewardText}>{reward}</Text>
-                    </View>
-                </View>
-                <Text style={styles.earnDescription}>{description}</Text>
-            </View>
-        </TouchableOpacity>
+        <View style={styles.timerContainer}>
+            <Ionicons name="time-outline" size={14} color="#6B7280" />
+            <Text style={styles.timerText}>{formatTime(seconds)}</Text>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#F9FAFB'
+        backgroundColor: '#F3F4F6'
     },
-    balanceCard: {
-        backgroundColor: '#FFF',
-        margin: 16,
-        padding: 20,
-        borderRadius: 16,
+    contentContainer: {
+        paddingBottom: 20
+    },
+
+    // ============ HERO SECTION ============
+    heroWrapper: {
+        paddingBottom: 16,
+        paddingHorizontal: 20,
+        backgroundColor: '#F3F4F6',
         alignItems: 'center',
+    },
+    heroArc: {
+        position: 'absolute',
+        top: 0,
+        left: -SCREEN_WIDTH * 0.25,
+        width: SCREEN_WIDTH * 1.5,
+        height: SCREEN_WIDTH * 0.6,
+        borderBottomLeftRadius: SCREEN_WIDTH * 0.6,
+        borderBottomRightRadius: SCREEN_WIDTH * 0.6,
+        opacity: 0.12,
+    },
+    heroContent: {
+        alignItems: 'center',
+        paddingTop: 32,
+    },
+    coinContainer: {
+        marginBottom: 10
+    },
+    // Custom Kindness Coin Styles
+    coinOuter: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.35,
+        shadowRadius: 12,
+        elevation: 12
+    },
+    coinRim: {
+        width: 72,
+        height: 72,
+        borderRadius: 36,
+        padding: 3,
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+    coinInner: {
+        width: '100%',
+        height: '100%',
+        borderRadius: 33,
+        backgroundColor: 'rgba(255,255,255,0.3)',
+        padding: 3,
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+    coinFace: {
+        width: '100%',
+        height: '100%',
+        borderRadius: 30,
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden'
+    },
+    coinSymbolContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+    coinLeafLeft: {
+        transform: [{ rotate: '-45deg' }],
+        marginRight: -4,
+        marginTop: -8
+    },
+    coinLeafRight: {
+        transform: [{ rotate: '45deg' }, { scaleX: -1 }],
+        marginLeft: -4,
+        marginTop: -8
+    },
+    coinShine: {
+        position: 'absolute',
+        top: -20,
+        left: -20,
+        width: 50,
+        height: 80,
+        backgroundColor: 'rgba(255,255,255,0.25)',
+        transform: [{ rotate: '35deg' }]
+    },
+    balanceAmount: {
+        fontSize: 40,
+        fontWeight: '800',
+        color: '#111827',
+        marginBottom: 2
     },
     balanceLabel: {
         fontSize: 14,
         color: '#6B7280',
-        marginBottom: 12,
-        textTransform: 'uppercase',
-        letterSpacing: 1
+        fontWeight: '500',
+        marginBottom: 14
     },
-    section: {
-        padding: 16
-    },
-    sectionTitle: {
-        fontSize: 18,
-        fontWeight: '700',
-        color: '#111827',
-        marginBottom: 12
-    },
-    cooldownInfo: {
-        fontSize: 13,
-        color: '#6B7280',
-        marginTop: 12,
-        textAlign: 'center'
-    },
-    giveInfo: {
-        fontSize: 14,
-        color: '#6B7280',
-        marginTop: 12,
-        textAlign: 'center'
-    },
-    earnOption: {
+    heroStatsRow: {
         flexDirection: 'row',
+        alignItems: 'center',
+        width: SCREEN_WIDTH - 60,
         backgroundColor: '#FFF',
-        borderRadius: 12,
-        padding: 16,
-        marginBottom: 12,
+        borderRadius: 14,
+        paddingVertical: 10,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 2,
-        elevation: 2
+        shadowOpacity: 0.06,
+        shadowRadius: 4,
+        elevation: 2,
     },
-    earnIcon: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: '#EFF6FF',
+    heroStatHalf: {
+        flex: 1,
+        flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        marginRight: 12
+        gap: 6,
     },
-    earnContent: {
-        flex: 1
-    },
-    earnHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 4
-    },
-    earnTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#111827'
-    },
-    rewardBadge: {
-        backgroundColor: '#10B981',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 8
-    },
-    rewardText: {
-        fontSize: 12,
+    heroStatValue: {
+        fontSize: 15,
         fontWeight: '700',
-        color: '#FFF'
+        color: '#111827',
     },
-    earnDescription: {
-        fontSize: 14,
-        color: '#6B7280'
+    heroStatLabel: {
+        fontSize: 13,
+        color: '#9CA3AF',
+        fontWeight: '500',
     },
-    actionButton: {
+    heroStatDivider: {
+        width: StyleSheet.hairlineWidth,
+        height: 24,
+        backgroundColor: '#D1D5DB'
+    },
+    rankDotInline: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+    },
+    // ============ SECTION STYLES ============
+    sectionHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#FFF',
-        padding: 16,
-        borderRadius: 12,
-        marginBottom: 12,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 2,
-        elevation: 2
+        marginBottom: 10,
+        gap: 8
     },
-    actionText: {
+    sectionIcon: {
+        width: 30,
+        height: 30,
+        borderRadius: 8,
+        backgroundColor: '#D1FAE5',
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+    sectionTitle: {
         flex: 1,
         fontSize: 16,
-        fontWeight: '500',
-        color: '#111827',
-        marginLeft: 12
+        fontWeight: '700',
+        color: '#111827'
+    },
+    seeAllBtn: {
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        backgroundColor: '#EFF6FF',
+        borderRadius: 12
+    },
+    seeAllText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#3B82F6'
     },
 
-    // Notification styles
-    notificationsSection: {
+    // ============ GET MORE COINS SECTION ============
+    getCoinsSection: {
+        marginTop: 8,
+        marginHorizontal: 16
+    },
+    freeCoinsCard: {
         backgroundColor: '#FFF',
+        borderRadius: 14,
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+        elevation: 4
+    },
+    freeCoinsGradient: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 12
+    },
+    freeCoinsLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1
+    },
+    freeCoinsBadge: {
+        width: 38,
+        height: 38,
+        borderRadius: 10,
+        backgroundColor: '#FFF',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 10
+    },
+    freeCoinsInfo: {
+        flex: 1
+    },
+    freeCoinsTitle: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: '#FFF',
+        marginBottom: 1
+    },
+    freeCoinsSubtitle: {
+        fontSize: 12,
+        color: 'rgba(255,255,255,0.85)'
+    },
+    claimButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFF',
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: 16,
+        gap: 5
+    },
+    claimButtonDisabled: {
+        backgroundColor: 'rgba(255,255,255,0.2)'
+    },
+    claimButtonText: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#10B981'
+    },
+    coinSlots: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        gap: 6,
+        paddingVertical: 8,
+        backgroundColor: '#F9FAFB'
+    },
+    coinSlot: {
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        backgroundColor: '#E5E7EB',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 2,
+        borderColor: '#D1D5DB'
+    },
+    coinSlotFilled: {
+        backgroundColor: '#10B981',
+        borderColor: '#059669'
+    },
+    earnRow: {
+        flexDirection: 'row',
+        gap: 8,
+        marginTop: 12,
+    },
+    earnChip: {
+        flex: 1,
+        backgroundColor: '#FFF',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    earnChipInner: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 10,
+        paddingHorizontal: 8,
+        gap: 4,
+    },
+    earnChipIcon: {
+        width: 30,
+        height: 30,
+        borderRadius: 9,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    earnChipLabel: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#374151',
+        textAlign: 'center',
+    },
+    earnChipBadge: {
+        backgroundColor: '#ECFDF5',
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 8,
+    },
+    earnChipBadgeDisabled: {
+        backgroundColor: '#F3F4F6',
+    },
+    earnChipReward: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#10B981',
+    },
+    earnChipRewardDisabled: {
+        color: '#9CA3AF',
+    },
+    earnChipArrow: {
+        position: 'absolute',
+        top: 6,
+        right: 6,
+    },
+    timerContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4
+    },
+    timerText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#6B7280'
+    },
+
+    // ============ RECEIVED SECTION ============
+    receivedSection: {
+        marginTop: 14,
         marginHorizontal: 16,
-        marginTop: 16,
+        backgroundColor: '#FFF',
         borderRadius: 16,
         padding: 16,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
         elevation: 3
     },
-    notificationHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
+
+    emptyReceived: {
         alignItems: 'center',
-        marginBottom: 12
+        paddingVertical: 16,
+        gap: 6,
     },
-    notificationHeaderLeft: {
+    emptyReceivedText: {
+        fontSize: 13,
+        color: '#9CA3AF',
+        fontWeight: '500',
+    },
+    viewAllActivityBtn: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8
+        justifyContent: 'center',
+        paddingVertical: 10,
+        marginTop: 4,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: '#F3F4F6',
+        gap: 5,
     },
-    notificationHeaderTitle: {
-        fontSize: 16,
-        fontWeight: '700',
-        color: '#111827'
-    },
-    showMoreText: {
+    viewAllActivityText: {
         fontSize: 14,
         fontWeight: '600',
-        color: '#007AFF'
+        color: '#6366F1',
     },
+
+    // ============ NOTIFICATION STYLES ============
     notificationCard: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#FEF3C7',
+        backgroundColor: '#FFFBEB',
         borderRadius: 12,
-        padding: 12,
-        marginBottom: 8
+        padding: 10,
+        marginBottom: 8,
+        borderWidth: 1,
+        borderColor: '#FEF3C7'
     },
     notificationIcon: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        backgroundColor: '#FFF',
+        width: 36,
+        height: 36,
+        borderRadius: 10,
+        backgroundColor: '#FEF3C7',
         alignItems: 'center',
         justifyContent: 'center',
-        marginRight: 12,
-        shadowColor: '#FBBF24',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 4,
-        elevation: 2
+        marginRight: 10
     },
     notificationContent: {
         flex: 1
     },
     notificationTitle: {
-        fontSize: 14,
+        fontSize: 13,
         color: '#374151',
-        lineHeight: 20
+        lineHeight: 18
     },
     notificationUsername: {
         fontWeight: '700',
@@ -588,55 +1067,47 @@ const styles = StyleSheet.create({
         marginTop: 4
     },
     notificationTime: {
-        fontSize: 12,
+        fontSize: 11,
         color: '#9CA3AF',
         marginTop: 4
     },
     notificationBadge: {
         backgroundColor: '#10B981',
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 12
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 10
     },
     notificationBadgeText: {
-        fontSize: 14,
+        fontSize: 12,
         fontWeight: '700',
         color: '#FFF'
     },
 
-    // Trust Connections styles
+    // ============ TRUST SECTION ============
     trustSection: {
-        backgroundColor: '#FFF',
+        marginTop: 14,
         marginHorizontal: 16,
-        marginTop: 8,
-        marginBottom: 24,
-        borderRadius: 16,
-        padding: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3
     },
-    trustHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 4
-    },
-    trustHeaderLeft: {
+    trustLabelRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8
+        marginBottom: 8,
+        gap: 5,
     },
-    trustHeaderTitle: {
-        fontSize: 16,
-        fontWeight: '700',
-        color: '#111827'
+    trustLabelAccent: {
+        width: 3,
+        height: 14,
+        borderRadius: 1.5,
+        backgroundColor: '#8B5CF6',
     },
-    trustDescription: {
+    trustLabelText: {
         fontSize: 13,
+        fontWeight: '600',
         color: '#6B7280',
-        marginBottom: 12
+        flex: 1,
+    },
+
+    bottomSpacer: {
+        height: 30
     }
 });
