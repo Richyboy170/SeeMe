@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { NavigationContainer, NavigationContainerRef } from '@react-navigation/native';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { NavigationContainer, NavigationContainerRef, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, TouchableOpacity, View, Text } from 'react-native';
+import { useTheme } from '../theme';
 
 // Account management
 import { AccountProvider, useAccountContext } from '../contexts/AccountContext';
@@ -95,8 +96,15 @@ function AuthNavigator() {
 }
 
 function CoinsNavigator() {
+  const { colors } = useTheme();
   return (
-    <CoinsStack.Navigator>
+    <CoinsStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.background },
+        headerTintColor: colors.text.primary,
+        headerTitleStyle: { color: colors.text.primary },
+      }}
+    >
       <CoinsStack.Screen
         name="CoinsHome"
         component={CoinsScreen}
@@ -134,8 +142,15 @@ function CoinsNavigator() {
 }
 
 function DiscoverNavigator() {
+  const { colors } = useTheme();
   return (
-    <DiscoverStack.Navigator>
+    <DiscoverStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.background },
+        headerTintColor: colors.text.primary,
+        headerTitleStyle: { color: colors.text.primary },
+      }}
+    >
       <DiscoverStack.Screen
         name="DiscoverHome"
         component={DiscoverScreen}
@@ -183,8 +198,15 @@ function DiscoverNavigator() {
 }
 
 function FeedNavigator() {
+  const { colors } = useTheme();
   return (
-    <FeedStack.Navigator>
+    <FeedStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.background },
+        headerTintColor: colors.text.primary,
+        headerTitleStyle: { color: colors.text.primary },
+      }}
+    >
       <FeedStack.Screen
         name="FeedHome"
         component={FeedScreen}
@@ -231,8 +253,15 @@ function FeedNavigator() {
 }
 
 function CreatePostNavigator() {
+  const { colors } = useTheme();
   return (
-    <CreatePostStack.Navigator>
+    <CreatePostStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.background },
+        headerTintColor: colors.text.primary,
+        headerTitleStyle: { color: colors.text.primary },
+      }}
+    >
       <CreatePostStack.Screen
         name="CreatePostHome"
         component={CreatePostScreen}
@@ -246,8 +275,8 @@ function CreatePostNavigator() {
         options={{
           title: 'Create 3D Avatar',
           headerBackTitle: 'Back',
-          headerStyle: { backgroundColor: '#1A1A2E' },
-          headerTintColor: '#FFF',
+          headerStyle: { backgroundColor: colors.surface },
+          headerTintColor: colors.text.primary,
         }}
       />
     </CreatePostStack.Navigator>
@@ -255,8 +284,15 @@ function CreatePostNavigator() {
 }
 
 function ProfileNavigator() {
+  const { colors } = useTheme();
   return (
-    <ProfileStack.Navigator>
+    <ProfileStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.background },
+        headerTintColor: colors.text.primary,
+        headerTitleStyle: { color: colors.text.primary },
+      }}
+    >
       <ProfileStack.Screen
         name="ProfileHome"
         component={ProfileScreen}
@@ -286,6 +322,7 @@ function ProfileNavigator() {
 }
 
 function MainNavigator() {
+  const { colors } = useTheme();
   return (
     <MainTab.Navigator
       screenOptions={({ route }) => ({
@@ -306,8 +343,9 @@ function MainNavigator() {
 
           return <Ionicons name={iconName} size={size} color={color} />;
         },
-        tabBarActiveTintColor: '#FBBF24',
-        tabBarInactiveTintColor: 'gray',
+        tabBarActiveTintColor: colors.tabActive,
+        tabBarInactiveTintColor: colors.tabInactive,
+        tabBarStyle: { backgroundColor: colors.background, borderTopColor: colors.border },
       })}
     >
       <MainTab.Screen
@@ -340,6 +378,7 @@ function MainNavigator() {
 
 // Inner component that uses AccountContext
 function RootNavigatorContent() {
+  const { colors, isDark } = useTheme();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -395,6 +434,20 @@ function RootNavigatorContent() {
       refreshUnreadCount();
       // Refresh accounts to pick up newly logged in account
       refreshAccounts();
+
+      // Check if we should navigate to Profile (re-login of existing account)
+      const checkNavigateToProfile = async () => {
+        const shouldNavigate = await AsyncStorage.getItem('navigate_to_profile');
+        if (shouldNavigate) {
+          await AsyncStorage.removeItem('navigate_to_profile');
+          setTimeout(() => {
+            if (navigationRef.current) {
+              navigationRef.current.navigate('Profile' as never);
+            }
+          }, 100);
+        }
+      };
+      checkNavigateToProfile();
     } else {
       socketService.disconnect();
       setUnreadCount(0);
@@ -467,16 +520,46 @@ function RootNavigatorContent() {
       // First check multi-account system
       const activeAcc = await accountManager.getActiveAccount();
 
-      // If user is adding a new account, only allow login if a different account is now active
+      // If user is adding a new account
       if (isAddingAccountRef.current) {
+        // Check if user cancelled — go back to the app
+        const cancelled = await AsyncStorage.getItem('cancel_add_account');
+        if (cancelled) {
+          await AsyncStorage.removeItem('cancel_add_account');
+          await AsyncStorage.removeItem('adding_account');
+          isAddingAccountRef.current = false;
+          if (activeAcc) {
+            setIsAuthenticated(true);
+          }
+          setIsLoading(false);
+          return;
+        }
+
+        // Check if a login just completed (handles same account re-login)
+        const loginCompleted = await AsyncStorage.getItem('login_completed');
+        if (loginCompleted && activeAcc) {
+          await AsyncStorage.removeItem('login_completed');
+          await AsyncStorage.removeItem('adding_account');
+          isAddingAccountRef.current = false;
+          setIsAuthenticated(true);
+          setIsLoading(false);
+          return;
+        }
+
+        // Also check if a different account is now active (original check)
         if (activeAcc && activeAcc.id !== previousAccountIdRef.current) {
-          // New account was added and is now active - allow login
+          await AsyncStorage.removeItem('adding_account');
+          isAddingAccountRef.current = false;
           setIsAuthenticated(true);
         }
+
         // Otherwise, don't auto-login with the previous account
         setIsLoading(false);
         return;
       }
+
+      // Clean up login_completed flag if not in add-account mode
+      await AsyncStorage.removeItem('login_completed');
 
       if (activeAcc) {
         setIsAuthenticated(true);
@@ -528,6 +611,8 @@ function RootNavigatorContent() {
     previousAccountIdRef.current = currentAccount?.id || null;
     // Set flag to prevent auto-login from existing account
     isAddingAccountRef.current = true;
+    // Let LoginScreen know we're in add-account mode (for cancel button)
+    await AsyncStorage.setItem('adding_account', 'true');
     setIsAuthenticated(false);
   };
 
@@ -541,9 +626,22 @@ function RootNavigatorContent() {
     decrementUnreadCount,
   };
 
+  const navigationTheme = useMemo(() => ({
+    ...(isDark ? DarkTheme : DefaultTheme),
+    colors: {
+      ...(isDark ? DarkTheme.colors : DefaultTheme.colors),
+      primary: colors.text.link,
+      background: colors.background,
+      card: colors.background,
+      text: colors.text.primary,
+      border: colors.border,
+      notification: colors.gift,
+    },
+  }), [isDark, colors]);
+
   return (
     <UnreadContext.Provider value={contextValue}>
-      <NavigationContainer ref={navigationRef}>
+      <NavigationContainer ref={navigationRef} theme={navigationTheme}>
         {isAuthenticated ? <MainNavigator /> : <AuthNavigator />}
       </NavigationContainer>
 

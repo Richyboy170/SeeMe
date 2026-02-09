@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../../theme';
+import KindnessCoin from './KindnessCoin';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -19,61 +21,13 @@ interface CoinInvestAnimationProps {
   onComplete: () => void;
 }
 
-// Mini Kindness Coin for the animation
-const MiniCoin = ({ size, style }: { size: number; style?: any }) => (
-  <Animated.View style={[{ width: size, height: size }, style]}>
-    <LinearGradient
-      colors={['#FDE68A', '#FBBF24', '#F59E0B']}
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#F59E0B',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.5,
-        shadowRadius: 8,
-        elevation: 8,
-      }}
-    >
-      <LinearGradient
-        colors={['#FEF3C7', '#FDE68A', '#FBBF24']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={{
-          width: size * 0.75,
-          height: size * 0.75,
-          borderRadius: (size * 0.75) / 2,
-          justifyContent: 'center',
-          alignItems: 'center',
-        }}
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Ionicons
-            name="leaf"
-            size={size * 0.15}
-            color="rgba(255,255,255,0.9)"
-            style={{ transform: [{ rotate: '-45deg' }], marginRight: -size * 0.04, marginTop: -size * 0.08 }}
-          />
-          <Ionicons name="heart" size={size * 0.3} color="#FFF" />
-          <Ionicons
-            name="leaf"
-            size={size * 0.15}
-            color="rgba(255,255,255,0.9)"
-            style={{ transform: [{ rotate: '45deg' }, { scaleX: -1 }], marginLeft: -size * 0.04, marginTop: -size * 0.08 }}
-          />
-        </View>
-      </LinearGradient>
-    </LinearGradient>
-  </Animated.View>
-);
 
 export default function CoinInvestAnimation({
   visible,
   amount,
   onComplete,
 }: CoinInvestAnimationProps) {
+  const { colors, isDark } = useTheme();
   const overlayOpacity = useRef(new Animated.Value(0)).current;
 
   // 3 coins rising from bottom
@@ -377,7 +331,7 @@ export default function CoinInvestAnimation({
                 },
               ]}
             >
-              <MiniCoin size={50} />
+              <KindnessCoin size={50} />
             </Animated.View>
           ))}
 
@@ -450,13 +404,13 @@ export default function CoinInvestAnimation({
               },
             ]}
           >
-            <Text style={styles.investText}>Investing in connections...</Text>
-            <Text style={styles.coinCostText}>-{amount} coins</Text>
+            <Text style={styles.investText}>Planting kindness</Text>
+            <Text style={styles.subtitleText}>Growing friendships, one post at a time</Text>
           </Animated.View>
 
           {/* Skip hint */}
           <View style={styles.skipHint}>
-            <Text style={styles.skipText}>Tap to skip</Text>
+            <Text style={[styles.skipText, { color: colors.text.secondary }]}>Tap to skip</Text>
           </View>
         </TouchableOpacity>
       </Animated.View>
@@ -522,11 +476,12 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 10,
   },
-  coinCostText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#FBBF24',
+  subtitleText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#A7F3D0',
     marginTop: 8,
+    textAlign: 'center',
   },
   skipHint: {
     position: 'absolute',
@@ -537,6 +492,5 @@ const styles = StyleSheet.create({
   },
   skipText: {
     fontSize: 14,
-    color: '#6B7280',
   },
 });

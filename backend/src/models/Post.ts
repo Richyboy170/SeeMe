@@ -39,6 +39,7 @@ export interface PostAttributes {
   likesCount: number;
   commentsCount: number;
   repostCount: number;
+  isArchived: boolean;
   imageWidth: number | null;
   imageHeight: number | null;
   facesDetected: number | null;
@@ -65,6 +66,7 @@ interface PostCreationAttributes extends Optional<
   | 'likesCount'
   | 'commentsCount'
   | 'repostCount'
+  | 'isArchived'
   | 'imageWidth'
   | 'imageHeight'
   | 'facesDetected'
@@ -92,6 +94,7 @@ export class Post extends Model<PostAttributes, PostCreationAttributes> implemen
   public likesCount!: number;
   public commentsCount!: number;
   public repostCount!: number;
+  public isArchived!: boolean;
   public imageWidth!: number | null;
   public imageHeight!: number | null;
   public facesDetected!: number | null;
@@ -203,6 +206,12 @@ Post.init(
       defaultValue: 0,
       allowNull: false,
       comment: 'Number of reposts on this post'
+    },
+    isArchived: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      comment: 'Whether the post is archived (hidden from feeds)'
     },
     imageWidth: {
       type: DataTypes.INTEGER,

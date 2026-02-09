@@ -10,10 +10,10 @@ import {
   ActivityIndicator,
   Dimensions,
   Modal,
-  useColorScheme,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from '../../theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GIF_COLUMNS = 2;
@@ -37,31 +37,8 @@ interface GifPickerProps {
   onSelectGif: (gif: Gif) => void;
 }
 
-// Theme colors
-const themes = {
-  dark: {
-    background: '#000000',
-    cardBackground: '#16181C',
-    text: '#E7E9EA',
-    textSecondary: '#71767B',
-    separator: '#2F3336',
-    inputBg: '#202327',
-    accent: '#1D9BF0',
-  },
-  light: {
-    background: '#FFFFFF',
-    cardBackground: '#F7F9F9',
-    text: '#0F1419',
-    textSecondary: '#536471',
-    separator: '#EFF3F4',
-    inputBg: '#F3F4F6',
-    accent: '#1D9BF0',
-  },
-};
-
 export default function GifPicker({ visible, onClose, onSelectGif }: GifPickerProps) {
-  const colorScheme = useColorScheme();
-  const colors = colorScheme === 'dark' ? themes.dark : themes.light;
+  const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -166,7 +143,7 @@ export default function GifPicker({ visible, onClose, onSelectGif }: GifPickerPr
 
   const renderGifItem = ({ item }: { item: Gif }) => (
     <TouchableOpacity
-      style={[styles.gifItem, { backgroundColor: colors.inputBg }]}
+      style={[styles.gifItem, { backgroundColor: colors.inputBackground }]}
       onPress={() => handleSelectGif(item)}
       activeOpacity={0.8}
     >
@@ -189,19 +166,19 @@ export default function GifPicker({ visible, onClose, onSelectGif }: GifPickerPr
         {/* Header */}
         <View style={[styles.header, { borderBottomColor: colors.separator }]}>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Ionicons name="close" size={28} color={colors.text} />
+            <Ionicons name="close" size={28} color={colors.text.primary} />
           </TouchableOpacity>
-          <Text style={[styles.title, { color: colors.text }]}>Choose a GIF</Text>
+          <Text style={[styles.title, { color: colors.text.primary }]}>Choose a GIF</Text>
           <View style={{ width: 36 }} />
         </View>
 
         {/* Search Input */}
-        <View style={[styles.searchContainer, { backgroundColor: colors.inputBg }]}>
-          <Ionicons name="search" size={20} color={colors.textSecondary} style={styles.searchIcon} />
+        <View style={[styles.searchContainer, { backgroundColor: colors.inputBackground }]}>
+          <Ionicons name="search" size={20} color={colors.text.secondary} style={styles.searchIcon} />
           <TextInput
-            style={[styles.searchInput, { color: colors.text }]}
+            style={[styles.searchInput, { color: colors.text.primary }]}
             placeholder="Search GIFs..."
-            placeholderTextColor={colors.textSecondary}
+            placeholderTextColor={colors.text.secondary}
             value={searchQuery}
             onChangeText={handleSearchChange}
             autoCapitalize="none"
@@ -209,7 +186,7 @@ export default function GifPicker({ visible, onClose, onSelectGif }: GifPickerPr
           />
           {searchQuery.length > 0 && (
             <TouchableOpacity onPress={() => handleSearchChange('')}>
-              <Ionicons name="close-circle" size={20} color={colors.textSecondary} />
+              <Ionicons name="close-circle" size={20} color={colors.text.secondary} />
             </TouchableOpacity>
           )}
         </View>
@@ -217,15 +194,15 @@ export default function GifPicker({ visible, onClose, onSelectGif }: GifPickerPr
         {/* GIF Grid */}
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={colors.accent} />
-            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading GIFs...</Text>
+            <ActivityIndicator size="large" color={colors.text.link} />
+            <Text style={[styles.loadingText, { color: colors.text.secondary }]}>Loading GIFs...</Text>
           </View>
         ) : error ? (
           <View style={styles.errorContainer}>
-            <Ionicons name="cloud-offline-outline" size={48} color={colors.textSecondary} />
-            <Text style={[styles.errorText, { color: colors.textSecondary }]}>{error}</Text>
+            <Ionicons name="cloud-offline-outline" size={48} color={colors.text.secondary} />
+            <Text style={[styles.errorText, { color: colors.text.secondary }]}>{error}</Text>
             <TouchableOpacity
-              style={[styles.retryButton, { backgroundColor: colors.accent }]}
+              style={[styles.retryButton, { backgroundColor: colors.text.link }]}
               onPress={loadFeaturedGifs}
             >
               <Text style={styles.retryText}>Retry</Text>
@@ -241,8 +218,8 @@ export default function GifPicker({ visible, onClose, onSelectGif }: GifPickerPr
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
-                <Ionicons name="images-outline" size={48} color={colors.textSecondary} />
-                <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+                <Ionicons name="images-outline" size={48} color={colors.text.secondary} />
+                <Text style={[styles.emptyText, { color: colors.text.secondary }]}>
                   {searchQuery ? 'No GIFs found for this search' : 'No GIFs available'}
                 </Text>
               </View>
@@ -252,8 +229,8 @@ export default function GifPicker({ visible, onClose, onSelectGif }: GifPickerPr
 
         {/* Powered by Tenor */}
         <View style={[styles.attribution, { borderTopColor: colors.separator }]}>
-          <Text style={[styles.attributionText, { color: colors.textSecondary }]}>Powered by </Text>
-          <Text style={[styles.tenorText, { color: colors.text }]}>Tenor</Text>
+          <Text style={[styles.attributionText, { color: colors.text.secondary }]}>Powered by </Text>
+          <Text style={[styles.tenorText, { color: colors.text.primary }]}>Tenor</Text>
         </View>
       </View>
     </Modal>

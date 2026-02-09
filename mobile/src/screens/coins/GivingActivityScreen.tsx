@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../services/api';
+import { useTheme } from '../../theme';
 
 interface GivingActivity {
   id: string;
@@ -41,6 +42,7 @@ interface Pagination {
 }
 
 export default function GivingActivityScreen({ navigation }: any) {
+  const { colors } = useTheme();
   const [activity, setActivity] = useState<GivingActivity[]>([]);
   const [pagination, setPagination] = useState<Pagination>({
     page: 1,
@@ -113,14 +115,14 @@ export default function GivingActivityScreen({ navigation }: any) {
 
   const renderItem = ({ item }: { item: GivingActivity }) => {
     return (
-      <View style={styles.item}>
+      <View style={[styles.item, { backgroundColor: colors.card }]}>
         {/* Giver */}
         <TouchableOpacity
           style={styles.user}
           onPress={() => handleUserPress(item.giver.id)}
         >
-          <Ionicons name="person-circle" size={40} color="#9CA3AF" />
-          <Text style={styles.username}>@{item.giver.username}</Text>
+          <Ionicons name="person-circle" size={40} color={colors.text.tertiary} />
+          <Text style={[styles.username, { color: colors.text.primary }]}>@{item.giver.username}</Text>
         </TouchableOpacity>
 
         {/* Gift Icon with Amount */}
@@ -138,17 +140,17 @@ export default function GivingActivityScreen({ navigation }: any) {
           style={styles.user}
           onPress={() => handleUserPress(item.receiver.id)}
         >
-          <Ionicons name="person-circle" size={40} color="#9CA3AF" />
-          <Text style={styles.username}>@{item.receiver.username}</Text>
+          <Ionicons name="person-circle" size={40} color={colors.text.tertiary} />
+          <Text style={[styles.username, { color: colors.text.primary }]}>@{item.receiver.username}</Text>
         </TouchableOpacity>
 
         {/* Timestamp */}
-        <Text style={styles.timestamp}>{formatTimeAgo(item.createdAt)}</Text>
+        <Text style={[styles.timestamp, { color: colors.text.tertiary }]}>{formatTimeAgo(item.createdAt)}</Text>
 
         {/* Message (if provided) */}
         {item.message && (
-          <View style={styles.messageContainer}>
-            <Text style={styles.message} numberOfLines={3}>
+          <View style={[styles.messageContainer, { backgroundColor: colors.background }]}>
+            <Text style={[styles.message, { color: colors.text.secondary }]} numberOfLines={3}>
               "{item.message}"
             </Text>
           </View>
@@ -159,17 +161,17 @@ export default function GivingActivityScreen({ navigation }: any) {
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
+      <View style={[styles.container, styles.centerContent, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color="#FBBF24" />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Giving Activity</Text>
-        <Text style={styles.subtitle}>Recent acts of kindness</Text>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+        <Text style={[styles.headerTitle, { color: colors.text.primary }]}>Giving Activity</Text>
+        <Text style={[styles.subtitle, { color: colors.text.tertiary }]}>Recent acts of kindness</Text>
       </View>
 
       <FlatList
@@ -191,9 +193,9 @@ export default function GivingActivityScreen({ navigation }: any) {
         }
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Ionicons name="heart-outline" size={64} color="#D1D5DB" />
-            <Text style={styles.emptyText}>No activity yet</Text>
-            <Text style={styles.emptySubtext}>
+            <Ionicons name="heart-outline" size={64} color={colors.disabled} />
+            <Text style={[styles.emptyText, { color: colors.text.secondary }]}>No activity yet</Text>
+            <Text style={[styles.emptySubtext, { color: colors.text.tertiary }]}>
               Be the first to give coins and spread positivity!
             </Text>
           </View>

@@ -14,6 +14,7 @@ import { useFocusEffect, CommonActions } from '@react-navigation/native';
 import { api } from '../../services/api';
 import Avatar from '../../components/Avatar';
 import { AvatarCustomizations } from '../../components/AvatarRenderer';
+import { useTheme } from '../../theme';
 
 interface ActiveAvatar {
   id: string;
@@ -39,6 +40,7 @@ interface SearchUsersScreenProps {
 }
 
 export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps) {
+  const { colors, isDark } = useTheme();
   const [searchQuery, setSearchQuery] = useState('');
   const [users, setUsers] = useState<SearchUser[]>([]);
   const [followingUsers, setFollowingUsers] = useState<SearchUser[]>([]);
@@ -251,7 +253,7 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
 
         {/* User Info */}
         <View style={styles.userInfo}>
-          <Text style={styles.username}>{item.username}</Text>
+          <Text style={[styles.username, { color: colors.text.primary }]}>{item.username}</Text>
           {showReason && item.recommendationReason ? (
             <View style={styles.reasonBadge}>
               <Ionicons
@@ -266,21 +268,21 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
               <Text style={styles.reasonText}>{item.recommendationReason}</Text>
             </View>
           ) : item.positivityRank ? (
-            <Text style={styles.rank}>{item.positivityRank}</Text>
+            <Text style={[styles.rank, { color: colors.text.tertiary }]}>{item.positivityRank}</Text>
           ) : null}
         </View>
 
         {/* Message Button (for following users) */}
         {(showMessage || item.isFollowing) && (
           <TouchableOpacity
-            style={styles.messageButton}
+            style={[styles.messageButton, { backgroundColor: colors.inputBackground }]}
             onPress={() => handleMessage(item)}
             disabled={isLoadingMessage}
           >
             {isLoadingMessage ? (
-              <ActivityIndicator size="small" color="#3897F0" />
+              <ActivityIndicator size="small" color={colors.text.link} />
             ) : (
-              <Ionicons name="chatbubble-outline" size={20} color="#3897F0" />
+              <Ionicons name="chatbubble-outline" size={20} color={colors.text.link} />
             )}
           </TouchableOpacity>
         )}
@@ -289,17 +291,18 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
         <TouchableOpacity
           style={[
             styles.followButton,
-            item.isFollowing && styles.followingButton
+            { backgroundColor: colors.text.link },
+            item.isFollowing && [styles.followingButton, { backgroundColor: colors.inputBackground, borderColor: colors.border }]
           ]}
           onPress={() => handleFollow(item)}
           disabled={isLoadingFollow}
         >
           {isLoadingFollow ? (
-            <ActivityIndicator size="small" color={item.isFollowing ? '#000' : '#FFF'} />
+            <ActivityIndicator size="small" color={item.isFollowing ? colors.text.primary : '#FFF'} />
           ) : (
             <Text style={[
               styles.followButtonText,
-              item.isFollowing && styles.followingButtonText
+              item.isFollowing && [styles.followingButtonText, { color: colors.text.primary }]
             ]}>
               {item.isFollowing ? 'Following' : 'Follow'}
             </Text>
@@ -318,15 +321,15 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.card }]}>
       {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <View style={styles.searchBar}>
-          <Ionicons name="search" size={20} color="#8E8E93" style={styles.searchIcon} />
+      <View style={[styles.searchContainer, { borderBottomColor: colors.border }]}>
+        <View style={[styles.searchBar, { backgroundColor: colors.inputBackground }]}>
+          <Ionicons name="search" size={20} color={colors.text.tertiary} style={styles.searchIcon} />
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { color: colors.text.primary }]}
             placeholder="Search users..."
-            placeholderTextColor="#8E8E93"
+            placeholderTextColor={colors.text.tertiary}
             value={searchQuery}
             onChangeText={setSearchQuery}
             onSubmitEditing={handleSearch}
@@ -342,7 +345,7 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
                 setHasSearched(false);
               }}
             >
-              <Ionicons name="close-circle" size={20} color="#8E8E93" />
+              <Ionicons name="close-circle" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
           )}
         </View>
@@ -353,7 +356,8 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
         >
           <Text style={[
             styles.searchButtonText,
-            (!searchQuery.trim() || loading) && styles.searchButtonTextDisabled
+            { color: colors.text.link },
+            (!searchQuery.trim() || loading) && [styles.searchButtonTextDisabled, { color: colors.disabled }]
           ]}>
             Search
           </Text>
@@ -363,7 +367,7 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
       {/* Results */}
       {loading ? (
         <View style={styles.centerContent}>
-          <ActivityIndicator size="large" color="#3897F0" />
+          <ActivityIndicator size="large" color={colors.text.link} />
         </View>
       ) : hasSearched && users.length > 0 ? (
         // Search results
@@ -376,22 +380,22 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
         />
       ) : hasSearched && users.length === 0 ? (
         <View style={styles.centerContent}>
-          <Ionicons name="person-outline" size={64} color="#C7C7CC" />
-          <Text style={styles.emptyTitle}>No users found</Text>
-          <Text style={styles.emptySubtitle}>
+          <Ionicons name="person-outline" size={64} color={colors.border} />
+          <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>No users found</Text>
+          <Text style={[styles.emptySubtitle, { color: colors.text.tertiary }]}>
             Try searching with a different username
           </Text>
         </View>
       ) : loadingFollowing ? (
         <View style={styles.centerContent}>
-          <ActivityIndicator size="large" color="#3897F0" />
+          <ActivityIndicator size="large" color={colors.text.link} />
         </View>
       ) : followingUsers.length > 0 ? (
         // Show following users by default
-        <View style={styles.container}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Your Friends</Text>
-            <Text style={styles.sectionSubtitle}>People you follow</Text>
+        <View style={[styles.container, { backgroundColor: colors.card }]}>
+          <View style={[styles.sectionHeader, { backgroundColor: colors.card }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Your Friends</Text>
+            <Text style={[styles.sectionSubtitle, { color: colors.text.tertiary }]}>People you follow</Text>
           </View>
           <FlatList
             data={followingUsers}
@@ -403,16 +407,16 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
         </View>
       ) : loadingRecommendations ? (
         <View style={styles.centerContent}>
-          <ActivityIndicator size="large" color="#3897F0" />
+          <ActivityIndicator size="large" color={colors.text.link} />
         </View>
       ) : recommendedUsers.length > 0 ? (
         // Show recommended users when user has no following
-        <View style={styles.container}>
-          <View style={styles.sectionHeader}>
+        <View style={[styles.container, { backgroundColor: colors.card }]}>
+          <View style={[styles.sectionHeader, { backgroundColor: colors.card }]}>
             <Ionicons name="sparkles" size={20} color="#FBBF24" style={styles.sectionIcon} />
             <View>
-              <Text style={styles.sectionTitle}>Suggested for You</Text>
-              <Text style={styles.sectionSubtitle}>People you might want to follow</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Suggested for You</Text>
+              <Text style={[styles.sectionSubtitle, { color: colors.text.tertiary }]}>People you might want to follow</Text>
             </View>
           </View>
           <FlatList
@@ -425,9 +429,9 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
         </View>
       ) : (
         <View style={styles.centerContent}>
-          <Ionicons name="people-outline" size={64} color="#C7C7CC" />
-          <Text style={styles.emptyTitle}>Find Friends</Text>
-          <Text style={styles.emptySubtitle}>
+          <Ionicons name="people-outline" size={64} color={colors.border} />
+          <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>Find Friends</Text>
+          <Text style={[styles.emptySubtitle, { color: colors.text.tertiary }]}>
             Search for users by their username to follow them
           </Text>
         </View>

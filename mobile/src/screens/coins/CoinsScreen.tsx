@@ -16,6 +16,8 @@ import { api } from '../../services/api';
 import TrustConnectionItem from '../../components/TrustConnectionItem';
 import { useCoinCelebration } from '../../contexts/CoinCelebrationContext';
 import { Ionicons } from '@expo/vector-icons';
+import KindnessCoin from '../../components/coins/KindnessCoin';
+import { useTheme } from '../../theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -44,6 +46,7 @@ interface TrustConnection {
 }
 
 export default function CoinsScreen({ navigation }: any) {
+    const { colors, isDark } = useTheme();
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [coinsData, setCoinsData] = useState({
@@ -257,17 +260,17 @@ export default function CoinsScreen({ navigation }: any) {
                     <Ionicons name="gift" size={18} color="#FBBF24" />
                 </View>
                 <View style={styles.notificationContent}>
-                    <Text style={styles.notificationTitle}>
-                        <Text style={styles.notificationUsername}>@{item.fromUsername}</Text>
+                    <Text style={[styles.notificationTitle, { color: colors.text.primary }]}>
+                        <Text style={[styles.notificationUsername, { color: colors.text.primary }]}>@{item.fromUsername}</Text>
                         {' '}sent you{' '}
                         <Text style={styles.notificationAmount}>{item.amount} coin{item.amount > 1 ? 's' : ''}</Text>
                     </Text>
                     {item.message && (
-                        <Text style={styles.notificationMessage} numberOfLines={2}>
+                        <Text style={[styles.notificationMessage, { color: colors.text.secondary }]} numberOfLines={2}>
                             "{item.message}"
                         </Text>
                     )}
-                    <Text style={styles.notificationTime}>{formatTimeAgo(item.createdAt)}</Text>
+                    <Text style={[styles.notificationTime, { color: colors.text.secondary }]}>{formatTimeAgo(item.createdAt)}</Text>
                 </View>
                 <View style={styles.notificationBadge}>
                     <Text style={styles.notificationBadgeText}>+{item.amount}</Text>
@@ -333,14 +336,14 @@ export default function CoinsScreen({ navigation }: any) {
 
     return (
         <ScrollView
-            style={styles.container}
+            style={[styles.container, { backgroundColor: colors.surface }]}
             contentContainerStyle={styles.contentContainer}
             refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#9CA3AF" />
+                <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.text.secondary} />
             }
         >
             {/* ============ HERO SECTION ============ */}
-            <View style={styles.heroWrapper}>
+            <View style={[styles.heroWrapper, { backgroundColor: colors.surface }]}>
                 {/* Rank-colored half circle accent */}
                 <LinearGradient
                     colors={rankInfo.heroGradient}
@@ -352,50 +355,30 @@ export default function CoinsScreen({ navigation }: any) {
                 {/* Main Balance */}
                 <View style={styles.heroContent}>
                     <Animated.View style={[styles.coinContainer, { transform: [{ scale: coinPulse }] }]}>
-                        {/* Custom Kindness Coin */}
-                        <View style={styles.coinOuter}>
-                            <LinearGradient
-                                colors={rankInfo.coinGradient}
-                                style={styles.coinRim}
-                            >
-                                <View style={styles.coinInner}>
-                                    <LinearGradient
-                                        colors={[rankInfo.coinGradient[0], rankInfo.coinGradient[2]]}
-                                        start={{ x: 0, y: 0 }}
-                                        end={{ x: 1, y: 1 }}
-                                        style={styles.coinFace}
-                                    >
-                                        {/* Heart with leaves - Kindness symbol */}
-                                        <View style={styles.coinSymbolContainer}>
-                                            <Ionicons name="leaf" size={11} color="rgba(255,255,255,0.9)" style={styles.coinLeafLeft} />
-                                            <Ionicons name="heart" size={22} color="#FFF" />
-                                            <Ionicons name="leaf" size={11} color="rgba(255,255,255,0.9)" style={styles.coinLeafRight} />
-                                        </View>
-                                        {/* Coin shine effect */}
-                                        <View style={styles.coinShine} />
-                                    </LinearGradient>
-                                </View>
-                            </LinearGradient>
-                        </View>
+                        <KindnessCoin
+                            size={72}
+                            rimColors={rankInfo.coinGradient}
+                            faceColors={rankInfo.coinGradient}
+                        />
                     </Animated.View>
 
-                    <Text style={styles.balanceAmount}>
+                    <Text style={[styles.balanceAmount, { color: colors.text.primary }]}>
                         {coinsData.totalCoins.toLocaleString()}
                     </Text>
-                    <Text style={styles.balanceLabel}>Positivity Coins</Text>
+                    <Text style={[styles.balanceLabel, { color: colors.text.secondary }]}>Positivity Coins</Text>
                     {/* Stats Row */}
-                    <View style={styles.heroStatsRow}>
+                    <View style={[styles.heroStatsRow, { backgroundColor: colors.background }]}>
                         <View style={styles.heroStatHalf}>
-                            <Text style={styles.heroStatValue}>{coinsData.lifetimeGiven}</Text>
-                            <Text style={styles.heroStatLabel}>Given</Text>
+                            <Text style={[styles.heroStatValue, { color: colors.text.primary }]}>{coinsData.lifetimeGiven}</Text>
+                            <Text style={[styles.heroStatLabel, { color: colors.text.secondary }]}>Given</Text>
                         </View>
-                        <View style={styles.heroStatDivider} />
+                        <View style={[styles.heroStatDivider, { backgroundColor: colors.border }]} />
                         <TouchableOpacity style={styles.heroStatHalf} onPress={() => navigation.navigate('GiveLeaderboard')}>
                             <View style={[styles.rankDotInline, { backgroundColor: rankInfo.heroGradient[0] }]} />
-                            <Text style={styles.heroStatValue}>
+                            <Text style={[styles.heroStatValue, { color: colors.text.primary }]}>
                                 {coinsData.rank.charAt(0).toUpperCase() + coinsData.rank.slice(1)}
                             </Text>
-                            <Ionicons name="chevron-forward" size={11} color="#9CA3AF" />
+                            <Ionicons name="chevron-forward" size={11} color={colors.text.secondary} />
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -404,7 +387,7 @@ export default function CoinsScreen({ navigation }: any) {
             {/* ============ GET MORE COINS - UNIFIED SECTION ============ */}
             <View style={styles.getCoinsSection}>
                 {/* Free Coins Card */}
-                <View style={styles.freeCoinsCard}>
+                <View style={[styles.freeCoinsCard, { backgroundColor: colors.background }]}>
                     <LinearGradient
                         colors={['#10B981', '#059669']}
                         start={{ x: 0, y: 0 }}
@@ -412,7 +395,7 @@ export default function CoinsScreen({ navigation }: any) {
                         style={styles.freeCoinsGradient}
                     >
                         <View style={styles.freeCoinsLeft}>
-                            <View style={styles.freeCoinsBadge}>
+                            <View style={[styles.freeCoinsBadge, { backgroundColor: colors.background }]}>
                                 <Ionicons name="gift" size={20} color="#10B981" />
                             </View>
                             <View style={styles.freeCoinsInfo}>
@@ -427,6 +410,7 @@ export default function CoinsScreen({ navigation }: any) {
                         <TouchableOpacity
                             style={[
                                 styles.claimButton,
+                                { backgroundColor: colors.background },
                                 coinsData.cooldownCoinsAvailable === 0 && styles.claimButtonDisabled
                             ]}
                             onPress={handleClaimCooldown}
@@ -438,18 +422,19 @@ export default function CoinsScreen({ navigation }: any) {
                                     <Text style={styles.claimButtonText}>Claim {coinsData.cooldownCoinsAvailable}</Text>
                                 </>
                             ) : (
-                                <CooldownTimer secondsUntilNext={coinsData.secondsUntilNextCooldown} />
+                                <CooldownTimer secondsUntilNext={coinsData.secondsUntilNextCooldown} colors={colors} />
                             )}
                         </TouchableOpacity>
                     </LinearGradient>
 
                     {/* Coin slots indicator */}
-                    <View style={styles.coinSlots}>
+                    <View style={[styles.coinSlots, { backgroundColor: colors.surface }]}>
                         {[0, 1, 2].map((i) => (
                             <View
                                 key={i}
                                 style={[
                                     styles.coinSlot,
+                                    { backgroundColor: colors.border, borderColor: colors.border },
                                     i < coinsData.cooldownCoinsAvailable && styles.coinSlotFilled
                                 ]}
                             >
@@ -469,6 +454,7 @@ export default function CoinsScreen({ navigation }: any) {
                         iconBg="#EDE9FE"
                         label="Post"
                         reward="+2"
+                        colors={colors}
                         onPress={() => navigation.dispatch(
                             CommonActions.navigate({ name: 'CreatePost' })
                         )}
@@ -479,6 +465,7 @@ export default function CoinsScreen({ navigation }: any) {
                         iconBg="#D1FAE5"
                         label="Comment"
                         reward="+1"
+                        colors={colors}
                         onPress={() => navigation.dispatch(
                             CommonActions.navigate({ name: 'Feed' })
                         )}
@@ -490,6 +477,7 @@ export default function CoinsScreen({ navigation }: any) {
                         label="Ad"
                         reward="+5"
                         disabled
+                        colors={colors}
                         onPress={() => Alert.alert('Coming Soon', 'Ad rewards feature coming soon!')}
                     />
                 </View>
@@ -502,10 +490,10 @@ export default function CoinsScreen({ navigation }: any) {
                     <View style={styles.trustLabelRow}>
                         <View style={styles.trustLabelAccent} />
                         <Ionicons name="people" size={13} color="#8B5CF6" />
-                        <Text style={styles.trustLabelText}>Bonds</Text>
+                        <Text style={[styles.trustLabelText, { color: colors.text.secondary }]}>Bonds</Text>
                         {trustConnections.length > 3 && (
                             <TouchableOpacity
-                                style={styles.seeAllBtn}
+                                style={[styles.seeAllBtn, { backgroundColor: colors.surfaceVariant }]}
                                 onPress={() => setShowAllTrust(!showAllTrust)}
                             >
                                 <Text style={styles.seeAllText}>
@@ -527,12 +515,12 @@ export default function CoinsScreen({ navigation }: any) {
             )}
 
             {/* ============ KINDNESS RECEIVED + TRANSACTION HISTORY ============ */}
-            <View style={styles.receivedSection}>
+            <View style={[styles.receivedSection, { backgroundColor: colors.background }]}>
                 <View style={styles.sectionHeader}>
                     <View style={[styles.sectionIcon, { backgroundColor: '#FEE2E2' }]}>
                         <Ionicons name="heart" size={16} color="#EF4444" />
                     </View>
-                    <Text style={styles.sectionTitle}>Kindness Received</Text>
+                    <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Kindness Received</Text>
                 </View>
 
                 {receivedCoins.length > 0 ? (
@@ -543,13 +531,13 @@ export default function CoinsScreen({ navigation }: any) {
                     </>
                 ) : (
                     <View style={styles.emptyReceived}>
-                        <Ionicons name="gift-outline" size={24} color="#D1D5DB" />
-                        <Text style={styles.emptyReceivedText}>No coins received yet</Text>
+                        <Ionicons name="gift-outline" size={24} color={colors.border} />
+                        <Text style={[styles.emptyReceivedText, { color: colors.text.secondary }]}>No coins received yet</Text>
                     </View>
                 )}
 
                 <TouchableOpacity
-                    style={styles.viewAllActivityBtn}
+                    style={[styles.viewAllActivityBtn, { borderTopColor: colors.surfaceVariant }]}
                     onPress={() => navigation.navigate('CoinHistory')}
                 >
                     <Ionicons name="receipt-outline" size={16} color="#6366F1" />
@@ -564,7 +552,7 @@ export default function CoinsScreen({ navigation }: any) {
 }
 
 // Earn Chip Component with press animation
-function EarnChip({ icon, iconColor, iconBg, label, reward, disabled, onPress }: {
+function EarnChip({ icon, iconColor, iconBg, label, reward, disabled, onPress, colors }: {
     icon: keyof typeof Ionicons.glyphMap;
     iconColor: string;
     iconBg: string;
@@ -572,6 +560,7 @@ function EarnChip({ icon, iconColor, iconBg, label, reward, disabled, onPress }:
     reward: string;
     disabled?: boolean;
     onPress: () => void;
+    colors: any;
 }) {
     const scale = React.useRef(new Animated.Value(1)).current;
 
@@ -594,7 +583,7 @@ function EarnChip({ icon, iconColor, iconBg, label, reward, disabled, onPress }:
     };
 
     return (
-        <Animated.View style={[styles.earnChip, { transform: [{ scale }] }]}>
+        <Animated.View style={[styles.earnChip, { transform: [{ scale }], backgroundColor: colors.background, borderColor: colors.border }]}>
             <TouchableOpacity
                 style={styles.earnChipInner}
                 onPress={onPress}
@@ -605,14 +594,14 @@ function EarnChip({ icon, iconColor, iconBg, label, reward, disabled, onPress }:
                 <View style={[styles.earnChipIcon, { backgroundColor: iconBg }]}>
                     <Ionicons name={icon} size={15} color={iconColor} />
                 </View>
-                <Text style={styles.earnChipLabel}>{label}</Text>
-                <View style={[styles.earnChipBadge, disabled && styles.earnChipBadgeDisabled]}>
-                    <Text style={[styles.earnChipReward, disabled && styles.earnChipRewardDisabled]}>{reward}</Text>
+                <Text style={[styles.earnChipLabel, { color: colors.text.primary }]}>{label}</Text>
+                <View style={[styles.earnChipBadge, disabled && [styles.earnChipBadgeDisabled, { backgroundColor: colors.surface }]]}>
+                    <Text style={[styles.earnChipReward, disabled && [styles.earnChipRewardDisabled, { color: colors.text.secondary }]]}>{reward}</Text>
                 </View>
                 <Ionicons
                     name={disabled ? 'lock-closed' : 'chevron-forward'}
                     size={10}
-                    color={disabled ? '#D1D5DB' : '#9CA3AF'}
+                    color={disabled ? colors.border : colors.text.secondary}
                     style={styles.earnChipArrow}
                 />
             </TouchableOpacity>
@@ -621,7 +610,7 @@ function EarnChip({ icon, iconColor, iconBg, label, reward, disabled, onPress }:
 }
 
 // Cooldown Timer Component
-function CooldownTimer({ secondsUntilNext }: { secondsUntilNext: number | null }) {
+function CooldownTimer({ secondsUntilNext, colors }: { secondsUntilNext: number | null; colors: any }) {
     const [seconds, setSeconds] = React.useState(secondsUntilNext);
 
     React.useEffect(() => {
@@ -647,8 +636,8 @@ function CooldownTimer({ secondsUntilNext }: { secondsUntilNext: number | null }
 
     return (
         <View style={styles.timerContainer}>
-            <Ionicons name="time-outline" size={14} color="#6B7280" />
-            <Text style={styles.timerText}>{formatTime(seconds)}</Text>
+            <Ionicons name="time-outline" size={14} color={colors.text.secondary} />
+            <Text style={[styles.timerText, { color: colors.text.secondary }]}>{formatTime(seconds)}</Text>
         </View>
     );
 }
@@ -656,7 +645,6 @@ function CooldownTimer({ secondsUntilNext }: { secondsUntilNext: number | null }
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#F3F4F6'
     },
     contentContainer: {
         paddingBottom: 20
@@ -666,7 +654,6 @@ const styles = StyleSheet.create({
     heroWrapper: {
         paddingBottom: 16,
         paddingHorizontal: 20,
-        backgroundColor: '#F3F4F6',
         alignItems: 'center',
     },
     heroArc: {
@@ -686,72 +673,13 @@ const styles = StyleSheet.create({
     coinContainer: {
         marginBottom: 10
     },
-    // Custom Kindness Coin Styles
-    coinOuter: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.35,
-        shadowRadius: 12,
-        elevation: 12
-    },
-    coinRim: {
-        width: 72,
-        height: 72,
-        borderRadius: 36,
-        padding: 3,
-        alignItems: 'center',
-        justifyContent: 'center'
-    },
-    coinInner: {
-        width: '100%',
-        height: '100%',
-        borderRadius: 33,
-        backgroundColor: 'rgba(255,255,255,0.3)',
-        padding: 3,
-        alignItems: 'center',
-        justifyContent: 'center'
-    },
-    coinFace: {
-        width: '100%',
-        height: '100%',
-        borderRadius: 30,
-        alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'hidden'
-    },
-    coinSymbolContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center'
-    },
-    coinLeafLeft: {
-        transform: [{ rotate: '-45deg' }],
-        marginRight: -4,
-        marginTop: -8
-    },
-    coinLeafRight: {
-        transform: [{ rotate: '45deg' }, { scaleX: -1 }],
-        marginLeft: -4,
-        marginTop: -8
-    },
-    coinShine: {
-        position: 'absolute',
-        top: -20,
-        left: -20,
-        width: 50,
-        height: 80,
-        backgroundColor: 'rgba(255,255,255,0.25)',
-        transform: [{ rotate: '35deg' }]
-    },
     balanceAmount: {
         fontSize: 40,
         fontWeight: '800',
-        color: '#111827',
         marginBottom: 2
     },
     balanceLabel: {
         fontSize: 14,
-        color: '#6B7280',
         fontWeight: '500',
         marginBottom: 14
     },
@@ -759,7 +687,6 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         width: SCREEN_WIDTH - 60,
-        backgroundColor: '#FFF',
         borderRadius: 14,
         paddingVertical: 10,
         shadowColor: '#000',
@@ -778,17 +705,14 @@ const styles = StyleSheet.create({
     heroStatValue: {
         fontSize: 15,
         fontWeight: '700',
-        color: '#111827',
     },
     heroStatLabel: {
         fontSize: 13,
-        color: '#9CA3AF',
         fontWeight: '500',
     },
     heroStatDivider: {
         width: StyleSheet.hairlineWidth,
         height: 24,
-        backgroundColor: '#D1D5DB'
     },
     rankDotInline: {
         width: 8,
@@ -806,7 +730,6 @@ const styles = StyleSheet.create({
         width: 30,
         height: 30,
         borderRadius: 8,
-        backgroundColor: '#D1FAE5',
         alignItems: 'center',
         justifyContent: 'center'
     },
@@ -814,12 +737,10 @@ const styles = StyleSheet.create({
         flex: 1,
         fontSize: 16,
         fontWeight: '700',
-        color: '#111827'
     },
     seeAllBtn: {
         paddingHorizontal: 12,
         paddingVertical: 6,
-        backgroundColor: '#EFF6FF',
         borderRadius: 12
     },
     seeAllText: {
@@ -834,7 +755,6 @@ const styles = StyleSheet.create({
         marginHorizontal: 16
     },
     freeCoinsCard: {
-        backgroundColor: '#FFF',
         borderRadius: 14,
         overflow: 'hidden',
         shadowColor: '#000',
@@ -858,7 +778,6 @@ const styles = StyleSheet.create({
         width: 38,
         height: 38,
         borderRadius: 10,
-        backgroundColor: '#FFF',
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: 10
@@ -879,7 +798,6 @@ const styles = StyleSheet.create({
     claimButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#FFF',
         paddingHorizontal: 14,
         paddingVertical: 8,
         borderRadius: 16,
@@ -898,17 +816,14 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         gap: 6,
         paddingVertical: 8,
-        backgroundColor: '#F9FAFB'
     },
     coinSlot: {
         width: 22,
         height: 22,
         borderRadius: 11,
-        backgroundColor: '#E5E7EB',
         alignItems: 'center',
         justifyContent: 'center',
         borderWidth: 2,
-        borderColor: '#D1D5DB'
     },
     coinSlotFilled: {
         backgroundColor: '#10B981',
@@ -921,10 +836,8 @@ const styles = StyleSheet.create({
     },
     earnChip: {
         flex: 1,
-        backgroundColor: '#FFF',
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: '#E5E7EB',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.06,
@@ -948,7 +861,6 @@ const styles = StyleSheet.create({
     earnChipLabel: {
         fontSize: 12,
         fontWeight: '600',
-        color: '#374151',
         textAlign: 'center',
     },
     earnChipBadge: {
@@ -958,7 +870,6 @@ const styles = StyleSheet.create({
         borderRadius: 8,
     },
     earnChipBadgeDisabled: {
-        backgroundColor: '#F3F4F6',
     },
     earnChipReward: {
         fontSize: 11,
@@ -966,7 +877,6 @@ const styles = StyleSheet.create({
         color: '#10B981',
     },
     earnChipRewardDisabled: {
-        color: '#9CA3AF',
     },
     earnChipArrow: {
         position: 'absolute',
@@ -981,14 +891,12 @@ const styles = StyleSheet.create({
     timerText: {
         fontSize: 13,
         fontWeight: '600',
-        color: '#6B7280'
     },
 
     // ============ RECEIVED SECTION ============
     receivedSection: {
         marginTop: 14,
         marginHorizontal: 16,
-        backgroundColor: '#FFF',
         borderRadius: 16,
         padding: 16,
         shadowColor: '#000',
@@ -1005,7 +913,6 @@ const styles = StyleSheet.create({
     },
     emptyReceivedText: {
         fontSize: 13,
-        color: '#9CA3AF',
         fontWeight: '500',
     },
     viewAllActivityBtn: {
@@ -1015,7 +922,6 @@ const styles = StyleSheet.create({
         paddingVertical: 10,
         marginTop: 4,
         borderTopWidth: StyleSheet.hairlineWidth,
-        borderTopColor: '#F3F4F6',
         gap: 5,
     },
     viewAllActivityText: {
@@ -1049,12 +955,10 @@ const styles = StyleSheet.create({
     },
     notificationTitle: {
         fontSize: 13,
-        color: '#374151',
         lineHeight: 18
     },
     notificationUsername: {
         fontWeight: '700',
-        color: '#111827'
     },
     notificationAmount: {
         fontWeight: '700',
@@ -1062,13 +966,11 @@ const styles = StyleSheet.create({
     },
     notificationMessage: {
         fontSize: 13,
-        color: '#6B7280',
         fontStyle: 'italic',
         marginTop: 4
     },
     notificationTime: {
         fontSize: 11,
-        color: '#9CA3AF',
         marginTop: 4
     },
     notificationBadge: {
@@ -1103,7 +1005,6 @@ const styles = StyleSheet.create({
     trustLabelText: {
         fontSize: 13,
         fontWeight: '600',
-        color: '#6B7280',
         flex: 1,
     },
 

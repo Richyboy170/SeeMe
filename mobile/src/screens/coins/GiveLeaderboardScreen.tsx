@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../services/api';
 import GiveCounterBadge from '../../components/coins/GiveCounterBadge';
+import { useTheme } from '../../theme';
 
 interface LeaderboardUser {
   user: {
@@ -24,6 +25,7 @@ interface LeaderboardUser {
 }
 
 export default function GiveLeaderboardScreen() {
+  const { colors, isDark } = useTheme();
   const [leaderboard, setLeaderboard] = useState<LeaderboardUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -60,33 +62,33 @@ export default function GiveLeaderboardScreen() {
 
     return (
       <TouchableOpacity
-        style={styles.item}
+        style={[styles.item, { backgroundColor: colors.background }]}
         onPress={() => handleUserPress(item.user.id)}
       >
         {/* Rank Badge */}
-        <View style={[styles.rankBadge, isTopThree && styles.rankBadgeTop]}>
+        <View style={[styles.rankBadge, { backgroundColor: colors.surfaceVariant }, isTopThree && styles.rankBadgeTop]}>
           {isTopThree ? (
             <Text style={styles.medal}>{medals[index]}</Text>
           ) : (
-            <Text style={styles.rankNumber}>{index + 1}</Text>
+            <Text style={[styles.rankNumber, { color: colors.text.secondary }]}>{index + 1}</Text>
           )}
         </View>
 
         {/* User Info */}
         <View style={styles.userInfo}>
           <View style={styles.avatar}>
-            <Ionicons name="person-circle" size={48} color="#9CA3AF" />
+            <Ionicons name="person-circle" size={48} color={colors.text.secondary} />
           </View>
           <View style={styles.details}>
-            <Text style={styles.username}>@{item.user.username}</Text>
-            <Text style={styles.rankLabel}>{item.rank}</Text>
+            <Text style={[styles.username, { color: colors.text.primary }]}>@{item.user.username}</Text>
+            <Text style={[styles.rankLabel, { color: colors.text.secondary }]}>{item.rank}</Text>
           </View>
         </View>
 
         {/* Give Counter */}
         <View style={styles.counter}>
           <Text style={styles.counterNumber}>{item.lifetimeGiven.toLocaleString()}</Text>
-          <Text style={styles.counterLabel}>given</Text>
+          <Text style={[styles.counterLabel, { color: colors.text.secondary }]}>given</Text>
         </View>
       </TouchableOpacity>
     );
@@ -94,18 +96,18 @@ export default function GiveLeaderboardScreen() {
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
+      <View style={[styles.container, styles.centerContent, { backgroundColor: colors.surface }]}>
         <ActivityIndicator size="large" color="#FBBF24" />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.surface }]}>
       {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.title}>Kindness Leaderboard</Text>
-        <Text style={styles.subtitle}>Top spreaders of positivity 🌟</Text>
+      <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+        <Text style={[styles.title, { color: colors.text.primary }]}>Kindness Leaderboard</Text>
+        <Text style={[styles.subtitle, { color: colors.text.secondary }]}>Top spreaders of positivity 🌟</Text>
       </View>
 
       {/* Leaderboard List */}
@@ -119,9 +121,9 @@ export default function GiveLeaderboardScreen() {
         }
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Ionicons name="trophy-outline" size={64} color="#D1D5DB" />
-            <Text style={styles.emptyText}>No leaderboard data yet</Text>
-            <Text style={styles.emptySubtext}>
+            <Ionicons name="trophy-outline" size={64} color={colors.border} />
+            <Text style={[styles.emptyText, { color: colors.text.primary }]}>No leaderboard data yet</Text>
+            <Text style={[styles.emptySubtext, { color: colors.text.secondary }]}>
               Start giving coins to appear on the leaderboard!
             </Text>
           </View>
@@ -134,27 +136,22 @@ export default function GiveLeaderboardScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
   },
   centerContent: {
     justifyContent: 'center',
     alignItems: 'center',
   },
   header: {
-    backgroundColor: '#FFF',
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#111827',
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 15,
-    color: '#6B7280',
   },
   list: {
     paddingVertical: 8,
@@ -162,7 +159,6 @@ const styles = StyleSheet.create({
   item: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF',
     padding: 16,
     marginHorizontal: 12,
     marginVertical: 6,
@@ -177,7 +173,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -191,7 +186,6 @@ const styles = StyleSheet.create({
   rankNumber: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#6B7280',
   },
   userInfo: {
     flex: 1,
@@ -207,12 +201,10 @@ const styles = StyleSheet.create({
   username: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#111827',
     marginBottom: 2,
   },
   rankLabel: {
     fontSize: 13,
-    color: '#6B7280',
     textTransform: 'capitalize',
   },
   counter: {
@@ -225,7 +217,6 @@ const styles = StyleSheet.create({
   },
   counterLabel: {
     fontSize: 12,
-    color: '#9CA3AF',
   },
   emptyState: {
     alignItems: 'center',
@@ -235,13 +226,11 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#374151',
     marginTop: 16,
     marginBottom: 8,
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#6B7280',
     textAlign: 'center',
     maxWidth: 280,
   },

@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../services/api';
+import { useTheme } from '../../theme';
 
 interface Transaction {
   id: string;
@@ -24,6 +25,7 @@ interface Transaction {
 }
 
 export default function CoinHistoryScreen() {
+  const { colors } = useTheme();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -113,7 +115,7 @@ export default function CoinHistoryScreen() {
     const isIncrease = !item.type?.includes('give') || item.type === 'receive';
 
     return (
-      <View style={styles.item}>
+      <View style={[styles.item, { backgroundColor: colors.card }]}>
         {/* Icon */}
         <View style={[styles.iconContainer, { backgroundColor: `${icon.color}20` }]}>
           <Ionicons name={icon.name as any} size={24} color={icon.color} />
@@ -121,10 +123,10 @@ export default function CoinHistoryScreen() {
 
         {/* Details */}
         <View style={styles.details}>
-          <Text style={styles.title}>{title}</Text>
-          <Text style={styles.timestamp}>{formatTimeAgo(item.createdAt)}</Text>
+          <Text style={[styles.title, { color: colors.text.primary }]}>{title}</Text>
+          <Text style={[styles.timestamp, { color: colors.text.tertiary }]}>{formatTimeAgo(item.createdAt)}</Text>
           {item.metadata?.message && (
-            <Text style={styles.message} numberOfLines={2}>
+            <Text style={[styles.message, { color: colors.text.tertiary }]} numberOfLines={2}>
               "{item.metadata.message}"
             </Text>
           )}
@@ -138,7 +140,7 @@ export default function CoinHistoryScreen() {
           ]}>
             {isIncrease ? '+' : '-'}{Math.abs(item.amount)}
           </Text>
-          <Text style={styles.balance}>
+          <Text style={[styles.balance, { color: colors.text.tertiary }]}>
             Balance: {item.balanceAfter}
           </Text>
         </View>
@@ -148,17 +150,17 @@ export default function CoinHistoryScreen() {
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
+      <View style={[styles.container, styles.centerContent, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color="#FBBF24" />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Transaction History</Text>
-        <Text style={styles.subtitle}>Your coin activity</Text>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+        <Text style={[styles.headerTitle, { color: colors.text.primary }]}>Transaction History</Text>
+        <Text style={[styles.subtitle, { color: colors.text.tertiary }]}>Your coin activity</Text>
       </View>
 
       <FlatList
@@ -171,9 +173,9 @@ export default function CoinHistoryScreen() {
         }
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Ionicons name="receipt-outline" size={64} color="#D1D5DB" />
-            <Text style={styles.emptyText}>No transactions yet</Text>
-            <Text style={styles.emptySubtext}>
+            <Ionicons name="receipt-outline" size={64} color={colors.disabled} />
+            <Text style={[styles.emptyText, { color: colors.text.secondary }]}>No transactions yet</Text>
+            <Text style={[styles.emptySubtext, { color: colors.text.tertiary }]}>
               Start earning and giving coins to see your history here!
             </Text>
           </View>

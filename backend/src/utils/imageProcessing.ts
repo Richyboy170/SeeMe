@@ -27,12 +27,12 @@ export class ImageProcessor {
     try {
       const metadata = await sharp(buffer).metadata();
 
-      // Check format
-      const allowedFormats = ['jpeg', 'jpg', 'png', 'webp'];
+      // Check format (heif covers HEIC from iPhones — sharp converts it to JPEG downstream)
+      const allowedFormats = ['jpeg', 'jpg', 'png', 'webp', 'heif'];
       if (!metadata.format || !allowedFormats.includes(metadata.format.toLowerCase())) {
         return {
           valid: false,
-          error: 'Invalid image format. Only JPEG, PNG, and WebP allowed.'
+          error: 'Invalid image format. Only JPEG, PNG, WebP, and HEIC allowed.'
         };
       }
 

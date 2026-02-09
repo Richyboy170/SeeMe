@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getImageUrl } from '../services/api';
+import { useTheme } from '../theme';
 import AvatarRenderer, { AvatarCustomizations } from './AvatarRenderer';
 
 export interface AvatarProps {
@@ -33,6 +34,7 @@ export default function Avatar({
   customizations,
   avatarStyle = 'cartoon',
 }: AvatarProps) {
+  const { colors } = useTheme();
   const imageUri = avatarUrl ? getImageUrl(avatarUrl) : null;
 
   // Get initials from username (first letter, uppercase)
@@ -47,7 +49,7 @@ export default function Avatar({
     borderRadius: size / 2,
     ...(showBorder && {
       borderWidth: 2,
-      borderColor: '#E5E7EB',
+      borderColor: colors.border,
     }),
   };
 
@@ -68,7 +70,7 @@ export default function Avatar({
       return (
         <Image
           source={{ uri: imageUri }}
-          style={[styles.image, { width: size, height: size, borderRadius: size / 2 }]}
+          style={[styles.image, { width: size, height: size, borderRadius: size / 2, backgroundColor: colors.surfaceVariant }]}
         />
       );
     }
@@ -76,8 +78,8 @@ export default function Avatar({
     // Priority 3: Show initials if username is available
     if (username) {
       return (
-        <View style={[styles.placeholder, containerStyle, style]}>
-          <Text style={[styles.initials, { fontSize: size * 0.4 }]}>
+        <View style={[styles.placeholder, containerStyle, { backgroundColor: colors.surfaceVariant }, style]}>
+          <Text style={[styles.initials, { fontSize: size * 0.4, color: colors.text.secondary }]}>
             {getInitials()}
           </Text>
         </View>
@@ -87,8 +89,8 @@ export default function Avatar({
     // Default: show person icon
     const iconSize = size * 0.6;
     return (
-      <View style={[styles.placeholder, containerStyle, style]}>
-        <Ionicons name="person" size={iconSize} color="#9CA3AF" />
+      <View style={[styles.placeholder, containerStyle, { backgroundColor: colors.surfaceVariant }, style]}>
+        <Ionicons name="person" size={iconSize} color={colors.icon.secondary} />
       </View>
     );
   };

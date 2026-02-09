@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../../theme';
 
 interface CoinsBalanceProps {
     totalCoins: number;
@@ -8,6 +9,7 @@ interface CoinsBalanceProps {
 }
 
 export default function CoinsBalance({ totalCoins, size = 'medium' }: CoinsBalanceProps) {
+    const { colors } = useTheme();
     const sizeStyles = {
         small: {
             container: styles.smallContainer,
@@ -29,9 +31,9 @@ export default function CoinsBalance({ totalCoins, size = 'medium' }: CoinsBalan
     const currentSize = sizeStyles[size];
 
     return (
-        <View style={[styles.container, currentSize.container]}>
-            <Ionicons name="heart" size={currentSize.icon} color="#FBBF24" />
-            <Text style={[styles.text, currentSize.text]}>
+        <View style={[styles.container, currentSize.container, { backgroundColor: colors.card }]}>
+            <Ionicons name="heart" size={currentSize.icon} color={colors.gift} />
+            <Text style={[styles.text, currentSize.text, { color: colors.text.primary }]}>
                 {totalCoins.toLocaleString()}
             </Text>
         </View>

@@ -318,7 +318,7 @@ export class PostController {
   }
 
   /**
-   * Update post (edit caption)
+   * Update post (edit caption and optionally re-cropped image)
    */
   static async updatePost(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -338,15 +338,52 @@ export class PostController {
         return;
       }
 
-      await post.update({ caption });
+      const updateData: any = {};
+      if (caption !== undefined) {
+        updateData.caption = caption;
+      }
 
-      logger.info('Post updated', { postId, userId });
+      // Handle optional re-cropped image upload
+      const file = (req as any).file;
+      if (file) {
+        // Upload new processed image
+        const imageId = uuidv4();
+        const extension = file.mimetype?.split('/')[1] || 'jpeg';
+        const processedKey = `posts/${userId}/${imageId}-processed.${extension}`;
+        const processedUrl = await S3Service.uploadImage(file.buffer, processedKey, file.mimetype);
+        updateData.processedImageUrl = processedUrl;
+
+        // Generate and upload new thumbnail
+        try {
+          const thumbnailBuffer = await ImageProcessor.generateThumbnail(file.buffer, 400);
+          const thumbnailKey = `posts/${userId}/${imageId}-thumb.jpeg`;
+          const thumbnailUrl = await S3Service.uploadImage(thumbnailBuffer, thumbnailKey, 'image/jpeg');
+          updateData.thumbnailUrl = thumbnailUrl;
+        } catch (thumbError) {
+          logger.warn('Thumbnail generation failed during edit, using processed image', { thumbError });
+          updateData.thumbnailUrl = processedUrl;
+        }
+
+        // Delete old processed image and thumbnail (keep original)
+        if (post.processedImageUrl) {
+          S3Service.deleteImage(post.processedImageUrl).catch(() => {});
+        }
+        if (post.thumbnailUrl) {
+          S3Service.deleteImage(post.thumbnailUrl).catch(() => {});
+        }
+      }
+
+      await post.update(updateData);
+
+      logger.info('Post updated', { postId, userId, hasNewImage: !!file });
 
       res.json({
         message: 'Post updated successfully',
         post: {
           id: post.id,
           caption: post.caption,
+          processedImageUrl: post.processedImageUrl,
+          thumbnailUrl: post.thumbnailUrl,
           updatedAt: post.updatedAt
         }
       });
@@ -401,6 +438,70 @@ export class PostController {
     } catch (error) {
       logger.error('Error deleting post', { error, postId: req.params.postId });
       res.status(500).json({ error: 'Failed to delete post' });
+    }
+  }
+
+  /**
+   * Archive post (hide from feeds without deleting)
+   */
+  static async archivePost(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { postId } = req.params;
+      const userId = req.user!.id;
+
+      const post = await Post.findByPk(postId);
+
+      if (!post) {
+        res.status(404).json({ error: 'Post not found' });
+        return;
+      }
+
+      if (post.userId !== userId) {
+        res.status(403).json({ error: 'Not authorized to archive this post' });
+        return;
+      }
+
+      await post.update({ isArchived: true });
+
+      logger.info('Post archived', { postId, userId });
+
+      res.json({ message: 'Post archived successfully' });
+
+    } catch (error) {
+      logger.error('Error archiving post', { error, postId: req.params.postId });
+      res.status(500).json({ error: 'Failed to archive post' });
+    }
+  }
+
+  /**
+   * Unarchive post (restore to feeds)
+   */
+  static async unarchivePost(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { postId } = req.params;
+      const userId = req.user!.id;
+
+      const post = await Post.findByPk(postId);
+
+      if (!post) {
+        res.status(404).json({ error: 'Post not found' });
+        return;
+      }
+
+      if (post.userId !== userId) {
+        res.status(403).json({ error: 'Not authorized to unarchive this post' });
+        return;
+      }
+
+      await post.update({ isArchived: false });
+
+      logger.info('Post unarchived', { postId, userId });
+
+      res.json({ message: 'Post unarchived successfully' });
+
+    } catch (error) {
+      logger.error('Error unarchiving post', { error, postId: req.params.postId });
+      res.status(500).json({ error: 'Failed to unarchive post' });
     }
   }
 

@@ -128,7 +128,21 @@
       "WebFetch(domain:expo.dev)",
       "Bash(if not exist data mkdir data)",
       "Bash(set TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiIxYTVkZmE2My0xN2ZiLTQ1NGYtYTkyMy0zZDU2YmViMDQ2OTIiLCJ1c2VybmFtZSI6InRlc3R1c2VyMSIsImVtYWlsIjoidGVzdHVzZXIxQGV4YW1wbGUuY29tIiwiaWF0IjoxNzY5Nzg2NDg4LCJleHAiOjE3NzAzOTEyODh9.iEIa8bnkwdmUAGfGTrGXfwhIu4iNznvxk2XkUORLp6g:*)",
-      "Bash(cmd.exe /c \"taskkill /F /PID 20564\")"
+      "Bash(cmd.exe /c \"taskkill /F /PID 20564\")",
+      "WebSearch",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:www.skypack.dev)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(cmd /c \"cd /d C:\\\\Users\\\\HP\\\\Desktop\\\\Richy-coding-hub-2026\\\\SeeMe\\\\backend && npx tsc --noEmit 2>&1\")",
+      "Bash(npx kill-port:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)",
+      "Bash(fuser:*)",
+      "Bash(xargs -I {} sh -c 'echo \"\"=== {} ===\"\" && head -30 {}')",
+      "Bash(git clean:*)",
+      "Bash(del \"\\\\?\\\\C:\\\\Users\\\\HP\\\\Desktop\\\\Richy-coding-hub-2026\\\\SeeMe\\\\nul\")",
+      "Bash(cmd.exe /c \"del \\\\?\\\\C:\\\\Users\\\\HP\\\\Desktop\\\\Richy-coding-hub-2026\\\\SeeMe\\\\nul\")"
     ]
   }
 }

@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAccountContext } from '../contexts/AccountContext';
+import { useTheme } from '../theme';
 import Avatar from './Avatar';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -36,6 +37,7 @@ export default function AccountSwitcherModal({
         removeAccount,
     } = useAccountContext();
 
+    const { colors } = useTheme();
     const slideAnim = React.useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
     React.useEffect(() => {
@@ -109,18 +111,18 @@ export default function AccountSwitcherModal({
                 <Animated.View
                     style={[
                         styles.container,
-                        { transform: [{ translateY: slideAnim }] },
+                        { transform: [{ translateY: slideAnim }], backgroundColor: colors.background },
                     ]}
                 >
                     <TouchableOpacity activeOpacity={1}>
                         {/* Handle Bar */}
-                        <View style={styles.handleBar} />
+                        <View style={[styles.handleBar, { backgroundColor: colors.border }]} />
 
                         {/* Header */}
-                        <View style={styles.header}>
-                            <Text style={styles.headerTitle}>Switch Account</Text>
+                        <View style={[styles.header, { borderBottomColor: colors.separator }]}>
+                            <Text style={[styles.headerTitle, { color: colors.text.primary }]}>Switch Account</Text>
                             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                                <Ionicons name="close" size={24} color="#8E8E93" />
+                                <Ionicons name="close" size={24} color={colors.icon.secondary} />
                             </TouchableOpacity>
                         </View>
 
@@ -128,7 +130,7 @@ export default function AccountSwitcherModal({
                         {isSwitching && (
                             <View style={styles.switchingOverlay}>
                                 <ActivityIndicator size="large" color="#FBBF24" />
-                                <Text style={styles.switchingText}>Switching account...</Text>
+                                <Text style={[styles.switchingText, { color: colors.text.secondary }]}>Switching account...</Text>
                             </View>
                         )}
 
@@ -146,6 +148,7 @@ export default function AccountSwitcherModal({
                                         style={[
                                             styles.accountItem,
                                             isActive && styles.activeAccountItem,
+                                            { backgroundColor: colors.surface },
                                         ]}
                                         onPress={() => handleSwitchAccount(account.id)}
                                         disabled={isSwitching}
@@ -163,9 +166,9 @@ export default function AccountSwitcherModal({
                                                 />
                                             </View>
                                             <View style={styles.accountDetails}>
-                                                <Text style={styles.username}>@{account.username}</Text>
+                                                <Text style={[styles.username, { color: colors.text.primary }]}>@{account.username}</Text>
                                                 {account.email && (
-                                                    <Text style={styles.email} numberOfLines={1}>
+                                                    <Text style={[styles.email, { color: colors.text.secondary }]} numberOfLines={1}>
                                                         {account.email}
                                                     </Text>
                                                 )}
@@ -194,7 +197,7 @@ export default function AccountSwitcherModal({
 
                         {/* Add Account Button */}
                         <TouchableOpacity
-                            style={styles.addAccountButton}
+                            style={[styles.addAccountButton, { borderTopColor: colors.separator }]}
                             onPress={handleAddAccount}
                             disabled={isSwitching}
                         >

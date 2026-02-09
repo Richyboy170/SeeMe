@@ -7,6 +7,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../../theme';
 import PeopleTab from './PeopleTab';
 import CommunitiesTab from './CommunitiesTab';
 
@@ -17,6 +18,7 @@ interface DiscoverScreenProps {
 }
 
 export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
+  const { colors, isDark } = useTheme();
   const [activeTab, setActiveTab] = useState<TabType>('communities');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -45,19 +47,19 @@ export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Shared Search Bar */}
-      <View style={styles.searchContainer}>
-        <View style={styles.searchBar}>
-          <Ionicons name="search" size={20} color="#8E8E93" style={styles.searchIcon} />
+      <View style={[styles.searchContainer, { borderBottomColor: colors.border }]}>
+        <View style={[styles.searchBar, { backgroundColor: colors.inputBackground }]}>
+          <Ionicons name="search" size={20} color={colors.text.secondary} style={styles.searchIcon} />
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { color: colors.text.primary }]}
             placeholder={
               activeTab === 'people'
                 ? 'Search users...'
                 : 'Search communities...'
             }
-            placeholderTextColor="#8E8E93"
+            placeholderTextColor={colors.text.secondary}
             value={searchQuery}
             onChangeText={setSearchQuery}
             returnKeyType="search"
@@ -66,14 +68,14 @@ export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
           />
           {searchQuery.length > 0 && (
             <TouchableOpacity onPress={handleClearSearch}>
-              <Ionicons name="close-circle" size={20} color="#8E8E93" />
+              <Ionicons name="close-circle" size={20} color={colors.text.secondary} />
             </TouchableOpacity>
           )}
         </View>
       </View>
 
       {/* Tab Bar */}
-      <View style={styles.tabBar}>
+      <View style={[styles.tabBar, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'people' && styles.activeTab]}
           onPress={() => handleTabChange('people')}
@@ -81,10 +83,10 @@ export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
           <Ionicons
             name={activeTab === 'people' ? 'people' : 'people-outline'}
             size={18}
-            color={activeTab === 'people' ? '#14B8A6' : '#8E8E93'}
+            color={activeTab === 'people' ? '#14B8A6' : colors.text.secondary}
             style={styles.tabIcon}
           />
-          <Text style={[styles.tabText, activeTab === 'people' && styles.activeTabText]}>
+          <Text style={[styles.tabText, { color: colors.text.secondary }, activeTab === 'people' && styles.activeTabText]}>
             People
           </Text>
         </TouchableOpacity>
@@ -96,10 +98,10 @@ export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
           <Ionicons
             name={activeTab === 'communities' ? 'compass' : 'compass-outline'}
             size={18}
-            color={activeTab === 'communities' ? '#14B8A6' : '#8E8E93'}
+            color={activeTab === 'communities' ? '#14B8A6' : colors.text.secondary}
             style={styles.tabIcon}
           />
-          <Text style={[styles.tabText, activeTab === 'communities' && styles.activeTabText]}>
+          <Text style={[styles.tabText, { color: colors.text.secondary }, activeTab === 'communities' && styles.activeTabText]}>
             Communities
           </Text>
         </TouchableOpacity>
@@ -119,7 +121,6 @@ export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF',
   },
   headerButton: {
     marginRight: 16,
@@ -129,12 +130,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#E5E7EB',
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F2F2F7',
     borderRadius: 10,
     paddingHorizontal: 12,
     height: 40,
@@ -145,13 +144,10 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: '#000',
   },
   tabBar: {
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    backgroundColor: '#FAFAFA',
   },
   tab: {
     flex: 1,
@@ -171,7 +167,6 @@ const styles = StyleSheet.create({
   tabText: {
     fontSize: 15,
     fontWeight: '500',
-    color: '#8E8E93',
   },
   activeTabText: {
     color: '#14B8A6',

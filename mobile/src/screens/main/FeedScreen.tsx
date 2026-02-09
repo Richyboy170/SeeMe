@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,6 @@ import {
   TouchableOpacity,
   Image,
   useWindowDimensions,
-  useColorScheme,
   Modal,
   StatusBar,
   Pressable,
@@ -18,6 +17,9 @@ import {
   Animated,
   PanResponder,
   Dimensions,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation, CommonActions } from '@react-navigation/native';
@@ -29,6 +31,7 @@ import CoinCelebration from '../../components/coins/CoinCelebration';
 import { CommentPreview } from '../../components/feed/CommentPreview';
 import { RepostOptionsModal } from '../../components/feed/RepostOptionsModal';
 import ChatDrawer, { ChatDrawerRef } from '../../components/chat/ChatDrawer';
+import ImageEditor from '../../components/ImageEditor';
 import { api, getImageUrl } from '../../services/api';
 import { sharePost, ShareablePost } from '../../services/shareService';
 import { RepostType } from '../../services/repostService';
@@ -37,45 +40,30 @@ import { useDoubleTap } from '../../hooks/useDoubleTap';
 import { FeedStackParamList, useUnreadCount } from '../../navigation/types';
 import { AvatarCustomizations } from '../../components/AvatarRenderer';
 import { navigateToUserProfile } from '../../utils/feedNavigation';
+import { useTheme } from '../../theme';
 
 type FeedScreenNavigationProp = StackNavigationProp<FeedStackParamList, 'FeedHome'>;
 
 const TABLET_BREAKPOINT = 600;
 const MAX_CONTENT_WIDTH = 600;
 
-// Theme colors
-const themes = {
-  dark: {
-    background: '#000000',
-    cardBackground: '#000000',
-    text: '#E7E9EA',
-    textSecondary: '#71767B',
-    separator: '#2F3336',
-    border: '#2F3336',
-    accent: '#1D9BF0',
-    like: '#F91880',
-    gift: '#FBBF24',
-    iconDefault: '#71767B',
-    mediaBackground: '#16181C',
-    emptyIconBg: 'rgba(29, 155, 240, 0.1)',
-  },
-  light: {
-    background: '#FFFFFF',
-    cardBackground: '#FFFFFF',
-    text: '#0F1419',
-    textSecondary: '#536471',
-    separator: '#EFF3F4',
-    border: '#CFD9DE',
-    accent: '#1D9BF0',
-    like: '#F91880',
-    gift: '#FBBF24',
-    iconDefault: '#536471',
-    mediaBackground: '#F7F9F9',
-    emptyIconBg: 'rgba(29, 155, 240, 0.1)',
-  },
-};
+// Flat color type used by TweetCard (mapped from global theme)
+interface FeedColors {
+  background: string;
+  cardBackground: string;
+  text: string;
+  textSecondary: string;
+  separator: string;
+  border: string;
+  accent: string;
+  like: string;
+  gift: string;
+  iconDefault: string;
+  mediaBackground: string;
+  emptyIconBg: string;
+}
 
-type ThemeColors = typeof themes.dark;
+type ThemeColors = FeedColors;
 
 interface ActiveAvatar {
   id: string;
@@ -139,6 +127,7 @@ function TweetCard({
   onRepost,
   onShare,
   onNavigateToProfile,
+  onMorePress,
   onCoinPickerChange,
   currentUserId,
   colors,
@@ -153,6 +142,7 @@ function TweetCard({
   onRepost: (post: Post) => void;
   onShare: (post: Post) => void;
   onNavigateToProfile: (userId: string, username: string) => void;
+  onMorePress: (post: Post) => void;
   onCoinPickerChange?: (active: boolean) => void;
   currentUserId: string;
   colors: ThemeColors;
@@ -423,9 +413,11 @@ function TweetCard({
                   <Text style={styles.repostBadgeText}>reposted</Text>
                 </View>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.moreButton}>
-                <Ionicons name="ellipsis-horizontal" size={16} color={colors.textSecondary} />
-              </TouchableOpacity>
+              {isOwnPost && (
+                <TouchableOpacity style={styles.moreButton} onPress={() => onMorePress(post)}>
+                  <Ionicons name="ellipsis-horizontal" size={16} color={colors.textSecondary} />
+                </TouchableOpacity>
+              )}
             </View>
 
             {/* Quote Comment - For quote reposts */}
@@ -652,9 +644,11 @@ function TweetCard({
                 {formatTimeAgo(post.createdAt)}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.moreButton}>
-              <Ionicons name="ellipsis-horizontal" size={16} color={colors.textSecondary} />
-            </TouchableOpacity>
+            {isOwnPost && (
+              <TouchableOpacity style={styles.moreButton} onPress={() => onMorePress(post)}>
+                <Ionicons name="ellipsis-horizontal" size={16} color={colors.textSecondary} />
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* Double-tap area for like (caption + image) */}
@@ -1050,13 +1044,26 @@ const SWIPE_THRESHOLD = 80; // Minimum swipe distance to trigger
 export default function FeedScreen() {
   const navigation = useNavigation<FeedScreenNavigationProp>();
   const { width } = useWindowDimensions();
-  const colorScheme = useColorScheme();
+  const { colors: themeColors, isDark } = useTheme();
   const isTablet = width >= TABLET_BREAKPOINT;
   const insets = useSafeAreaInsets();
   const { unreadCount } = useUnreadCount();
 
-  // Get theme colors based on system preference
-  const colors = colorScheme === 'dark' ? themes.dark : themes.light;
+  // Map global theme to flat FeedColors used by TweetCard
+  const colors: FeedColors = useMemo(() => ({
+    background: themeColors.background,
+    cardBackground: themeColors.card,
+    text: themeColors.text.primary,
+    textSecondary: themeColors.text.secondary,
+    separator: themeColors.separator,
+    border: themeColors.border,
+    accent: themeColors.text.link,
+    like: themeColors.like,
+    gift: themeColors.gift,
+    iconDefault: themeColors.icon.secondary,
+    mediaBackground: themeColors.surfaceVariant,
+    emptyIconBg: 'rgba(29, 155, 240, 0.1)',
+  }), [themeColors]);
 
   const [refreshing, setRefreshing] = React.useState(false);
   const [posts, setPosts] = React.useState<Post[]>([]);
@@ -1069,6 +1076,13 @@ export default function FeedScreen() {
   const [repostModalPost, setRepostModalPost] = React.useState<Post | null>(null);
   const [chatDrawerVisible, setChatDrawerVisible] = React.useState(false);
   const [currentUserId, setCurrentUserId] = React.useState<string>('');
+  const [postOptionsPost, setPostOptionsPost] = React.useState<Post | null>(null);
+  const [postOptionsVisible, setPostOptionsVisible] = React.useState(false);
+  const [editModalVisible, setEditModalVisible] = React.useState(false);
+  const [editCaption, setEditCaption] = React.useState('');
+  const [editImageUri, setEditImageUri] = React.useState<string | null>(null);
+  const [editedImageUri, setEditedImageUri] = React.useState<string | null>(null);
+  const [showImageEditor, setShowImageEditor] = React.useState(false);
 
   // Animated value for page position (0 = Feed visible, 1 = Messages visible)
   const screenWidth = Dimensions.get('window').width;
@@ -1365,6 +1379,98 @@ export default function FeedScreen() {
     navigateToUserProfile(navigation, userId, username);
   };
 
+  const handleMorePress = (post: Post) => {
+    setPostOptionsPost(post);
+    setPostOptionsVisible(true);
+  };
+
+  const handleEditPost = () => {
+    if (!postOptionsPost) return;
+    setPostOptionsVisible(false);
+    setEditCaption(postOptionsPost.caption || '');
+    // Use the original image if available, otherwise processed/thumbnail
+    const imgUri = getImageUrl(postOptionsPost.originalImageUrl)
+      || getImageUrl(postOptionsPost.imageUrl)
+      || getImageUrl(postOptionsPost.thumbnailUrl);
+    setEditImageUri(imgUri || null);
+    setEditedImageUri(null);
+    setEditModalVisible(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!postOptionsPost) return;
+    try {
+      const result = await api.updatePost(postOptionsPost.id, editCaption, editedImageUri || undefined);
+      setPosts(prev =>
+        prev.map(p => {
+          if (p.id !== postOptionsPost.id) return p;
+          const updated = { ...p, caption: editCaption };
+          if (result.post?.thumbnailUrl) updated.thumbnailUrl = result.post.thumbnailUrl;
+          if (result.post?.processedImageUrl) updated.imageUrl = result.post.processedImageUrl;
+          return updated;
+        })
+      );
+      setEditModalVisible(false);
+      setPostOptionsPost(null);
+      setEditedImageUri(null);
+      setEditImageUri(null);
+    } catch (error) {
+      console.error('Error updating post:', error);
+      Alert.alert('Error', 'Failed to update post. Please try again.');
+    }
+  };
+
+  const handleDeletePost = () => {
+    if (!postOptionsPost) return;
+    setPostOptionsVisible(false);
+    Alert.alert(
+      'Delete Post',
+      'Are you sure you want to delete this post? This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.deletePost(postOptionsPost.id);
+              setPosts(prev => prev.filter(p => p.id !== postOptionsPost.id));
+              setPostOptionsPost(null);
+            } catch (error) {
+              console.error('Error deleting post:', error);
+              Alert.alert('Error', 'Failed to delete post. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleArchivePost = () => {
+    if (!postOptionsPost) return;
+    setPostOptionsVisible(false);
+    Alert.alert(
+      'Archive Post',
+      'This post will be hidden from feeds. You can unarchive it later from your profile.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Archive',
+          onPress: async () => {
+            try {
+              await api.archivePost(postOptionsPost.id);
+              setPosts(prev => prev.filter(p => p.id !== postOptionsPost.id));
+              setPostOptionsPost(null);
+            } catch (error) {
+              console.error('Error archiving post:', error);
+              Alert.alert('Error', 'Failed to archive post. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const navigateToFindFriends = () => {
     navigation.dispatch(
       CommonActions.navigate({
@@ -1388,6 +1494,7 @@ export default function FeedScreen() {
       onRepost={handleRepost}
       onShare={handleShare}
       onNavigateToProfile={handleNavigateToProfile}
+      onMorePress={handleMorePress}
       onCoinPickerChange={(active: boolean) => { coinPickerActiveRef.current = active; }}
       currentUserId={currentUserId}
       colors={colors}
@@ -1535,6 +1642,160 @@ export default function FeedScreen() {
           originalUsername={repostModalPost.user.username}
         />
       )}
+
+      {/* Post Options Modal (three-dot menu) */}
+      <Modal
+        visible={postOptionsVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setPostOptionsVisible(false);
+          setPostOptionsPost(null);
+        }}
+      >
+        <Pressable
+          style={styles.optionsOverlay}
+          onPress={() => {
+            setPostOptionsVisible(false);
+            setPostOptionsPost(null);
+          }}
+        >
+          <View style={[styles.optionsSheet, { backgroundColor: colors.cardBackground }]}>
+            {postOptionsPost && (postOptionsPost.user.id === currentUserId) && (
+              <>
+                <TouchableOpacity
+                  style={styles.optionsItem}
+                  onPress={handleEditPost}
+                >
+                  <Ionicons name="create-outline" size={22} color={colors.text} />
+                  <Text style={[styles.optionsItemText, { color: colors.text }]}>Edit Post</Text>
+                </TouchableOpacity>
+                <View style={[styles.optionsDivider, { backgroundColor: colors.separator }]} />
+                <TouchableOpacity
+                  style={styles.optionsItem}
+                  onPress={handleArchivePost}
+                >
+                  <Ionicons name="eye-off-outline" size={22} color={colors.text} />
+                  <Text style={[styles.optionsItemText, { color: colors.text }]}>Archive Post</Text>
+                </TouchableOpacity>
+                <View style={[styles.optionsDivider, { backgroundColor: colors.separator }]} />
+                <TouchableOpacity
+                  style={styles.optionsItem}
+                  onPress={handleDeletePost}
+                >
+                  <Ionicons name="trash-outline" size={22} color="#EF4444" />
+                  <Text style={[styles.optionsItemText, { color: '#EF4444' }]}>Delete Post</Text>
+                </TouchableOpacity>
+                <View style={[styles.optionsDivider, { backgroundColor: colors.separator }]} />
+              </>
+            )}
+            <TouchableOpacity
+              style={styles.optionsItem}
+              onPress={() => {
+                setPostOptionsVisible(false);
+                setPostOptionsPost(null);
+              }}
+            >
+              <Ionicons name="close-outline" size={22} color={colors.textSecondary} />
+              <Text style={[styles.optionsItemText, { color: colors.textSecondary }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Edit Post Modal */}
+      <Modal
+        visible={editModalVisible}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => {
+          setEditModalVisible(false);
+          setPostOptionsPost(null);
+          setEditedImageUri(null);
+          setEditImageUri(null);
+        }}
+      >
+        <KeyboardAvoidingView
+          style={[styles.editModalFull, { backgroundColor: colors.background }]}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={[styles.editModalHeader, { borderBottomColor: colors.separator, paddingTop: insets.top + 8 }]}>
+            <TouchableOpacity
+              style={styles.editModalHeaderBtn}
+              onPress={() => {
+                setEditModalVisible(false);
+                setPostOptionsPost(null);
+                setEditedImageUri(null);
+                setEditImageUri(null);
+              }}
+            >
+              <Text style={[styles.editModalCancel, { color: colors.textSecondary }]}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={[styles.editModalTitle, { color: colors.text }]}>Edit Post</Text>
+            <TouchableOpacity style={styles.editModalHeaderBtn} onPress={handleSaveEdit}>
+              <Text style={[styles.editModalSave, { color: colors.accent }]}>Save</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            style={styles.editModalBody}
+            contentContainerStyle={styles.editModalBodyContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Post Image - tap to open ImageEditor */}
+            {(editedImageUri || editImageUri) && (
+              <TouchableOpacity
+                style={styles.editImageContainer}
+                onPress={() => {
+                  if (editImageUri) setShowImageEditor(true);
+                }}
+                activeOpacity={0.8}
+              >
+                <Image
+                  source={{ uri: editedImageUri || editImageUri || '' }}
+                  style={[styles.editImagePreview, { backgroundColor: colors.mediaBackground }]}
+                  resizeMode="cover"
+                />
+                <View style={styles.editImageOverlay}>
+                  <View style={[styles.editImageBadge, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
+                    <Ionicons name="crop-outline" size={16} color="#FFF" />
+                    <Text style={styles.editImageBadgeText}>Tap to adjust crop</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            )}
+
+            {/* Caption Input */}
+            <TextInput
+              style={[
+                styles.editModalInput,
+                {
+                  color: colors.text,
+                  borderColor: colors.border,
+                  backgroundColor: colors.mediaBackground,
+                },
+              ]}
+              value={editCaption}
+              onChangeText={setEditCaption}
+              multiline
+              placeholder="Write a caption..."
+              placeholderTextColor={colors.textSecondary}
+            />
+          </ScrollView>
+        </KeyboardAvoidingView>
+
+        {/* ImageEditor overlay */}
+        {editImageUri && (
+          <ImageEditor
+            imageUri={editImageUri}
+            visible={showImageEditor}
+            onComplete={(croppedUri: string, _originalUri: string, _wasCropped: boolean) => {
+              setShowImageEditor(false);
+              setEditedImageUri(croppedUri);
+            }}
+            onCancel={() => setShowImageEditor(false)}
+          />
+        )}
+      </Modal>
 
       {/* Swipe indicator on right edge */}
       {!chatDrawerVisible && (
@@ -2090,5 +2351,106 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 2,
     opacity: 0.3,
+  },
+
+  // Post Options Modal
+  optionsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  optionsSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 12,
+    paddingBottom: 34,
+    paddingHorizontal: 16,
+  },
+  optionsItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    gap: 14,
+  },
+  optionsItemText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  optionsDivider: {
+    height: 1,
+  },
+
+  // Edit Caption Modal (full screen)
+  editModalFull: {
+    flex: 1,
+  },
+  editModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+  },
+  editModalHeaderBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+    minWidth: 60,
+  },
+  editModalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  editModalCancel: {
+    fontSize: 16,
+  },
+  editModalSave: {
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'right',
+  },
+  editModalBody: {
+    flex: 1,
+  },
+  editModalBodyContent: {
+    padding: 16,
+  },
+  editImageContainer: {
+    marginBottom: 16,
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  editImagePreview: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 12,
+  },
+  editImageOverlay: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+  },
+  editImageBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    gap: 6,
+  },
+  editImageBadgeText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  editModalInput: {
+    fontSize: 16,
+    lineHeight: 22,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+    minHeight: 120,
+    textAlignVertical: 'top',
   },
 });

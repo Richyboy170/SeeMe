@@ -20,6 +20,7 @@ import GiveCoinsModal from './coins/GiveCoinsModal';
 import SharePostModal from './SharePostModal';
 import { usePostInteractions, Post } from '../hooks/usePostInteractions';
 import { formatTimeAgo, getPostImageUrl } from '../utils/postHelpers';
+import { useTheme } from '../theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -44,6 +45,7 @@ export default function PostViewerModal({
   onUserPress,
   onPostChange,
 }: PostViewerModalProps) {
+  const { colors, isDark } = useTheme();
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [giveModalVisible, setGiveModalVisible] = useState(false);
   const [giveModalPost, setGiveModalPost] = useState<Post | null>(null);
@@ -129,11 +131,11 @@ export default function PostViewerModal({
             avatarStyle={item.user.activeAvatar?.style}
           />
           <View style={styles.postUserInfo}>
-            <Text style={styles.postUsername}>@{item.user.username}</Text>
-            <Text style={styles.postTime}>{formatTimeAgo(item.createdAt)}</Text>
+            <Text style={[styles.postUsername, { color: colors.text.primary }]}>@{item.user.username}</Text>
+            <Text style={[styles.postTime, { color: colors.text.tertiary }]}>{formatTimeAgo(item.createdAt)}</Text>
           </View>
           <TouchableOpacity style={styles.moreButton}>
-            <Ionicons name="ellipsis-horizontal" size={20} color="#6B7280" />
+            <Ionicons name="ellipsis-horizontal" size={20} color={colors.icon.secondary} />
           </TouchableOpacity>
         </TouchableOpacity>
 
@@ -150,8 +152,8 @@ export default function PostViewerModal({
                 resizeMode="cover"
               />
             ) : (
-              <View style={[styles.postImage, styles.imagePlaceholder]}>
-                <Ionicons name="image-outline" size={48} color="#9CA3AF" />
+              <View style={[styles.postImage, styles.imagePlaceholder, { backgroundColor: colors.surfaceVariant }]}>
+                <Ionicons name="image-outline" size={48} color={colors.icon.secondary} />
               </View>
             )}
 
@@ -190,7 +192,7 @@ export default function PostViewerModal({
 
         {/* Likes count */}
         {getLikeCount(item.id) > 0 && (
-          <Text style={styles.likesText}>
+          <Text style={[styles.likesText, { color: colors.text.primary }]}>
             {getLikeCount(item.id)} {getLikeCount(item.id) === 1 ? 'like' : 'likes'}
           </Text>
         )}
@@ -198,7 +200,7 @@ export default function PostViewerModal({
         {/* Caption */}
         {item.caption && (
           <View style={styles.captionContainer}>
-            <Text style={styles.captionText}>
+            <Text style={[styles.captionText, { color: colors.text.primary }]}>
               <Text style={styles.captionUsername}>{item.user.username}</Text>
               {'  '}
               {item.caption}
@@ -212,14 +214,14 @@ export default function PostViewerModal({
             style={styles.viewComments}
             onPress={() => handleComment(item.id)}
           >
-            <Text style={styles.viewCommentsText}>
+            <Text style={[styles.viewCommentsText, { color: colors.text.secondary }]}>
               View all {item.commentsCount} comments
             </Text>
           </TouchableOpacity>
         )}
 
         {/* Separator */}
-        {index < posts.length - 1 && <View style={styles.separator} />}
+        {index < posts.length - 1 && <View style={[styles.separator, { backgroundColor: colors.separator }]} />}
       </View>
     );
   };
@@ -231,16 +233,16 @@ export default function PostViewerModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <View style={styles.container}>
-        <StatusBar barStyle="dark-content" />
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
 
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
           <TouchableOpacity onPress={onClose} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={28} color="#000" />
+            <Ionicons name="arrow-back" size={28} color={colors.icon.primary} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>{title}</Text>
-          <Text style={styles.headerCounter}>
+          <Text style={[styles.headerTitle, { color: colors.text.primary }]}>{title}</Text>
+          <Text style={[styles.headerCounter, { color: colors.text.secondary }]}>
             {currentIndex + 1}/{posts.length}
           </Text>
         </View>

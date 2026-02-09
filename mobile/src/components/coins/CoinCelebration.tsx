@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../../theme';
+import KindnessCoin from './KindnessCoin';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -42,102 +44,6 @@ const getCelebrationText = (source?: string) => {
   }
 };
 
-// Custom Kindness Coin Component
-const KindnessCoin = ({ size, style }: { size: number; style?: any }) => {
-  const innerSize = size * 0.85;
-  const faceSize = size * 0.75;
-  const heartSize = size * 0.35;
-  const leafSize = size * 0.17;
-
-  return (
-    <Animated.View style={[{ width: size, height: size }, style]}>
-      {/* Outer glow */}
-      <View style={[coinStyles.coinGlow, { width: size, height: size, borderRadius: size / 2 }]} />
-
-      {/* Coin rim */}
-      <LinearGradient
-        colors={['#FDE68A', '#FBBF24', '#F59E0B']}
-        style={[coinStyles.coinRim, { width: size, height: size, borderRadius: size / 2 }]}
-      >
-        {/* Inner circle */}
-        <View style={[coinStyles.coinInner, { width: innerSize, height: innerSize, borderRadius: innerSize / 2 }]}>
-          {/* Coin face */}
-          <LinearGradient
-            colors={['#FEF3C7', '#FDE68A', '#FBBF24']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={[coinStyles.coinFace, { width: faceSize, height: faceSize, borderRadius: faceSize / 2 }]}
-          >
-            {/* Heart with leaves - Kindness symbol */}
-            <View style={coinStyles.symbolContainer}>
-              <Ionicons
-                name="leaf"
-                size={leafSize}
-                color="rgba(255, 255, 255, 0.9)"
-                style={[coinStyles.leafLeft, { marginRight: -leafSize * 0.3, marginTop: -leafSize * 0.5 }]}
-              />
-              <Ionicons name="heart" size={heartSize} color="#FFF" />
-              <Ionicons
-                name="leaf"
-                size={leafSize}
-                color="rgba(255, 255, 255, 0.9)"
-                style={[coinStyles.leafRight, { marginLeft: -leafSize * 0.3, marginTop: -leafSize * 0.5 }]}
-              />
-            </View>
-
-            {/* Shine effect */}
-            <View style={[coinStyles.shine, { width: faceSize * 0.35, height: faceSize * 0.6 }]} />
-          </LinearGradient>
-        </View>
-      </LinearGradient>
-    </Animated.View>
-  );
-};
-
-const coinStyles = StyleSheet.create({
-  coinGlow: {
-    position: 'absolute',
-    backgroundColor: 'rgba(251, 191, 36, 0.3)',
-  },
-  coinRim: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#F59E0B',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 15,
-    elevation: 10,
-  },
-  coinInner: {
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 3,
-  },
-  coinFace: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  symbolContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  leafLeft: {
-    transform: [{ rotate: '-45deg' }],
-  },
-  leafRight: {
-    transform: [{ rotate: '45deg' }, { scaleX: -1 }],
-  },
-  shine: {
-    position: 'absolute',
-    top: -10,
-    left: -10,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    transform: [{ rotate: '35deg' }],
-  },
-});
-
 export default function CoinCelebration({
   visible,
   amount,
@@ -146,6 +52,8 @@ export default function CoinCelebration({
   onClose,
   asModal = true,
 }: CoinCelebrationProps) {
+  const { colors, isDark } = useTheme();
+
   // Animation refs
   const celebrationOpacity = useRef(new Animated.Value(0)).current;
   const mainCoinScale = useRef(new Animated.Value(0)).current;
@@ -502,18 +410,7 @@ export default function CoinCelebration({
               opacity: anim.opacity,
             }}
           >
-            <View style={styles.miniCoin}>
-              <LinearGradient
-                colors={['#FDE68A', '#FBBF24']}
-                style={styles.miniCoinGradient}
-              >
-                <View style={styles.miniCoinSymbol}>
-                  <Ionicons name="leaf" size={5} color="rgba(255,255,255,0.9)" style={styles.miniLeafLeft} />
-                  <Ionicons name="heart" size={12} color="#FFF" />
-                  <Ionicons name="leaf" size={5} color="rgba(255,255,255,0.9)" style={styles.miniLeafRight} />
-                </View>
-              </LinearGradient>
-            </View>
+            <KindnessCoin size={32} />
           </Animated.View>
         ))}
 
@@ -530,7 +427,7 @@ export default function CoinCelebration({
             ],
           }}
         >
-          <KindnessCoin size={asModal ? 140 : 100} />
+          <KindnessCoin size={asModal ? 140 : 100} showGlow />
         </Animated.View>
 
         {/* Amount badge */}
@@ -563,8 +460,8 @@ export default function CoinCelebration({
           {recipientUsername ? (
             <Text style={styles.recipientText}>to @{recipientUsername}</Text>
           ) : null}
-          <Text style={styles.message}>{celebrationText.message}</Text>
-          <Text style={styles.hint}>Tap to continue</Text>
+          <Text style={[styles.message, { color: colors.text.secondary }]}>{celebrationText.message}</Text>
+          <Text style={[styles.hint, { color: colors.text.secondary }]}>Tap to continue</Text>
         </Animated.View>
       </TouchableOpacity>
     </Animated.View>
@@ -637,38 +534,6 @@ const styles = StyleSheet.create({
     height: 16,
     borderRadius: 2,
   },
-  miniCoin: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#F59E0B',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.5,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  miniCoinGradient: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 16,
-  },
-  miniCoinSymbol: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  miniLeafLeft: {
-    transform: [{ rotate: '-45deg' }],
-    marginRight: -2,
-    marginTop: -3,
-  },
-  miniLeafRight: {
-    transform: [{ rotate: '45deg' }, { scaleX: -1 }],
-    marginLeft: -2,
-    marginTop: -3,
-  },
   amountBadge: {
     position: 'absolute',
     top: '35%',
@@ -719,12 +584,10 @@ const styles = StyleSheet.create({
   },
   message: {
     fontSize: 16,
-    color: '#9CA3AF',
     marginBottom: 8,
   },
   hint: {
     fontSize: 14,
-    color: '#6B7280',
     marginTop: 20,
   },
 });

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+import { useTheme } from '../../theme';
 
 interface CooldownCoinsWidgetProps {
     cooldownCoinsAvailable: number;
@@ -14,6 +15,7 @@ export default function CooldownCoinsWidget({
     secondsUntilNext,
     onPress
 }: CooldownCoinsWidgetProps) {
+    const { colors } = useTheme();
     const scaleAnim = useRef(new Animated.Value(1)).current;
     const [localSecondsRemaining, setLocalSecondsRemaining] = useState<number | null>(secondsUntilNext);
 
@@ -77,7 +79,7 @@ export default function CooldownCoinsWidget({
 
     return (
         <TouchableOpacity
-            style={styles.container}
+            style={[styles.container, { backgroundColor: colors.card }]}
             onPress={onPress}
             disabled={cooldownCoinsAvailable === 0}
         >
@@ -103,11 +105,11 @@ export default function CooldownCoinsWidget({
             </Animated.View>
 
             <View style={styles.info}>
-                <Text style={styles.label}>Free Coins</Text>
+                <Text style={[styles.label, { color: colors.text.primary }]}>Free Coins</Text>
                 {cooldownCoinsAvailable > 0 ? (
                     <Text style={styles.ready}>Tap to claim!</Text>
                 ) : (
-                    <Text style={styles.timer}>{formatTimeUntilNext(localSecondsRemaining)}</Text>
+                    <Text style={[styles.timer, { color: colors.text.secondary }]}>{formatTimeUntilNext(localSecondsRemaining)}</Text>
                 )}
             </View>
         </TouchableOpacity>

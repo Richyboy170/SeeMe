@@ -96,6 +96,7 @@ export class FeedAlgorithmService {
         where: {
           userId: feedUserIds,
           status: PostStatus.COMPLETED,
+          isArchived: { [Op.ne]: true },
           [Op.or]: [
             { visibility: { [Op.in]: [PostVisibility.FRIENDS_ONLY, PostVisibility.TOPICS_AND_FRIENDS] } },
             { visibility: null as any }  // Backwards compatibility
@@ -112,6 +113,7 @@ export class FeedAlgorithmService {
         attributes: [
           'id',
           'userId',
+          'originalImageUrl',
           'processedImageUrl',
           'thumbnailUrl',
           'caption',
@@ -147,6 +149,7 @@ export class FeedAlgorithmService {
             attributes: [
               'id',
               'userId',
+              'originalImageUrl',
               'processedImageUrl',
               'thumbnailUrl',
               'caption',
@@ -170,7 +173,9 @@ export class FeedAlgorithmService {
         reasons: []
       }));
 
-      // Convert reposts to feed items (avoid duplicating posts already in feed)
+      // Convert reposts to feed items, deduplicating posts already in feed
+      const postIdsInFeed = new Set(feedItems.map(item => item.post.id));
+
       for (const repost of reposts) {
         const originalPost = repost.get('originalPost') as Post;
         if (!originalPost) continue;
@@ -178,6 +183,17 @@ export class FeedAlgorithmService {
         // Get the reposter's user data as plain object
         const repostUser = repost.get('user') as User | null;
         if (!repostUser) continue;
+
+        // Skip if this exact post is already in the feed as a regular post
+        // (unless the reposter is a different user — that's a distinct feed event)
+        if (postIdsInFeed.has(originalPost.id) && repostUser.id === originalPost.userId) {
+          continue;
+        }
+
+        // For same-content dedup: if this original post was already added as a repost, skip
+        const repostKey = `repost-original-${originalPost.id}`;
+        if (postIdsInFeed.has(repostKey)) continue;
+        postIdsInFeed.add(repostKey);
 
         const repostedByData = {
           id: repostUser.id,
@@ -263,6 +279,7 @@ export class FeedAlgorithmService {
             activeAvatar: formatAvatarForResponse(postAvatar || null),
           } : null,
           imageUrl: item.post.processedImageUrl,
+          originalImageUrl: item.post.originalImageUrl,
           thumbnailUrl: item.post.thumbnailUrl,
           caption: item.post.caption,
           likesCount: item.post.likesCount,
@@ -321,14 +338,16 @@ export class FeedAlgorithmService {
 
   /**
    * Score and rank feed items (posts + reposts)
+   * Primary sort: chronological (newest first) based on when the action happened
+   *   - For posts: post createdAt
+   *   - For reposts: repost createdAt (when the user reposted it)
+   * Secondary: light engagement/affinity scoring as tiebreaker for same-minute posts
    */
   private static async scoreAndRankFeedItems(
     items: FeedItem[],
     _userId: string,
     userAffinities: Map<string, number>
   ): Promise<FeedItem[]> {
-    const now = new Date();
-
     for (const item of items) {
       let score = 0;
       const reasons: string[] = [];
@@ -338,48 +357,37 @@ export class FeedAlgorithmService {
         ? item.repostedBy.id
         : item.post.userId;
 
-      // Get the timestamp (repost time for reposts, post time for posts)
-      const relevantTime = item.type === 'repost' && item.repostCreatedAt
-        ? new Date(item.repostCreatedAt)
-        : new Date(item.post.createdAt);
+      // Light scoring as tiebreaker only (0-10 points max)
 
-      // 1. User Affinity Score (0-40 points)
-      const affinityScore = (userAffinities.get(relevantUserId) || 0) * 40;
+      // 1. User Affinity (0-4 points)
+      const affinityScore = (userAffinities.get(relevantUserId) || 0) * 4;
       score += affinityScore;
-      if (affinityScore > 20) {
+      if (affinityScore > 2) {
         reasons.push('favorite_friend');
       }
 
-      // 2. Engagement Score (0-30 points)
-      const likesScore = Math.log10(item.post.likesCount + 1) * 5;
-      const commentsScore = Math.log10(item.post.commentsCount + 1) * 8;
-      const repostScore = Math.log10((item.post.repostCount || 0) + 1) * 3;
-      const engagementScore = Math.min(likesScore + commentsScore + repostScore, 30);
+      // 2. Engagement (0-3 points)
+      const likesScore = Math.log10(item.post.likesCount + 1) * 0.5;
+      const commentsScore = Math.log10(item.post.commentsCount + 1) * 0.8;
+      const repostScore = Math.log10((item.post.repostCount || 0) + 1) * 0.3;
+      const engagementScore = Math.min(likesScore + commentsScore + repostScore, 3);
       score += engagementScore;
-      if (engagementScore > 15) {
+      if (engagementScore > 1.5) {
         reasons.push('high_engagement');
       }
 
-      // 3. Recency Score (0-25 points)
-      const hoursSinceItem = (now.getTime() - relevantTime.getTime()) / (1000 * 60 * 60);
-      const recencyScore = Math.max(0, 25 * (1 - hoursSinceItem / 24));
-      score += recencyScore;
-      if (recencyScore > 20) {
-        reasons.push('recent');
-      }
-
-      // 4. Content Quality Indicators (0-5 points)
+      // 3. Content Quality (0-2 points)
       if (item.post.caption && item.post.caption.length > 20) {
-        score += 3;
+        score += 1;
         reasons.push('quality_content');
       }
       if (item.post.caption && item.post.caption.length > 100) {
-        score += 2;
+        score += 1;
       }
 
-      // 5. Quote posts get a small boost (they have additional context)
+      // 4. Quote posts get a small boost (0-1 point)
       if (item.type === 'repost' && item.repostType === 'quote' && item.repostComment) {
-        score += 5;
+        score += 1;
         reasons.push('quote_post');
       }
 
@@ -387,8 +395,21 @@ export class FeedAlgorithmService {
       item.reasons = reasons;
     }
 
-    // Sort by score descending
-    items.sort((a, b) => b.score - a.score);
+    // Primary sort: chronological (newest first)
+    // Secondary sort: score as tiebreaker for items at the same time
+    items.sort((a, b) => {
+      const timeA = a.type === 'repost' && a.repostCreatedAt
+        ? new Date(a.repostCreatedAt).getTime()
+        : new Date(a.post.createdAt).getTime();
+      const timeB = b.type === 'repost' && b.repostCreatedAt
+        ? new Date(b.repostCreatedAt).getTime()
+        : new Date(b.post.createdAt).getTime();
+
+      // Primary: newest first
+      if (timeA !== timeB) return timeB - timeA;
+      // Secondary: higher score first
+      return b.score - a.score;
+    });
 
     // Apply diversity: ensure we don't show too many items from the same user in a row
     return this.applyDiversityToFeedItems(items);

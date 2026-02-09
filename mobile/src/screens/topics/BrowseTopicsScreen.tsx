@@ -6,6 +6,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { api, getImageUrl } from '../../services/api';
+import { useTheme } from '../../theme';
 
 // Detect if an icon value is an Ionicons name (lowercase ASCII + hyphens)
 const isIoniconName = (value: string): boolean => /^[a-z][a-z0-9-]*$/.test(value);
@@ -32,6 +33,7 @@ interface Category {
 }
 
 export default function BrowseTopicsScreen({ navigation }: any) {
+    const { colors, isDark } = useTheme();
     const [topics, setTopics] = useState<Topic[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -118,6 +120,7 @@ export default function BrowseTopicsScreen({ navigation }: any) {
         <TouchableOpacity
             style={[
                 styles.categoryChip,
+                { backgroundColor: colors.card, borderColor: colors.border },
                 selectedCategory === item.id && styles.categoryChipActive
             ]}
             onPress={() => handleCategorySelect(
@@ -127,6 +130,7 @@ export default function BrowseTopicsScreen({ navigation }: any) {
             <Text style={styles.categoryEmoji}>{item.icon}</Text>
             <Text style={[
                 styles.categoryText,
+                { color: colors.text.secondary },
                 selectedCategory === item.id && styles.categoryTextActive
             ]}>
                 {item.name}
@@ -136,7 +140,7 @@ export default function BrowseTopicsScreen({ navigation }: any) {
 
     const renderTopic = ({ item }: { item: Topic }) => (
         <TouchableOpacity
-            style={styles.topicCard}
+            style={[styles.topicCard, { backgroundColor: colors.card }]}
             onPress={() => navigation.navigate('TopicPage', { topicSlug: item.slug })}
         >
             <View style={styles.topicHeader}>
@@ -150,28 +154,28 @@ export default function BrowseTopicsScreen({ navigation }: any) {
                     <Text style={styles.topicEmoji}>{item.iconEmoji || '🏷️'}</Text>
                 )}
                 <View style={styles.topicInfo}>
-                    <Text style={styles.topicName}>{item.name}</Text>
-                    <Text style={styles.topicStats}>
+                    <Text style={[styles.topicName, { color: colors.text.primary }]}>{item.name}</Text>
+                    <Text style={[styles.topicStats, { color: colors.text.secondary }]}>
                         {item.followerCount} members · {item.weeklyPostCount} posts/week
                     </Text>
                 </View>
                 <TouchableOpacity
                     style={[
                         styles.followButton,
-                        item.isFollowing && styles.followingButton
+                        item.isFollowing && [styles.followingButton, { backgroundColor: colors.border }]
                     ]}
                     onPress={() => handleFollowTopic(item.id, item.isFollowing)}
                 >
                     <Text style={[
                         styles.followButtonText,
-                        item.isFollowing && styles.followingButtonText
+                        item.isFollowing && [styles.followingButtonText, { color: colors.text.secondary }]
                     ]}>
                         {item.isFollowing ? 'Joined' : 'Join'}
                     </Text>
                 </TouchableOpacity>
             </View>
             {item.description && (
-                <Text style={styles.topicDescription} numberOfLines={2}>
+                <Text style={[styles.topicDescription, { color: colors.text.secondary }]} numberOfLines={2}>
                     {item.description}
                 </Text>
             )}
@@ -180,28 +184,28 @@ export default function BrowseTopicsScreen({ navigation }: any) {
 
     if (loading) {
         return (
-            <View style={styles.loadingContainer}>
+            <View style={[styles.loadingContainer, { backgroundColor: colors.card }]}>
                 <ActivityIndicator size="large" color="#7C3AED" />
-                <Text style={styles.loadingText}>Loading communities...</Text>
+                <Text style={[styles.loadingText, { color: colors.text.tertiary }]}>Loading communities...</Text>
             </View>
         );
     }
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, { backgroundColor: colors.background }]}>
             {/* Search */}
-            <View style={styles.searchContainer}>
-                <Ionicons name="search" size={20} color="#9CA3AF" />
+            <View style={[styles.searchContainer, { backgroundColor: colors.inputBackground }]}>
+                <Ionicons name="search" size={20} color={colors.text.tertiary} />
                 <TextInput
-                    style={styles.searchInput}
+                    style={[styles.searchInput, { color: colors.text.primary }]}
                     placeholder="Search communities..."
-                    placeholderTextColor="#9CA3AF"
+                    placeholderTextColor={colors.text.tertiary}
                     value={searchQuery}
                     onChangeText={handleSearch}
                 />
                 {searchQuery.length > 0 && (
                     <TouchableOpacity onPress={() => handleSearch('')}>
-                        <Ionicons name="close-circle" size={20} color="#9CA3AF" />
+                        <Ionicons name="close-circle" size={20} color={colors.text.tertiary} />
                     </TouchableOpacity>
                 )}
             </View>
@@ -228,9 +232,9 @@ export default function BrowseTopicsScreen({ navigation }: any) {
                 contentContainerStyle={styles.topicsList}
                 ListEmptyComponent={
                     <View style={styles.emptyState}>
-                        <Ionicons name="compass-outline" size={48} color="#D1D5DB" />
-                        <Text style={styles.emptyTitle}>No communities found</Text>
-                        <Text style={styles.emptySubtitle}>
+                        <Ionicons name="compass-outline" size={48} color={colors.disabled} />
+                        <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>No communities found</Text>
+                        <Text style={[styles.emptySubtitle, { color: colors.text.secondary }]}>
                             {searchQuery
                                 ? 'Try a different search term'
                                 : 'Be the first to create one!'}

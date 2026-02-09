@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../../theme';
 import { api } from '../../services/api';
 
 interface FavoriteButtonProps {
@@ -11,6 +12,7 @@ interface FavoriteButtonProps {
 }
 
 export default function FavoriteButton({ userId, size = 24, style, onToggle }: FavoriteButtonProps) {
+    const { colors, isDark } = useTheme();
     const [isFavorite, setIsFavorite] = useState(false);
     const [loading, setLoading] = useState(true);
     const [toggling, setToggling] = useState(false);
@@ -55,7 +57,7 @@ export default function FavoriteButton({ userId, size = 24, style, onToggle }: F
     if (loading) {
         return (
             <TouchableOpacity style={[styles.button, style]} disabled>
-                <ActivityIndicator size="small" color="#FBBF24" />
+                <ActivityIndicator size="small" color={colors.gift} />
             </TouchableOpacity>
         );
     }
@@ -69,7 +71,7 @@ export default function FavoriteButton({ userId, size = 24, style, onToggle }: F
             <Ionicons
                 name={isFavorite ? 'star' : 'star-outline'}
                 size={size}
-                color={isFavorite ? '#FBBF24' : '#6B7280'}
+                color={isFavorite ? colors.gift : colors.text.secondary}
             />
         </TouchableOpacity>
     );

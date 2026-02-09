@@ -26,8 +26,13 @@ export const Colors = {
     background: '#FFFFFF',
     surface: '#FAFAFA',
     surfaceVariant: '#EFEFEF',
+    card: '#FFFFFF',
     border: '#DBDBDB',
     borderLight: '#EFEFEF',
+    separator: '#EFF3F4',
+    inputBackground: '#F3F4F6',
+    disabled: '#D1D5DB',
+    overlay: 'rgba(0, 0, 0, 0.5)',
 
     text: {
       primary: '#262626',
@@ -42,6 +47,12 @@ export const Colors = {
       secondary: '#8E8E8E',
       tertiary: '#C7C7C7',
     },
+
+    // Interactive colors
+    like: '#F91880',
+    gift: '#FBBF24',
+    tabActive: '#FBBF24',
+    tabInactive: '#8E8E8E',
 
     // Chat specific
     chat: {
@@ -64,8 +75,13 @@ export const Colors = {
     background: '#000000',
     surface: '#121212',
     surfaceVariant: '#262626',
+    card: '#121212',
     border: '#363636',
     borderLight: '#262626',
+    separator: '#2F3336',
+    inputBackground: '#262626',
+    disabled: '#737373',
+    overlay: 'rgba(0, 0, 0, 0.7)',
 
     text: {
       primary: '#FAFAFA',
@@ -80,6 +96,12 @@ export const Colors = {
       secondary: '#A8A8A8',
       tertiary: '#737373',
     },
+
+    // Interactive colors
+    like: '#F91880',
+    gift: '#FBBF24',
+    tabActive: '#FBBF24',
+    tabInactive: '#737373',
 
     // Chat specific
     chat: {

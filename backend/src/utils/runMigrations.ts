@@ -12,6 +12,8 @@ import * as addRepostsTable from '../migrations/add-reposts-table';
 import * as addFriendTrustTables from '../migrations/add-friend-trust-tables';
 import * as addTopicAdminsAndIconImage from '../migrations/add-topic-admins-and-icon-image';
 import * as addChatEnhancements from '../migrations/add-chat-enhancements';
+import * as addPostCoinCost from '../migrations/add-post-coin-cost';
+import * as addPostArchive from '../migrations/add-post-archive';
 
 /**
  * Run database migrations
@@ -78,6 +80,16 @@ const migrations = [
     name: 'add-chat-enhancements',
     up: addChatEnhancements.up,
     down: addChatEnhancements.down
+  },
+  {
+    name: 'add-post-coin-cost',
+    up: addPostCoinCost.up,
+    down: addPostCoinCost.down
+  },
+  {
+    name: 'add-post-archive',
+    up: addPostArchive.up,
+    down: addPostArchive.down
   }
   // Add more migrations here as needed
 ];

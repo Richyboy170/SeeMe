@@ -14,6 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { api, getImageUrl } from '../services/api';
+import { useTheme } from '../theme';
 
 const EMOJI_OPTIONS = [
     '🎨', '🎯', '🏠', '💪', '📚', '💻', '🎮', '🎵', '📷', '🌱',
@@ -44,6 +45,7 @@ export default function TopicEditModal({
     onClose,
     onSave,
 }: TopicEditModalProps) {
+    const { colors } = useTheme();
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [iconEmoji, setIconEmoji] = useState('');
@@ -147,13 +149,13 @@ export default function TopicEditModal({
             presentationStyle="pageSheet"
             onRequestClose={handleClose}
         >
-            <View style={styles.container}>
+            <View style={[styles.container, { backgroundColor: colors.background }]}>
                 {/* Header */}
-                <View style={styles.header}>
+                <View style={[styles.header, { borderBottomColor: colors.border }]}>
                     <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
-                        <Text style={styles.cancelText}>Cancel</Text>
+                        <Text style={[styles.cancelText, { color: colors.text.secondary }]}>Cancel</Text>
                     </TouchableOpacity>
-                    <Text style={styles.headerTitle}>Edit Community</Text>
+                    <Text style={[styles.headerTitle, { color: colors.text.primary }]}>Edit Community</Text>
                     <TouchableOpacity
                         onPress={handleSave}
                         style={styles.headerButton}
@@ -170,7 +172,7 @@ export default function TopicEditModal({
                 <ScrollView style={styles.content}>
                     {/* Cover Image */}
                     <View style={styles.section}>
-                        <Text style={styles.sectionTitle}>Cover Image</Text>
+                        <Text style={[styles.sectionTitle, { color: colors.text.secondary }]}>Cover Image</Text>
                         <TouchableOpacity
                             style={styles.coverImageContainer}
                             onPress={pickImage}
@@ -214,9 +216,9 @@ export default function TopicEditModal({
 
                     {/* Icon Emoji */}
                     <View style={styles.section}>
-                        <Text style={styles.sectionTitle}>Community Icon</Text>
+                        <Text style={[styles.sectionTitle, { color: colors.text.secondary }]}>Community Icon</Text>
                         <TouchableOpacity
-                            style={styles.emojiSelector}
+                            style={[styles.emojiSelector, { backgroundColor: colors.inputBackground }]}
                             onPress={() => setShowEmojiPicker(!showEmojiPicker)}
                         >
                             {topic?.iconImageUrl ? (
@@ -229,11 +231,11 @@ export default function TopicEditModal({
                             ) : (
                                 <Text style={styles.selectedEmoji}>{iconEmoji || '🏷️'}</Text>
                             )}
-                            <Text style={styles.emojiSelectorText}>Tap to change</Text>
-                            <Ionicons name="chevron-down" size={20} color="#6B7280" />
+                            <Text style={[styles.emojiSelectorText, { color: colors.text.secondary }]}>Tap to change</Text>
+                            <Ionicons name="chevron-down" size={20} color={colors.icon.secondary} />
                         </TouchableOpacity>
                         {showEmojiPicker && (
-                            <View style={styles.emojiGrid}>
+                            <View style={[styles.emojiGrid, { backgroundColor: colors.surface }]}>
                                 {EMOJI_OPTIONS.map((emoji) => (
                                     <TouchableOpacity
                                         key={emoji}
@@ -255,9 +257,9 @@ export default function TopicEditModal({
 
                     {/* Name */}
                     <View style={styles.section}>
-                        <Text style={styles.sectionTitle}>Community Name</Text>
+                        <Text style={[styles.sectionTitle, { color: colors.text.secondary }]}>Community Name</Text>
                         <TextInput
-                            style={styles.textInput}
+                            style={[styles.textInput, { backgroundColor: colors.inputBackground, color: colors.text.primary }]}
                             value={name}
                             onChangeText={setName}
                             placeholder="Enter community name"
@@ -267,9 +269,9 @@ export default function TopicEditModal({
 
                     {/* Description */}
                     <View style={styles.section}>
-                        <Text style={styles.sectionTitle}>Description</Text>
+                        <Text style={[styles.sectionTitle, { color: colors.text.secondary }]}>Description</Text>
                         <TextInput
-                            style={[styles.textInput, styles.textArea]}
+                            style={[styles.textInput, styles.textArea, { backgroundColor: colors.inputBackground, color: colors.text.primary }]}
                             value={description}
                             onChangeText={setDescription}
                             placeholder="What is this community about?"

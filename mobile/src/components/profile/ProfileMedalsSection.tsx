@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../services/api';
+import { useTheme } from '../../theme';
 
 interface CommunityMedal {
     id: string;
@@ -46,6 +47,7 @@ const MEDAL_ICONS = {
 };
 
 export default function ProfileMedalsSection({ userId, isOwnProfile = false }: ProfileMedalsSectionProps) {
+    const { colors } = useTheme();
     const [communityMedals, setCommunityMedals] = useState<CommunityMedal[]>([]);
     const [globalMedals, setGlobalMedals] = useState<GlobalMedal[]>([]);
     const [loading, setLoading] = useState(true);
@@ -96,11 +98,11 @@ export default function ProfileMedalsSection({ userId, isOwnProfile = false }: P
         [...communityMedals, ...globalMedals.map(m => ({ ...m, topicName: 'Global', topicEmoji: '🌍' }))].slice(0, 3);
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, { backgroundColor: colors.card, borderTopColor: colors.separator }]}>
             <View style={styles.header}>
                 <View style={styles.headerLeft}>
                     <Ionicons name="trophy" size={18} color="#7C3AED" />
-                    <Text style={styles.title}>Medals</Text>
+                    <Text style={[styles.title, { color: colors.text.primary }]}>Medals</Text>
                     <View style={styles.countBadge}>
                         <Text style={styles.countText}>{totalMedals}</Text>
                     </View>
@@ -116,7 +118,7 @@ export default function ProfileMedalsSection({ userId, isOwnProfile = false }: P
 
             <View style={styles.medalsGrid}>
                 {displayedMedals.map((medal: any, index: number) => (
-                    <View key={medal.id || index} style={styles.medalCard}>
+                    <View key={medal.id || index} style={[styles.medalCard, { backgroundColor: colors.surface }]}>
                         <View style={[styles.medalIcon, { backgroundColor: MEDAL_COLORS[medal.medalType as keyof typeof MEDAL_COLORS] + '20' }]}>
                             <Ionicons
                                 name={MEDAL_ICONS[medal.medalType as keyof typeof MEDAL_ICONS] as any}
@@ -125,8 +127,8 @@ export default function ProfileMedalsSection({ userId, isOwnProfile = false }: P
                             />
                         </View>
                         <View style={styles.medalInfo}>
-                            <Text style={styles.medalRank}>#{medal.rankPosition}</Text>
-                            <Text style={styles.medalLabel} numberOfLines={1}>
+                            <Text style={[styles.medalRank, { color: colors.text.primary }]}>#{medal.rankPosition}</Text>
+                            <Text style={[styles.medalLabel, { color: colors.text.secondary }]} numberOfLines={1}>
                                 {getMedalLabel(medal.leaderboardType, medal.periodType)}
                             </Text>
                             <View style={styles.medalSource}>
@@ -135,7 +137,7 @@ export default function ProfileMedalsSection({ userId, isOwnProfile = false }: P
                                     {medal.topicName}
                                 </Text>
                             </View>
-                            <Text style={styles.medalDate}>{formatDate(medal.awardedAt)}</Text>
+                            <Text style={[styles.medalDate, { color: colors.text.tertiary }]}>{formatDate(medal.awardedAt)}</Text>
                         </View>
                     </View>
                 ))}

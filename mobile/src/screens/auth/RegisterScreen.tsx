@@ -11,8 +11,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../services/api';
 import { useGoogleSignIn, extractGoogleIdToken } from '../../services/googleAuth';
+import { useTheme } from '../../theme';
 
 export default function RegisterScreen({ navigation }: any) {
+  const { colors, isDark } = useTheme();
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -121,20 +123,22 @@ export default function RegisterScreen({ navigation }: any) {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Create Account</Text>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <Text style={[styles.title, { color: colors.text.primary }]}>Create Account</Text>
 
       <TextInput
-        style={styles.input}
+        style={[styles.input, { borderColor: colors.border, color: colors.text.primary, backgroundColor: colors.inputBackground }]}
         placeholder="Username"
+        placeholderTextColor={colors.text.tertiary}
         value={username}
         onChangeText={setUsername}
         autoCapitalize="none"
       />
 
       <TextInput
-        style={styles.input}
+        style={[styles.input, { borderColor: colors.border, color: colors.text.primary, backgroundColor: colors.inputBackground }]}
         placeholder="Email"
+        placeholderTextColor={colors.text.tertiary}
         value={email}
         onChangeText={setEmail}
         autoCapitalize="none"
@@ -142,35 +146,36 @@ export default function RegisterScreen({ navigation }: any) {
       />
 
       <TextInput
-        style={styles.input}
+        style={[styles.input, { borderColor: colors.border, color: colors.text.primary, backgroundColor: colors.inputBackground }]}
         placeholder="Password"
+        placeholderTextColor={colors.text.tertiary}
         value={password}
         onChangeText={setPassword}
         secureTextEntry
       />
 
       <TouchableOpacity
-        style={styles.button}
+        style={[styles.button, { backgroundColor: colors.text.link }]}
         onPress={handleRegister}
         disabled={loading || googleLoading}
       >
         {loading ? (
-          <ActivityIndicator color="#fff" />
+          <ActivityIndicator color={colors.text.inverse} />
         ) : (
-          <Text style={styles.buttonText}>Register</Text>
+          <Text style={[styles.buttonText, { color: colors.text.inverse }]}>Register</Text>
         )}
       </TouchableOpacity>
 
       {/* Divider */}
       <View style={styles.divider}>
-        <View style={styles.dividerLine} />
-        <Text style={styles.dividerText}>OR</Text>
-        <View style={styles.dividerLine} />
+        <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+        <Text style={[styles.dividerText, { color: colors.text.secondary }]}>OR</Text>
+        <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
       </View>
 
       {/* Google Sign-In Button */}
       <TouchableOpacity
-        style={styles.googleButton}
+        style={[styles.googleButton, { backgroundColor: colors.card, borderColor: colors.border }]}
         onPress={handleGoogleSignIn}
         disabled={!request || loading || googleLoading}
       >
@@ -179,13 +184,13 @@ export default function RegisterScreen({ navigation }: any) {
         ) : (
           <>
             <Ionicons name="logo-google" size={20} color="#4285F4" />
-            <Text style={styles.googleButtonText}>Continue with Google</Text>
+            <Text style={[styles.googleButtonText, { color: colors.text.primary }]}>Continue with Google</Text>
           </>
         )}
       </TouchableOpacity>
 
       <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-        <Text style={styles.link}>Already have an account? Login</Text>
+        <Text style={[styles.link, { color: colors.text.link }]}>Already have an account? Login</Text>
       </TouchableOpacity>
     </View>
   );
@@ -196,7 +201,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     padding: 20,
-    backgroundColor: '#fff',
   },
   title: {
     fontSize: 24,
@@ -206,26 +210,22 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
     borderRadius: 8,
     padding: 15,
     marginBottom: 15,
     fontSize: 16,
   },
   button: {
-    backgroundColor: '#007AFF',
     borderRadius: 8,
     padding: 15,
     alignItems: 'center',
     marginTop: 10,
   },
   buttonText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
   },
   link: {
-    color: '#007AFF',
     textAlign: 'center',
     marginTop: 20,
   },
@@ -237,20 +237,16 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#ddd',
   },
   dividerText: {
     marginHorizontal: 10,
-    color: '#666',
     fontSize: 14,
   },
   googleButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#ddd',
     borderRadius: 8,
     padding: 15,
     marginBottom: 10,
@@ -259,6 +255,5 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
   },
 });

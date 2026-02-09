@@ -14,6 +14,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import Slider from '@react-native-community/slider';
 import { api } from '../../services/api';
 import AvatarRenderer, { AvatarCustomizations } from '../../components/AvatarRenderer';
+import { useTheme } from '../../theme';
 
 // Types
 type AvatarStyle = 'cartoon' | 'anime' | 'minimalist';
@@ -89,6 +90,7 @@ const EARRING_OPTIONS = [
 ];
 
 export default function AvatarCustomizationScreen() {
+  const { colors, isDark } = useTheme();
   const navigation = useNavigation<any>();
   const route = useRoute<RouteProp<RouteParams, 'AvatarCustomization'>>();
   const editingAvatarId = route.params?.avatarId;
@@ -220,6 +222,7 @@ export default function AvatarCustomizationScreen() {
           key={item.id || 'none'}
           style={[
             styles.optionButton,
+            { backgroundColor: colors.inputBackground },
             selected === item.id && styles.optionButtonSelected,
           ]}
           onPress={() => onSelect(item.id)}
@@ -227,6 +230,7 @@ export default function AvatarCustomizationScreen() {
           <Text
             style={[
               styles.optionText,
+              { color: colors.text.secondary },
               selected === item.id && styles.optionTextSelected,
             ]}
           >
@@ -239,20 +243,20 @@ export default function AvatarCustomizationScreen() {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, { backgroundColor: colors.card }]}>
         <ActivityIndicator size="large" color="#FBBF24" />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.card }]}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="close" size={28} color="#000" />
+          <Ionicons name="close" size={28} color={colors.text.primary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>
+        <Text style={[styles.headerTitle, { color: colors.text.primary }]}>
           {editingAvatarId ? 'Edit Avatar' : 'Create Avatar'}
         </Text>
         <TouchableOpacity onPress={handleSave} disabled={saving}>
@@ -266,7 +270,7 @@ export default function AvatarCustomizationScreen() {
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Live Preview */}
-        <View style={styles.previewSection}>
+        <View style={[styles.previewSection, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
           <View style={styles.previewContainer}>
             <AvatarRenderer
               size={150}
@@ -275,24 +279,25 @@ export default function AvatarCustomizationScreen() {
             />
           </View>
           <TextInput
-            style={styles.nameInput}
+            style={[styles.nameInput, { color: colors.text.primary, borderColor: colors.border, backgroundColor: colors.card }]}
             value={name}
             onChangeText={setName}
             placeholder="Avatar Name"
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor={colors.text.tertiary}
             maxLength={50}
           />
         </View>
 
         {/* Style Selection */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Style</Text>
+        <View style={[styles.section, { borderBottomColor: colors.border }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Style</Text>
           <View style={styles.styleRow}>
             {(['cartoon', 'anime', 'minimalist'] as AvatarStyle[]).map((s) => (
               <TouchableOpacity
                 key={s}
                 style={[
                   styles.styleButton,
+                  { backgroundColor: colors.inputBackground },
                   style === s && styles.styleButtonSelected,
                 ]}
                 onPress={() => setStyle(s)}
@@ -300,6 +305,7 @@ export default function AvatarCustomizationScreen() {
                 <Text
                   style={[
                     styles.styleButtonText,
+                    { color: colors.text.secondary },
                     style === s && styles.styleButtonTextSelected,
                   ]}
                 >
@@ -311,8 +317,8 @@ export default function AvatarCustomizationScreen() {
         </View>
 
         {/* Skin Tone */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Skin Tone</Text>
+        <View style={[styles.section, { borderBottomColor: colors.border }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Skin Tone</Text>
           {renderColorPicker(
             SKIN_TONES,
             customizations.skinTone,
@@ -321,17 +327,17 @@ export default function AvatarCustomizationScreen() {
         </View>
 
         {/* Eyes */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Eye Color</Text>
+        <View style={[styles.section, { borderBottomColor: colors.border }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Eye Color</Text>
           {renderColorPicker(
             EYE_COLORS,
             customizations.eyeColor,
             (color) => updateCustomization('eyeColor', color)
           )}
 
-          <Text style={styles.subsectionTitle}>Eye Size</Text>
+          <Text style={[styles.subsectionTitle, { color: colors.text.tertiary }]}>Eye Size</Text>
           <View style={styles.sliderContainer}>
-            <Text style={styles.sliderLabel}>Small</Text>
+            <Text style={[styles.sliderLabel, { color: colors.text.tertiary }]}>Small</Text>
             <Slider
               style={styles.slider}
               minimumValue={0.5}
@@ -343,20 +349,20 @@ export default function AvatarCustomizationScreen() {
               maximumTrackTintColor="#E5E7EB"
               thumbTintColor="#FBBF24"
             />
-            <Text style={styles.sliderLabel}>Large</Text>
+            <Text style={[styles.sliderLabel, { color: colors.text.tertiary }]}>Large</Text>
           </View>
         </View>
 
         {/* Hair */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Hair Color</Text>
+        <View style={[styles.section, { borderBottomColor: colors.border }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Hair Color</Text>
           {renderColorPicker(
             HAIR_COLORS,
             customizations.hairColor,
             (color) => updateCustomization('hairColor', color)
           )}
 
-          <Text style={styles.subsectionTitle}>Hair Style</Text>
+          <Text style={[styles.subsectionTitle, { color: colors.text.tertiary }]}>Hair Style</Text>
           {renderOptionPicker(
             HAIR_STYLES,
             customizations.hairStyle,
@@ -365,24 +371,24 @@ export default function AvatarCustomizationScreen() {
         </View>
 
         {/* Accessories */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Accessories</Text>
+        <View style={[styles.section, { borderBottomColor: colors.border }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Accessories</Text>
 
-          <Text style={styles.subsectionTitle}>Glasses</Text>
+          <Text style={[styles.subsectionTitle, { color: colors.text.tertiary }]}>Glasses</Text>
           {renderOptionPicker(
             GLASSES_OPTIONS,
             customizations.accessories.glasses,
             (id) => updateAccessory('glasses', id)
           )}
 
-          <Text style={styles.subsectionTitle}>Hat</Text>
+          <Text style={[styles.subsectionTitle, { color: colors.text.tertiary }]}>Hat</Text>
           {renderOptionPicker(
             HAT_OPTIONS,
             customizations.accessories.hat,
             (id) => updateAccessory('hat', id)
           )}
 
-          <Text style={styles.subsectionTitle}>Earrings</Text>
+          <Text style={[styles.subsectionTitle, { color: colors.text.tertiary }]}>Earrings</Text>
           {renderOptionPicker(
             EARRING_OPTIONS,
             customizations.accessories.earrings,

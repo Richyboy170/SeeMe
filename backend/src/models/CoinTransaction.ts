@@ -7,7 +7,7 @@ import { sequelize } from '../config/database';
 export interface CoinTransactionAttributes {
   id: string;
   fromUserId: string | null;
-  toUserId: string;
+  toUserId: string | null;
   amount: number;
   transactionType: string;
   relatedPostId: string | null;
@@ -22,7 +22,7 @@ export interface CoinTransactionAttributes {
  */
 interface CoinTransactionCreationAttributes extends Optional<
   CoinTransactionAttributes,
-  'id' | 'fromUserId' | 'relatedPostId' | 'relatedCommentId' | 'topicId' | 'message' | 'createdAt'
+  'id' | 'fromUserId' | 'toUserId' | 'relatedPostId' | 'relatedCommentId' | 'topicId' | 'message' | 'createdAt'
 > {}
 
 /**
@@ -36,12 +36,13 @@ interface CoinTransactionCreationAttributes extends Optional<
  * - 'earned_cooldown': Coins claimed from cooldown system
  * - 'given_to_user': Coins given to another user
  * - 'received_from_user': Coins received from another user
+ * - 'spent_on_post': Coins spent to create a post
  */
 export class CoinTransaction extends Model<CoinTransactionAttributes, CoinTransactionCreationAttributes>
   implements CoinTransactionAttributes {
   public id!: string;
   public fromUserId!: string | null;
-  public toUserId!: string;
+  public toUserId!: string | null;
   public amount!: number;
   public transactionType!: string;
   public relatedPostId!: string | null;
@@ -71,13 +72,13 @@ CoinTransaction.init(
     },
     toUserId: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
       references: {
         model: 'users',
         key: 'id'
       },
       onDelete: 'CASCADE',
-      comment: 'User who received coins'
+      comment: 'User who received coins (NULL for system deductions like post cost)'
     },
     amount: {
       type: DataTypes.INTEGER,
@@ -103,6 +104,7 @@ CoinTransaction.init(
             'earned_cooldown',
             'given_to_user',
             'received_from_user',
+            'spent_on_post',
             // Phase 3.3: Community encouragement types
             'encouragement',
             'gift',

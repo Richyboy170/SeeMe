@@ -38,6 +38,7 @@ import {
   DetectedPerson,
 } from '../../services/contentCheck';
 import { PRESET_POSES, PresetPose, getPoseById } from '../../data/presetPoses';
+import { useTheme } from '../../theme';
 
 const { width } = Dimensions.get('window');
 const PREVIEW_SIZE = (width - 48) / 2;
@@ -75,6 +76,7 @@ type ProcessingStage = 'idle' | 'detecting' | 'selecting' | 'processing' | 'cust
 type FullBodyAvatarScreenRouteProp = RouteProp<CreatePostStackParamList, 'FullBodyAvatar'>;
 
 export const FullBodyAvatarScreen: React.FC = () => {
+  const { colors, isDark } = useTheme();
   const navigation = useNavigation();
   const route = useRoute<FullBodyAvatarScreenRouteProp>();
   const initialImageUri = route.params?.imageUri;

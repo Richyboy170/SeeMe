@@ -48,6 +48,7 @@ import { useCoinCelebration } from '../../contexts/CoinCelebrationContext';
 import { useTheme, Colors } from '../../theme';
 import CoinInvestAnimation from '../../components/coins/CoinInvestAnimation';
 import ImageEditor from '../../components/ImageEditor';
+import { analyzeImage } from '../../services/imageAnalyzer';
 // Person detection disabled for now — imports kept for re-enable later
 // import { checkImageForPerson, blurFacesInImage } from '../../services/contentCheck';
 import type { PersonCheckResult } from '../../services/contentCheck';
@@ -268,22 +269,13 @@ export default function CreatePostScreen() {
     selectedTopics: string[];
   } | null>(null);
 
-  // Reset to camera mode when tab is focused
+  // Topic suggestions toggle (photo + caption)
+  const [showSuggestions, setShowSuggestions] = useState(true);
+  const [imageSuggestedTopics, setImageSuggestedTopics] = useState<FullTopic[]>([]);
+
+  // Refresh background data when tab is focused — preserve draft state
   useFocusEffect(
     useCallback(() => {
-      setMode('camera');
-      setImageUri(null);
-      setOriginalImageUri(null);
-      setRawImageUri(null);
-      setCaption('');
-      setContentStatus('unchecked');
-      setPersonCheckResult(null);
-      setVisibility('friends_only');
-      setSelectedTopics([]);
-      setSuggestedTopics([]);
-      setShowEditor(false);
-      setShowInvestAnimation(false);
-      if (suggestionTimerRef.current) clearTimeout(suggestionTimerRef.current);
       loadFollowedTopics();
       loadAllTopics();
       loadGalleryThumbnail();
@@ -362,6 +354,10 @@ export default function CreatePostScreen() {
   // Debounced caption change for smart suggestions
   const handleCaptionChange = (text: string) => {
     setCaption(text);
+    if (!showSuggestions) {
+      console.log('[SUGGEST] blocked: showSuggestions is OFF');
+      return;
+    }
     if (suggestionTimerRef.current) clearTimeout(suggestionTimerRef.current);
     suggestionTimerRef.current = setTimeout(() => {
       updateSuggestions(text);
@@ -376,6 +372,7 @@ export default function CreatePostScreen() {
     const matched = matches
       .map(m => allTopics.find(t => t.id === m.topicId))
       .filter((t): t is FullTopic => !!t);
+    console.log('[SUGGEST] caption:', JSON.stringify(text), 'indexSize:', topicIndexRef.current.length, 'followedIds:', followedIds.size, 'matches:', matches.length, 'matched:', matched.map(t => t.name));
     setSuggestedTopics(matched);
   };
 
@@ -387,6 +384,7 @@ export default function CreatePostScreen() {
       setFollowedTopics(prev => [...prev, { ...topic, isFollowing: true }]);
       setSelectedTopics(prev => [...prev, topic.id]);
       setSuggestedTopics(prev => prev.filter(t => t.id !== topic.id));
+      setImageSuggestedTopics(prev => prev.filter(t => t.id !== topic.id));
       if (visibility === 'friends_only') {
         setVisibility('topics_and_friends');
       }
@@ -412,6 +410,11 @@ export default function CreatePostScreen() {
     setMode('compose');
     setContentStatus('ready');
 
+    // Run lightweight image analysis for topic suggestions (if allowed)
+    if (showSuggestions) {
+      analyzeImageForTopics(croppedUri);
+    }
+
     if (wasCropped) {
       Alert.alert(
         'Cropping Info',
@@ -419,12 +422,39 @@ export default function CreatePostScreen() {
         [{ text: 'Got it' }]
       );
     }
-  }, []);
+  }, [showSuggestions, allTopics, followedTopics, selectedTopics]);
 
   const handleEditorCancel = useCallback(() => {
     setShowEditor(false);
     setRawImageUri(null);
   }, []);
+
+  // Lightweight on-device image analysis for topic suggestions
+  const analyzeImageForTopics = async (uri: string) => {
+    try {
+      const result = await analyzeImage(uri);
+      if (result.suggestedSlugs.length === 0) {
+        setImageSuggestedTopics([]);
+        return;
+      }
+
+      // Map slugs to actual topic objects, excluding already followed/selected
+      const followedIds = new Set(followedTopics.map(t => t.id));
+      selectedTopics.forEach(id => followedIds.add(id));
+
+      const matched = result.suggestedSlugs
+        .map(slug => allTopics.find(t => {
+          const topicSlug = t.slug || t.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+          return topicSlug === slug;
+        }))
+        .filter((t): t is FullTopic => !!t && !followedIds.has(t.id));
+
+      setImageSuggestedTopics(matched);
+    } catch (error) {
+      console.error('Image analysis failed:', error);
+      setImageSuggestedTopics([]);
+    }
+  };
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -477,14 +507,20 @@ export default function CreatePostScreen() {
     setFlash(prev => (prev === 'off' ? 'on' : 'off'));
   };
 
-  // Back to camera mode
+  // Back to camera mode — discard current draft
   const backToCamera = () => {
     setMode('camera');
     setImageUri(null);
     setOriginalImageUri(null);
     setRawImageUri(null);
+    setCaption('');
     setContentStatus('unchecked');
     setPersonCheckResult(null);
+    setVisibility('friends_only');
+    setSelectedTopics([]);
+    setSuggestedTopics([]);
+    setImageSuggestedTopics([]);
+    setShowSuggestions(true);
   };
 
   // Handle "Convert to 3D Avatar" option
@@ -529,9 +565,9 @@ export default function CreatePostScreen() {
     // Check coin balance
     if (coinBalance !== null && coinBalance < 3) {
       Alert.alert(
-        'Need 3 Coins',
-        `Posting costs 3 coins but you only have ${coinBalance}. Earn more by claiming cooldown coins or receiving gifts!`,
-        [{ text: 'OK' }]
+        'Need More Kindness Coins',
+        `Sharing a post takes 3 coins and you have ${coinBalance} right now. Earn more by claiming cooldown coins or receiving gifts from friends!`,
+        [{ text: 'Got it' }]
       );
       return;
     }
@@ -564,6 +600,8 @@ export default function CreatePostScreen() {
       // Refresh coin balance
       loadCoinBalance();
 
+      // Reset all draft state so next visit starts fresh
+      setMode('camera');
       setImageUri(null);
       setOriginalImageUri(null);
       setRawImageUri(null);
@@ -572,6 +610,11 @@ export default function CreatePostScreen() {
       setPersonCheckResult(null);
       setVisibility('friends_only');
       setSelectedTopics([]);
+      setSuggestedTopics([]);
+      setImageSuggestedTopics([]);
+      setShowSuggestions(true);
+      setShowEditor(false);
+      setShowInvestAnimation(false);
       pendingPostDataRef.current = null;
 
       if (response.coinsEarned && response.coinsEarned > 0) {
@@ -838,7 +881,7 @@ export default function CreatePostScreen() {
             }]}>
               <Ionicons name="heart" size={14} color="#FBBF24" />
               <Text style={[styles.coinCostText, { color: isDark ? '#FCD34D' : '#92400E' }]}>
-                Costs 3 coins to post
+                3 coins to share your kindness
               </Text>
               {caption.trim().length >= 20 && (
                 <Text style={{ fontSize: 12, color: Colors.common.success, fontWeight: '600' }}>
@@ -848,8 +891,93 @@ export default function CreatePostScreen() {
             </View>
           </View>
 
-          {/* Smart Topic Suggestions */}
-          {suggestedTopics.length > 0 && (
+          {/* Image-Based Topic Suggestions */}
+          {showSuggestions && imageSuggestedTopics.length > 0 && (
+            <View style={[styles.suggestionsSection, {
+              backgroundColor: isDark ? '#0F1A15' : '#F0FFF4',
+              borderBottomColor: colors.borderLight,
+            }]}>
+              <View style={styles.suggestionsHeader}>
+                <View style={styles.suggestionsTitleRow}>
+                  <Ionicons name="image" size={16} color="#10B981" />
+                  <Text style={[styles.suggestionsTitle, { color: colors.text.primary }]}>
+                    Photo Suggestions
+                  </Text>
+                </View>
+                <Text style={[styles.suggestionsSubtitle, { color: colors.text.secondary }]}>
+                  Based on your photo — tap to join
+                </Text>
+              </View>
+              {imageSuggestedTopics.map(topic => {
+                const isJoining = joiningTopicId === topic.id;
+                return (
+                  <TouchableOpacity
+                    key={`img-${topic.id}`}
+                    style={[styles.suggestionCard, {
+                      backgroundColor: isDark ? colors.surface : '#FFF',
+                      borderColor: isDark ? colors.border : '#D1FAE5',
+                    }]}
+                    onPress={() => handleJoinAndPost(topic)}
+                    disabled={isJoining}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.suggestionCardTop}>
+                      <Text style={styles.suggestionEmoji}>
+                        {topic.iconEmoji || '📌'}
+                      </Text>
+                      <View style={styles.suggestionInfo}>
+                        <Text style={[styles.suggestionName, { color: colors.text.primary }]} numberOfLines={1}>
+                          {topic.name}
+                        </Text>
+                      </View>
+                      {isJoining ? (
+                        <ActivityIndicator size="small" color="#10B981" />
+                      ) : (
+                        <Ionicons name="add-circle" size={24} color="#10B981" />
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+
+          {/* Toggle for topic suggestions (photo + caption) */}
+          <View style={[styles.privacyToggle, {
+            borderBottomColor: colors.borderLight,
+          }]}>
+            <TouchableOpacity
+              style={styles.privacyToggleRow}
+              onPress={() => {
+                const next = !showSuggestions;
+                setShowSuggestions(next);
+                if (next) {
+                  // Re-run both analyses when toggled back on
+                  if (imageUri) analyzeImageForTopics(imageUri);
+                  updateSuggestions(caption);
+                } else {
+                  setImageSuggestedTopics([]);
+                  setSuggestedTopics([]);
+                }
+              }}
+            >
+              <Ionicons
+                name={showSuggestions ? 'bulb' : 'bulb-outline'}
+                size={16}
+                color={colors.text.tertiary}
+              />
+              <Text style={[styles.privacyToggleText, { color: colors.text.tertiary }]}>
+                {showSuggestions ? 'Topic suggestions on' : 'Topic suggestions off — tap to show'}
+              </Text>
+              <View style={[
+                styles.privacyToggleDot,
+                { backgroundColor: showSuggestions ? '#10B981' : '#6B7280' },
+              ]} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Smart Topic Suggestions (caption-based) */}
+          {showSuggestions && suggestedTopics.length > 0 && (
             <View style={[styles.suggestionsSection, {
               backgroundColor: isDark ? '#1A1525' : '#FAFAFE',
               borderBottomColor: colors.borderLight,
@@ -1656,5 +1784,34 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 12,
     fontWeight: '600',
+  },
+
+  // ── Privacy Toggle ──────────────────────────────────────────────
+  privacyToggle: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  privacyToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  privacyToggleText: {
+    fontSize: 12,
+    flex: 1,
+  },
+  privacyToggleDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+
+  // ── Suggestions Title Row ───────────────────────────────────────
+  suggestionsTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
   },
 });

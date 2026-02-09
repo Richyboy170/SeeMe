@@ -10,6 +10,7 @@ import {
     ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../../theme';
 import { api } from '../../services/api';
 import { useCoinCelebration } from '../../contexts/CoinCelebrationContext';
 
@@ -60,6 +61,7 @@ export default function GiveCoinsModal({
     onClose,
     onSuccess
 }: GiveCoinsModalProps) {
+    const { colors, isDark } = useTheme();
     const [amount, setAmount] = useState('1');
     const [message, setMessage] = useState('');
     const [submitting, setSubmitting] = useState(false);
@@ -114,24 +116,24 @@ export default function GiveCoinsModal({
             onRequestClose={onClose}
         >
             <View style={styles.overlay}>
-                <View style={styles.modal}>
+                <View style={[styles.modal, { backgroundColor: colors.background }]}>
                     {/* Header */}
                     <View style={styles.header}>
-                        <Text style={styles.title}>Give Positivity Coins</Text>
+                        <Text style={[styles.title, { color: colors.text.primary }]}>Give Positivity Coins</Text>
                         <TouchableOpacity onPress={onClose}>
-                            <Ionicons name="close" size={28} color="#6B7280" />
+                            <Ionicons name="close" size={28} color={colors.text.secondary} />
                         </TouchableOpacity>
                     </View>
 
                     {/* Recipient */}
-                    <View style={styles.recipient}>
-                        <Ionicons name="person-circle" size={40} color="#9CA3AF" />
-                        <Text style={styles.recipientName}>@{recipientUsername}</Text>
+                    <View style={[styles.recipient, { backgroundColor: colors.surface }]}>
+                        <Ionicons name="person-circle" size={40} color={colors.icon.secondary} />
+                        <Text style={[styles.recipientName, { color: colors.text.primary }]}>@{recipientUsername}</Text>
                     </View>
 
                     {/* Amount Selection */}
                     <View style={styles.section}>
-                        <Text style={styles.label}>How many coins?</Text>
+                        <Text style={[styles.label, { color: colors.text.primary }]}>How many coins?</Text>
 
                         <View style={styles.presets}>
                             {presetAmounts.map((preset) => (
@@ -139,13 +141,16 @@ export default function GiveCoinsModal({
                                     key={preset}
                                     style={[
                                         styles.presetButton,
-                                        amount === preset.toString() && styles.presetButtonActive
+                                        {
+                                            borderColor: amount === preset.toString() ? '#FBBF24' : colors.border,
+                                            backgroundColor: amount === preset.toString() ? '#FEF3C7' : colors.background
+                                        }
                                     ]}
                                     onPress={() => setAmount(preset.toString())}
                                 >
                                     <Text style={[
                                         styles.presetText,
-                                        amount === preset.toString() && styles.presetTextActive
+                                        { color: amount === preset.toString() ? '#F59E0B' : colors.text.secondary }
                                     ]}>
                                         {preset}
                                     </Text>
@@ -154,10 +159,15 @@ export default function GiveCoinsModal({
                         </View>
 
                         <TextInput
-                            style={styles.amountInput}
+                            style={[styles.amountInput, {
+                                borderColor: colors.border,
+                                color: colors.text.primary,
+                                backgroundColor: colors.background
+                            }]}
                             value={amount}
                             onChangeText={setAmount}
                             placeholder="Custom amount"
+                            placeholderTextColor={colors.text.secondary}
                             keyboardType="number-pad"
                             maxLength={3}
                         />
@@ -166,7 +176,7 @@ export default function GiveCoinsModal({
                     {/* Message (Optional) */}
                     <View style={styles.section}>
                         <View style={styles.messageLabelRow}>
-                            <Text style={[styles.label, { marginBottom: 0 }]}>Add a message (optional)</Text>
+                            <Text style={[styles.label, { marginBottom: 0, color: colors.text.primary }]}>Add a message (optional)</Text>
                             <TouchableOpacity
                                 style={styles.randomButton}
                                 onPress={getRandomMessage}
@@ -176,23 +186,28 @@ export default function GiveCoinsModal({
                             </TouchableOpacity>
                         </View>
                         <TextInput
-                            style={styles.messageInput}
+                            style={[styles.messageInput, {
+                                borderColor: colors.border,
+                                color: colors.text.primary,
+                                backgroundColor: colors.background
+                            }]}
                             value={message}
                             onChangeText={setMessage}
                             placeholder="You're awesome!"
+                            placeholderTextColor={colors.text.secondary}
                             multiline
                             maxLength={200}
                         />
-                        <Text style={styles.charCount}>{message.length}/200</Text>
+                        <Text style={[styles.charCount, { color: colors.text.secondary }]}>{message.length}/200</Text>
                     </View>
 
                     {/* Actions */}
                     <View style={styles.actions}>
                         <TouchableOpacity
-                            style={styles.cancelButton}
+                            style={[styles.cancelButton, { borderColor: colors.border }]}
                             onPress={onClose}
                         >
-                            <Text style={styles.cancelText}>Cancel</Text>
+                            <Text style={[styles.cancelText, { color: colors.text.secondary }]}>Cancel</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
@@ -222,7 +237,6 @@ const styles = StyleSheet.create({
         padding: 20
     },
     modal: {
-        backgroundColor: '#FFF',
         borderRadius: 20,
         width: '100%',
         maxWidth: 400,
@@ -237,20 +251,17 @@ const styles = StyleSheet.create({
     title: {
         fontSize: 20,
         fontWeight: 'bold',
-        color: '#111827'
     },
     recipient: {
         flexDirection: 'row',
         alignItems: 'center',
         padding: 16,
-        backgroundColor: '#F3F4F6',
         borderRadius: 12,
         marginBottom: 20
     },
     recipientName: {
         fontSize: 18,
         fontWeight: '600',
-        color: '#111827',
         marginLeft: 12
     },
     section: {
@@ -259,7 +270,6 @@ const styles = StyleSheet.create({
     label: {
         fontSize: 14,
         fontWeight: '600',
-        color: '#374151',
         marginBottom: 12
     },
     messageLabelRow: {
@@ -292,32 +302,20 @@ const styles = StyleSheet.create({
         padding: 12,
         borderRadius: 10,
         borderWidth: 2,
-        borderColor: '#E5E7EB',
-        backgroundColor: '#FFF',
         alignItems: 'center'
-    },
-    presetButtonActive: {
-        borderColor: '#FBBF24',
-        backgroundColor: '#FEF3C7'
     },
     presetText: {
         fontSize: 16,
         fontWeight: '700',
-        color: '#6B7280'
-    },
-    presetTextActive: {
-        color: '#F59E0B'
     },
     amountInput: {
         borderWidth: 2,
-        borderColor: '#E5E7EB',
         borderRadius: 10,
         padding: 12,
         fontSize: 16
     },
     messageInput: {
         borderWidth: 2,
-        borderColor: '#E5E7EB',
         borderRadius: 10,
         padding: 12,
         fontSize: 16,
@@ -326,7 +324,6 @@ const styles = StyleSheet.create({
     },
     charCount: {
         fontSize: 12,
-        color: '#9CA3AF',
         textAlign: 'right',
         marginTop: 4
     },
@@ -339,13 +336,11 @@ const styles = StyleSheet.create({
         padding: 16,
         borderRadius: 12,
         borderWidth: 2,
-        borderColor: '#E5E7EB',
         alignItems: 'center'
     },
     cancelText: {
         fontSize: 16,
         fontWeight: '600',
-        color: '#6B7280'
     },
     giveButton: {
         flex: 1,

@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../../theme';
 
 interface GiveCounterBadgeProps {
     giveCounter: number;
@@ -8,6 +9,7 @@ interface GiveCounterBadgeProps {
 }
 
 export default function GiveCounterBadge({ giveCounter, rank }: GiveCounterBadgeProps) {
+    const { colors } = useTheme();
     const rankColors: { [key: string]: string } = {
         beginner: '#9CA3AF',
         kind: '#60A5FA',
@@ -28,14 +30,14 @@ export default function GiveCounterBadge({ giveCounter, rank }: GiveCounterBadge
     const emoji = rankEmojis[rank] || rankEmojis.beginner;
 
     return (
-        <View style={[styles.container, { borderColor: color }]}>
+        <View style={[styles.container, { borderColor: color, backgroundColor: colors.card }]}>
             <View style={styles.iconContainer}>
                 <Ionicons name="gift" size={20} color={color} />
             </View>
 
             <View style={styles.content}>
                 <View style={styles.row}>
-                    <Text style={styles.label}>Given</Text>
+                    <Text style={[styles.label, { color: colors.text.secondary }]}>Given</Text>
                     <Text style={styles.emoji}>{emoji}</Text>
                 </View>
                 <Text style={[styles.count, { color }]}>

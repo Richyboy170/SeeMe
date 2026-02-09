@@ -11,13 +11,13 @@ import {
   TouchableOpacity,
   TextInput,
   StyleSheet,
-  useColorScheme,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../../theme';
 import { repostPost, quotePost, unrepostPost, RepostType } from '../../services/repostService';
 
 interface RepostOptionsModalProps {
@@ -41,22 +41,11 @@ export const RepostOptionsModal: React.FC<RepostOptionsModalProps> = ({
   originalCaption,
   originalUsername,
 }) => {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
+  const { colors, isDark } = useTheme();
 
   const [showQuoteInput, setShowQuoteInput] = useState(false);
   const [quoteText, setQuoteText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  const colors = {
-    background: isDark ? '#000000' : '#FFFFFF',
-    surface: isDark ? '#1C1C1E' : '#F2F2F7',
-    text: isDark ? '#FFFFFF' : '#000000',
-    secondaryText: isDark ? '#8E8E93' : '#6B6B6B',
-    border: isDark ? '#38383A' : '#E5E5EA',
-    accent: '#1DA1F2',
-    danger: '#FF3B30',
-  };
 
   const handleSimpleRepost = async () => {
     setIsLoading(true);
@@ -142,9 +131,9 @@ export const RepostOptionsModal: React.FC<RepostOptionsModalProps> = ({
           {/* Header */}
           <View style={[styles.header, { borderBottomColor: colors.border }]}>
             <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color={colors.text} />
+              <Ionicons name="close" size={24} color={colors.text.primary} />
             </TouchableOpacity>
-            <Text style={[styles.title, { color: colors.text }]}>
+            <Text style={[styles.title, { color: colors.text.primary }]}>
               {showQuoteInput ? 'Quote Post' : isReposted ? 'Repost Options' : 'Repost'}
             </Text>
             {showQuoteInput && (
@@ -154,7 +143,7 @@ export const RepostOptionsModal: React.FC<RepostOptionsModalProps> = ({
                 style={[
                   styles.postButton,
                   {
-                    backgroundColor: quoteText.trim() ? colors.accent : colors.border,
+                    backgroundColor: quoteText.trim() ? colors.text.link : colors.border,
                     opacity: isLoading ? 0.6 : 1
                   }
                 ]}
@@ -175,29 +164,29 @@ export const RepostOptionsModal: React.FC<RepostOptionsModalProps> = ({
                 style={[
                   styles.quoteInput,
                   {
-                    color: colors.text,
+                    color: colors.text.primary,
                     borderColor: colors.border,
                   }
                 ]}
                 placeholder="Add your thoughts..."
-                placeholderTextColor={colors.secondaryText}
+                placeholderTextColor={colors.text.secondary}
                 value={quoteText}
                 onChangeText={setQuoteText}
                 multiline
                 maxLength={280}
                 autoFocus
               />
-              <Text style={[styles.charCount, { color: colors.secondaryText }]}>
+              <Text style={[styles.charCount, { color: colors.text.secondary }]}>
                 {quoteText.length}/280
               </Text>
 
               {/* Original Post Preview */}
               <View style={[styles.originalPostPreview, { borderColor: colors.border }]}>
-                <Text style={[styles.previewUsername, { color: colors.secondaryText }]}>
+                <Text style={[styles.previewUsername, { color: colors.text.secondary }]}>
                   @{originalUsername || 'user'}
                 </Text>
                 <Text
-                  style={[styles.previewCaption, { color: colors.text }]}
+                  style={[styles.previewCaption, { color: colors.text.primary }]}
                   numberOfLines={2}
                 >
                   {originalCaption || 'Original post content...'}
@@ -215,18 +204,18 @@ export const RepostOptionsModal: React.FC<RepostOptionsModalProps> = ({
                     onPress={handleUndoRepost}
                     disabled={isLoading}
                   >
-                    <View style={[styles.iconContainer, { backgroundColor: colors.danger + '20' }]}>
-                      <Ionicons name="repeat" size={22} color={colors.danger} />
+                    <View style={[styles.iconContainer, { backgroundColor: '#FF3B3020' }]}>
+                      <Ionicons name="repeat" size={22} color="#FF3B30" />
                     </View>
                     <View style={styles.optionTextContainer}>
-                      <Text style={[styles.optionTitle, { color: colors.danger }]}>
+                      <Text style={[styles.optionTitle, { color: '#FF3B30' }]}>
                         Undo Repost
                       </Text>
-                      <Text style={[styles.optionDescription, { color: colors.secondaryText }]}>
+                      <Text style={[styles.optionDescription, { color: colors.text.secondary }]}>
                         Remove your repost
                       </Text>
                     </View>
-                    {isLoading && <ActivityIndicator size="small" color={colors.accent} />}
+                    {isLoading && <ActivityIndicator size="small" color={colors.text.link} />}
                   </TouchableOpacity>
 
                   {repostType !== 'quote' && (
@@ -235,14 +224,14 @@ export const RepostOptionsModal: React.FC<RepostOptionsModalProps> = ({
                       onPress={() => setShowQuoteInput(true)}
                       disabled={isLoading}
                     >
-                      <View style={[styles.iconContainer, { backgroundColor: colors.accent + '20' }]}>
-                        <Ionicons name="chatbubble-outline" size={22} color={colors.accent} />
+                      <View style={[styles.iconContainer, { backgroundColor: colors.text.link + '20' }]}>
+                        <Ionicons name="chatbubble-outline" size={22} color={colors.text.link} />
                       </View>
                       <View style={styles.optionTextContainer}>
-                        <Text style={[styles.optionTitle, { color: colors.text }]}>
+                        <Text style={[styles.optionTitle, { color: colors.text.primary }]}>
                           Quote Instead
                         </Text>
-                        <Text style={[styles.optionDescription, { color: colors.secondaryText }]}>
+                        <Text style={[styles.optionDescription, { color: colors.text.secondary }]}>
                           Add your thoughts and repost
                         </Text>
                       </View>
@@ -257,18 +246,18 @@ export const RepostOptionsModal: React.FC<RepostOptionsModalProps> = ({
                     onPress={handleSimpleRepost}
                     disabled={isLoading}
                   >
-                    <View style={[styles.iconContainer, { backgroundColor: colors.accent + '20' }]}>
-                      <Ionicons name="repeat" size={22} color={colors.accent} />
+                    <View style={[styles.iconContainer, { backgroundColor: colors.text.link + '20' }]}>
+                      <Ionicons name="repeat" size={22} color={colors.text.link} />
                     </View>
                     <View style={styles.optionTextContainer}>
-                      <Text style={[styles.optionTitle, { color: colors.text }]}>
+                      <Text style={[styles.optionTitle, { color: colors.text.primary }]}>
                         Repost
                       </Text>
-                      <Text style={[styles.optionDescription, { color: colors.secondaryText }]}>
+                      <Text style={[styles.optionDescription, { color: colors.text.secondary }]}>
                         Share this post to your profile
                       </Text>
                     </View>
-                    {isLoading && <ActivityIndicator size="small" color={colors.accent} />}
+                    {isLoading && <ActivityIndicator size="small" color={colors.text.link} />}
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -276,14 +265,14 @@ export const RepostOptionsModal: React.FC<RepostOptionsModalProps> = ({
                     onPress={() => setShowQuoteInput(true)}
                     disabled={isLoading}
                   >
-                    <View style={[styles.iconContainer, { backgroundColor: colors.accent + '20' }]}>
-                      <Ionicons name="create-outline" size={22} color={colors.accent} />
+                    <View style={[styles.iconContainer, { backgroundColor: colors.text.link + '20' }]}>
+                      <Ionicons name="create-outline" size={22} color={colors.text.link} />
                     </View>
                     <View style={styles.optionTextContainer}>
-                      <Text style={[styles.optionTitle, { color: colors.text }]}>
+                      <Text style={[styles.optionTitle, { color: colors.text.primary }]}>
                         Quote
                       </Text>
-                      <Text style={[styles.optionDescription, { color: colors.secondaryText }]}>
+                      <Text style={[styles.optionDescription, { color: colors.text.secondary }]}>
                         Add your thoughts and share
                       </Text>
                     </View>
@@ -296,7 +285,7 @@ export const RepostOptionsModal: React.FC<RepostOptionsModalProps> = ({
                 style={[styles.cancelButton, { borderTopColor: colors.border }]}
                 onPress={handleClose}
               >
-                <Text style={[styles.cancelText, { color: colors.secondaryText }]}>
+                <Text style={[styles.cancelText, { color: colors.text.secondary }]}>
                   Cancel
                 </Text>
               </TouchableOpacity>

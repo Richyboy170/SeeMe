@@ -19,6 +19,7 @@ import Avatar from './Avatar';
 import { AvatarCustomizations } from './AvatarRenderer';
 import { getImageUrl, api } from '../services/api';
 import { formatTimeAgo, getPostImageUrl } from '../utils/postHelpers';
+import { useTheme } from '../theme';
 
 const TABLET_BREAKPOINT = 600;
 
@@ -85,6 +86,7 @@ export default function PostCard({
 }: PostCardProps) {
   const { width } = useWindowDimensions();
   const isTablet = width >= TABLET_BREAKPOINT;
+  const { colors, isDark } = useTheme();
 
   const [liked, setLiked] = useState(post.likedByMe || false);
   const [likesCount, setLikesCount] = useState(post.likesCount);
@@ -340,17 +342,17 @@ export default function PostCard({
           <Ionicons
             name={liked ? 'heart' : 'heart-outline'}
             size={isTablet ? 24 : 28}
-            color={liked ? '#FF3B30' : '#000'}
+            color={liked ? '#FF3B30' : colors.text.primary}
           />
           {likesCount > 0 && (
-            <Text style={styles.actionCount}>{likesCount}</Text>
+            <Text style={[styles.actionCount, { color: colors.text.primary }]}>{likesCount}</Text>
           )}
         </TouchableOpacity>
 
         <TouchableOpacity onPress={handleComment} style={styles.actionButton}>
-          <Ionicons name="chatbubble-outline" size={isTablet ? 22 : 26} color="#000" />
+          <Ionicons name="chatbubble-outline" size={isTablet ? 22 : 26} color={colors.text.primary} />
           {post.commentsCount > 0 && (
-            <Text style={styles.actionCount}>{post.commentsCount}</Text>
+            <Text style={[styles.actionCount, { color: colors.text.primary }]}>{post.commentsCount}</Text>
           )}
         </TouchableOpacity>
 
@@ -359,7 +361,7 @@ export default function PostCard({
             <Ionicons
               name={post.repostedByMe ? 'repeat' : 'repeat-outline'}
               size={isTablet ? 22 : 26}
-              color={post.repostedByMe ? '#10B981' : '#000'}
+              color={post.repostedByMe ? '#10B981' : colors.text.primary}
             />
             {(post.repostCount || 0) > 0 && (
               <Text style={[styles.actionCount, post.repostedByMe && styles.repostedCount]}>
@@ -382,7 +384,7 @@ export default function PostCard({
           <Ionicons
             name={saved ? 'bookmark' : 'bookmark-outline'}
             size={isTablet ? 24 : 26}
-            color={saved ? '#FBBF24' : '#000'}
+            color={saved ? '#FBBF24' : colors.text.primary}
           />
         </TouchableOpacity>
       )}
@@ -407,7 +409,7 @@ export default function PostCard({
             avatarStyle={post.repostedBy.activeAvatar?.style}
           />
           <View style={styles.userInfo}>
-            <Text style={styles.tabletUsername}>@{post.repostedBy.username}</Text>
+            <Text style={[styles.tabletUsername, { color: colors.text.primary }]}>@{post.repostedBy.username}</Text>
             <View style={styles.repostIndicator}>
               <Ionicons name="repeat" size={14} color="#10B981" />
               <Text style={styles.tabletRepostIndicatorText}>reposted</Text>
@@ -436,10 +438,10 @@ export default function PostCard({
                 customizations={post.user.activeAvatar?.customizations}
                 avatarStyle={post.user.activeAvatar?.style}
               />
-              <Text style={styles.tabletCompactRepostUsername}>@{post.user.username}</Text>
+              <Text style={[styles.tabletCompactRepostUsername, { color: colors.text.secondary }]}>@{post.user.username}</Text>
             </View>
             {post.caption && (
-              <Text style={styles.tabletCompactRepostCaption} numberOfLines={repostExpanded ? undefined : 2}>
+              <Text style={[styles.tabletCompactRepostCaption, { color: colors.text.primary }]} numberOfLines={repostExpanded ? undefined : 2}>
                 {post.caption}
               </Text>
             )}
@@ -486,9 +488,9 @@ export default function PostCard({
   if (isTablet) {
     return (
       <View style={styles.tabletContainer}>
-        <View style={styles.tabletCard}>
+        <View style={[styles.tabletCard, { backgroundColor: colors.card }]}>
           {/* Image Side */}
-          <View style={styles.tabletImageContainer}>
+          <View style={[styles.tabletImageContainer, { backgroundColor: colors.surface }]}>
             {renderImage()}
           </View>
 
@@ -504,15 +506,15 @@ export default function PostCard({
                 avatarStyle={post.user.activeAvatar?.style}
               />
               <View style={styles.userInfo}>
-                <Text style={styles.tabletUsername}>@{post.user.username}</Text>
-                <Text style={styles.timestamp}>{formatTimeAgo(post.createdAt)}</Text>
+                <Text style={[styles.tabletUsername, { color: colors.text.primary }]}>@{post.user.username}</Text>
+                <Text style={[styles.timestamp, { color: colors.text.secondary }]}>{formatTimeAgo(post.createdAt)}</Text>
               </View>
             </TouchableOpacity>
 
             {/* Caption - Prominent on tablet */}
             {post.caption && (
               <View style={styles.tabletCaptionContainer}>
-                <Text style={styles.tabletCaption}>{post.caption}</Text>
+                <Text style={[styles.tabletCaption, { color: colors.text.primary }]}>{post.caption}</Text>
               </View>
             )}
 
@@ -615,7 +617,7 @@ export default function PostCard({
 
   // Regular post layout (non-repost)
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
       <TouchableOpacity style={styles.header} onPress={handleUserPress}>
         <Avatar
@@ -626,15 +628,15 @@ export default function PostCard({
           avatarStyle={post.user.activeAvatar?.style}
         />
         <View style={styles.userInfo}>
-          <Text style={styles.username}>@{post.user.username}</Text>
-          <Text style={styles.timestamp}>{formatTimeAgo(post.createdAt)}</Text>
+          <Text style={[styles.username, { color: colors.text.primary }]}>@{post.user.username}</Text>
+          <Text style={[styles.timestamp, { color: colors.text.secondary }]}>{formatTimeAgo(post.createdAt)}</Text>
         </View>
       </TouchableOpacity>
 
       {/* Caption - Above image */}
       {post.caption && (
         <View style={styles.captionContainer}>
-          <Text style={styles.caption}>{post.caption}</Text>
+          <Text style={[styles.caption, { color: colors.text.primary }]}>{post.caption}</Text>
         </View>
       )}
 

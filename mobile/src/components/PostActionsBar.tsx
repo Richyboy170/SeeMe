@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { formatCount } from '../utils/postHelpers';
+import { useTheme } from '../theme';
 
 export interface PostActionsBarProps {
   // State
@@ -51,6 +52,7 @@ export default function PostActionsBar({
   compact = false,
   style,
 }: PostActionsBarProps) {
+  const { colors } = useTheme();
   const actionButtonStyle = compact ? styles.actionButtonCompact : styles.actionButton;
 
   return (
@@ -61,25 +63,25 @@ export default function PostActionsBar({
           <Ionicons
             name={isLiked ? 'heart' : 'heart-outline'}
             size={iconSize}
-            color={isLiked ? '#FF3B30' : '#000'}
+            color={isLiked ? colors.like : colors.icon.primary}
           />
           {showCounts && likesCount > 0 && (
-            <Text style={styles.actionCount}>{formatCount(likesCount)}</Text>
+            <Text style={[styles.actionCount, { color: colors.text.secondary }]}>{formatCount(likesCount)}</Text>
           )}
         </TouchableOpacity>
 
         {/* Comment Button */}
         <TouchableOpacity onPress={onComment} style={actionButtonStyle}>
-          <Ionicons name="chatbubble-outline" size={iconSize - 2} color="#000" />
+          <Ionicons name="chatbubble-outline" size={iconSize - 2} color={colors.icon.primary} />
           {showCounts && commentsCount > 0 && (
-            <Text style={styles.actionCount}>{formatCount(commentsCount)}</Text>
+            <Text style={[styles.actionCount, { color: colors.text.secondary }]}>{formatCount(commentsCount)}</Text>
           )}
         </TouchableOpacity>
 
         {/* Share Button */}
         {showShare && onShare && (
           <TouchableOpacity onPress={onShare} style={actionButtonStyle}>
-            <Ionicons name="paper-plane-outline" size={iconSize - 2} color="#000" />
+            <Ionicons name="paper-plane-outline" size={iconSize - 2} color={colors.icon.primary} />
           </TouchableOpacity>
         )}
 
@@ -97,7 +99,7 @@ export default function PostActionsBar({
           <Ionicons
             name={isSaved ? 'bookmark' : 'bookmark-outline'}
             size={iconSize}
-            color={isSaved ? '#FBBF24' : '#000'}
+            color={isSaved ? colors.gift : colors.icon.primary}
           />
         </TouchableOpacity>
       )}
@@ -132,7 +134,7 @@ const styles = StyleSheet.create({
   actionCount: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#374151',
+    color: undefined,
   },
   saveButton: {
     padding: 4,

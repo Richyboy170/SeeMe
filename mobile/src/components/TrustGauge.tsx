@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../theme';
 
 interface TrustGaugeProps {
   trustScore: number;
@@ -15,9 +16,10 @@ export const TrustGauge: React.FC<TrustGaugeProps> = ({
   currentStreak,
   isMutualFollow,
   compact = false,
-  theme = 'dark',
+  theme: themeProp = 'dark',
 }) => {
-  const isLight = theme === 'light';
+  const { colors, isDark } = useTheme();
+  const isLight = !isDark;
   // Determine color based on mutual follow status and score
   // Using a cohesive warm-to-cool gradient
   const getGaugeColor = () => {
@@ -39,7 +41,7 @@ export const TrustGauge: React.FC<TrustGaugeProps> = ({
   if (compact) {
     return (
       <View style={styles.compactContainer}>
-        <View style={[styles.compactGaugeBackground, { borderColor: gaugeColor }]}>
+        <View style={[styles.compactGaugeBackground, { borderColor: gaugeColor, backgroundColor: isLight ? colors.border : '#374151' }]}>
           <View
             style={[
               styles.compactGaugeFill,
@@ -53,16 +55,16 @@ export const TrustGauge: React.FC<TrustGaugeProps> = ({
   }
 
   return (
-    <View style={[styles.container, isLight && styles.containerLight]}>
+    <View style={[styles.container, { backgroundColor: isLight ? colors.surface : '#1E1B4B', borderColor: isLight ? colors.border : undefined, borderWidth: isLight ? 1 : 0 }]}>
       <View style={styles.header}>
         <Ionicons
           name={isMutualFollow ? 'sparkles' : 'sparkles-outline'}
           size={18}
           color={gaugeColor}
         />
-        <Text style={[styles.label, isLight && styles.labelLight]}>Friendship Score</Text>
+        <Text style={[styles.label, { color: isLight ? colors.text.primary : '#E0E7FF' }]}>Friendship Score</Text>
         {currentStreak > 0 && (
-          <View style={[styles.streakBadge, isLight && styles.streakBadgeLight]}>
+          <View style={[styles.streakBadge, { backgroundColor: isLight ? '#FFF7ED' : '#312E81' }]}>
             <Ionicons name="flame" size={12} color="#F97316" />
             <Text style={styles.streakText}>{currentStreak}d</Text>
           </View>
@@ -70,7 +72,7 @@ export const TrustGauge: React.FC<TrustGaugeProps> = ({
       </View>
 
       <View style={styles.gaugeContainer}>
-        <View style={[styles.gaugeBackground, isLight && styles.gaugeBackgroundLight]}>
+        <View style={[styles.gaugeBackground, { backgroundColor: isLight ? colors.border : '#312E81' }]}>
           <View
             style={[
               styles.gaugeFill,
@@ -81,7 +83,7 @@ export const TrustGauge: React.FC<TrustGaugeProps> = ({
         <Text style={[styles.scoreText, { color: gaugeColor }]}>{trustScore}</Text>
       </View>
 
-      <Text style={[styles.statusText, isLight && styles.statusTextLight]}>
+      <Text style={[styles.statusText, { color: isLight ? colors.text.secondary : '#A5B4FC' }]}>
         {!isMutualFollow
           ? 'Follow each other to unlock colors'
           : trustScore >= 80

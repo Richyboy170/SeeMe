@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { api, getImageUrl } from '../services/api';
+import { useTheme } from '../theme';
 import Avatar from './Avatar';
 
 export interface SharePostModalProps {
@@ -44,6 +45,7 @@ export default function SharePostModal({
   onClose,
   onSuccess,
 }: SharePostModalProps) {
+  const { colors } = useTheme();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -107,7 +109,7 @@ export default function SharePostModal({
 
   const renderConversation = ({ item }: { item: Conversation }) => (
     <TouchableOpacity
-      style={styles.conversationItem}
+      style={[styles.conversationItem, { borderBottomColor: colors.separator }]}
       onPress={() => handleSend(item)}
       disabled={sending !== null}
     >
@@ -119,9 +121,9 @@ export default function SharePostModal({
         avatarStyle={item.otherUser.activeAvatar?.style}
       />
       <View style={styles.conversationInfo}>
-        <Text style={styles.username}>@{item.otherUser.username}</Text>
+        <Text style={[styles.username, { color: colors.text.primary }]}>@{item.otherUser.username}</Text>
         {item.lastMessage?.content && (
-          <Text style={styles.lastMessage} numberOfLines={1}>
+          <Text style={[styles.lastMessage, { color: colors.text.secondary }]} numberOfLines={1}>
             {item.lastMessage.content}
           </Text>
         )}
@@ -143,35 +145,35 @@ export default function SharePostModal({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Ionicons name="close" size={28} color="#000" />
+            <Ionicons name="close" size={28} color={colors.icon.primary} />
           </TouchableOpacity>
-          <Text style={styles.title}>Share Post</Text>
+          <Text style={[styles.title, { color: colors.text.primary }]}>Share Post</Text>
           <View style={{ width: 28 }} />
         </View>
 
         {/* Post Preview */}
         {postImageUrl && (
-          <View style={styles.previewContainer}>
+          <View style={[styles.previewContainer, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
             <Image
               source={{ uri: getImageUrl(postImageUrl) || undefined }}
-              style={styles.previewImage}
+              style={[styles.previewImage, { backgroundColor: colors.border }]}
               resizeMode="cover"
             />
-            <Text style={styles.previewLabel}>Share this post</Text>
+            <Text style={[styles.previewLabel, { color: colors.text.secondary }]}>Share this post</Text>
           </View>
         )}
 
         {/* Search */}
-        <View style={styles.searchContainer}>
-          <Ionicons name="search" size={20} color="#9CA3AF" />
+        <View style={[styles.searchContainer, { backgroundColor: colors.inputBackground }]}>
+          <Ionicons name="search" size={20} color={colors.icon.secondary} />
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { color: colors.text.primary }]}
             placeholder="Search conversations..."
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor={colors.text.tertiary}
             value={searchQuery}
             onChangeText={setSearchQuery}
             autoCapitalize="none"
@@ -188,7 +190,7 @@ export default function SharePostModal({
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#FBBF24" />
-            <Text style={styles.loadingText}>Loading conversations...</Text>
+            <Text style={[styles.loadingText, { color: colors.text.secondary }]}>Loading conversations...</Text>
           </View>
         ) : filteredConversations.length > 0 ? (
           <FlatList
@@ -200,11 +202,11 @@ export default function SharePostModal({
           />
         ) : (
           <View style={styles.emptyContainer}>
-            <Ionicons name="chatbubbles-outline" size={64} color="#D1D5DB" />
-            <Text style={styles.emptyTitle}>
+            <Ionicons name="chatbubbles-outline" size={64} color={colors.disabled} />
+            <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>
               {searchQuery ? 'No matches found' : 'No conversations yet'}
             </Text>
-            <Text style={styles.emptySubtitle}>
+            <Text style={[styles.emptySubtitle, { color: colors.text.secondary }]}>
               {searchQuery
                 ? 'Try a different search'
                 : 'Start a chat to share posts with friends'}

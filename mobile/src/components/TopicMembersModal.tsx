@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { api, getImageUrl } from '../services/api';
+import { useTheme } from '../theme';
 
 interface Member {
     user: {
@@ -41,6 +42,7 @@ export default function TopicMembersModal({
     onClose,
     onUserPress,
 }: TopicMembersModalProps) {
+    const { colors } = useTheme();
     const [members, setMembers] = useState<Member[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadingMore, setLoadingMore] = useState(false);
@@ -116,7 +118,7 @@ export default function TopicMembersModal({
 
     const renderMember = ({ item }: { item: Member }) => (
         <TouchableOpacity
-            style={styles.memberItem}
+            style={[styles.memberItem, { borderBottomColor: colors.separator }]}
             onPress={() => {
                 handleClose();
                 onUserPress(item.user.id, item.user.username);
@@ -132,7 +134,7 @@ export default function TopicMembersModal({
             />
             <View style={styles.memberInfo}>
                 <View style={styles.memberNameRow}>
-                    <Text style={styles.memberName}>@{item.user.username}</Text>
+                    <Text style={[styles.memberName, { color: colors.text.primary }]}>@{item.user.username}</Text>
                     {item.isCreator && (
                         <View style={styles.creatorBadge}>
                             <Ionicons name="shield-checkmark" size={12} color="#7C3AED" />
@@ -145,11 +147,11 @@ export default function TopicMembersModal({
                         </View>
                     )}
                 </View>
-                <Text style={styles.memberStats}>
+                <Text style={[styles.memberStats, { color: colors.text.secondary }]}>
                     {item.postCount} posts · {item.coinsReceived} coins received
                 </Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+            <Ionicons name="chevron-forward" size={20} color={colors.icon.secondary} />
         </TouchableOpacity>
     );
 
@@ -160,28 +162,28 @@ export default function TopicMembersModal({
             presentationStyle="pageSheet"
             onRequestClose={handleClose}
         >
-            <View style={styles.container}>
+            <View style={[styles.container, { backgroundColor: colors.background }]}>
                 {/* Header */}
-                <View style={styles.header}>
+                <View style={[styles.header, { borderBottomColor: colors.border }]}>
                     <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
-                        <Ionicons name="close" size={24} color="#1F2937" />
+                        <Ionicons name="close" size={24} color={colors.icon.primary} />
                     </TouchableOpacity>
                     <View style={styles.headerTitleContainer}>
-                        <Text style={styles.headerTitle}>Members</Text>
-                        <Text style={styles.headerSubtitle}>{topicName} · {total} members</Text>
+                        <Text style={[styles.headerTitle, { color: colors.text.primary }]}>Members</Text>
+                        <Text style={[styles.headerSubtitle, { color: colors.text.secondary }]}>{topicName} · {total} members</Text>
                     </View>
                     <View style={styles.placeholder} />
                 </View>
 
                 {/* Search */}
-                <View style={styles.searchContainer}>
-                    <Ionicons name="search" size={20} color="#9CA3AF" />
+                <View style={[styles.searchContainer, { backgroundColor: colors.inputBackground }]}>
+                    <Ionicons name="search" size={20} color={colors.icon.secondary} />
                     <TextInput
-                        style={styles.searchInput}
+                        style={[styles.searchInput, { color: colors.text.primary }]}
                         placeholder="Search members..."
                         value={search}
                         onChangeText={setSearch}
-                        placeholderTextColor="#9CA3AF"
+                        placeholderTextColor={colors.text.tertiary}
                     />
                     {search.length > 0 && (
                         <TouchableOpacity onPress={() => setSearch('')}>
@@ -194,7 +196,7 @@ export default function TopicMembersModal({
                 {loading ? (
                     <View style={styles.loadingContainer}>
                         <ActivityIndicator size="large" color="#7C3AED" />
-                        <Text style={styles.loadingText}>Loading members...</Text>
+                        <Text style={[styles.loadingText, { color: colors.text.secondary }]}>Loading members...</Text>
                     </View>
                 ) : (
                     <FlatList
@@ -213,9 +215,9 @@ export default function TopicMembersModal({
                         }
                         ListEmptyComponent={
                             <View style={styles.emptyContainer}>
-                                <Ionicons name="people-outline" size={48} color="#D1D5DB" />
-                                <Text style={styles.emptyTitle}>No members found</Text>
-                                <Text style={styles.emptySubtitle}>
+                                <Ionicons name="people-outline" size={48} color={colors.disabled} />
+                                <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>No members found</Text>
+                                <Text style={[styles.emptySubtitle, { color: colors.text.secondary }]}>
                                     {search ? 'Try a different search term' : 'Be the first to join!'}
                                 </Text>
                             </View>

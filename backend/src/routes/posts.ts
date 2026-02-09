@@ -15,11 +15,11 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024 // 10MB limit
   },
   fileFilter: (_req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type. Only JPEG, PNG, and WebP images are allowed.'));
+      cb(new Error('Invalid file type. Only JPEG, PNG, WebP, and HEIC images are allowed.'));
     }
   }
 });
@@ -76,13 +76,36 @@ router.get('/:postId', PostController.getPost);
 
 /**
  * @route   PUT /api/posts/:postId
- * @desc    Update post (edit caption)
+ * @desc    Update post (edit caption and optionally re-cropped image)
  * @access  Private (owner only)
  */
 router.put(
   '/:postId',
   authenticateToken,
+  upload.single('image'),
   PostController.updatePost
+);
+
+/**
+ * @route   PUT /api/posts/:postId/archive
+ * @desc    Archive post (hide from feeds)
+ * @access  Private (owner only)
+ */
+router.put(
+  '/:postId/archive',
+  authenticateToken,
+  PostController.archivePost
+);
+
+/**
+ * @route   PUT /api/posts/:postId/unarchive
+ * @desc    Unarchive post (restore to feeds)
+ * @access  Private (owner only)
+ */
+router.put(
+  '/:postId/unarchive',
+  authenticateToken,
+  PostController.unarchivePost
 );
 
 /**

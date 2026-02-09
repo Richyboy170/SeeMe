@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { useTheme } from '../../theme';
 import { api, getImageUrl } from '../../services/api';
 
 interface PreviewPost {
@@ -52,6 +53,7 @@ interface CommunitiesTabProps {
 }
 
 export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesTabProps) {
+  const { colors, isDark } = useTheme();
   const [topics, setTopics] = useState<Topic[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -136,6 +138,7 @@ export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesT
           key={category.id}
           style={[
             styles.categoryChip,
+            { backgroundColor: colors.background, borderColor: colors.border },
             selectedCategory === category.id && styles.categoryChipActive,
           ]}
           onPress={() =>
@@ -148,6 +151,7 @@ export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesT
           <Text
             style={[
               styles.categoryText,
+              { color: colors.text.secondary },
               selectedCategory === category.id && styles.categoryTextActive,
             ]}
           >
@@ -160,7 +164,7 @@ export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesT
 
   const renderTopic = ({ item }: { item: Topic }) => (
     <TouchableOpacity
-      style={styles.topicCard}
+      style={[styles.topicCard, { backgroundColor: colors.card, shadowColor: '#000' }]}
       onPress={() => navigation.navigate('TopicPage', { topicSlug: item.slug })}
     >
       <View style={styles.topicHeader}>
@@ -174,15 +178,15 @@ export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesT
           <Text style={styles.topicEmoji}>{item.iconEmoji || '🏷️'}</Text>
         )}
         <View style={styles.topicInfo}>
-          <Text style={styles.topicName}>{item.name}</Text>
-          <Text style={styles.topicStats}>
+          <Text style={[styles.topicName, { color: colors.text.primary }]}>{item.name}</Text>
+          <Text style={[styles.topicStats, { color: colors.text.secondary }]}>
             {item.followerCount} members · {item.weeklyPostCount} posts/week
           </Text>
         </View>
         <TouchableOpacity
           style={[
             styles.followButton,
-            item.isFollowing && styles.followingButton,
+            item.isFollowing && [styles.followingButton, { backgroundColor: colors.border }],
           ]}
           onPress={(e) => {
             e.stopPropagation();
@@ -200,7 +204,7 @@ export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesT
         </TouchableOpacity>
       </View>
       {item.description && (
-        <Text style={styles.topicDescription} numberOfLines={2}>
+        <Text style={[styles.topicDescription, { color: colors.text.secondary }]} numberOfLines={2}>
           {item.description}
         </Text>
       )}
@@ -211,7 +215,7 @@ export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesT
             <View key={post.id} style={styles.previewPostWrapper}>
               <Image
                 source={{ uri: getImageUrl(post.processedImageUrl) || getImageUrl(post.originalImageUrl) || '' }}
-                style={styles.previewPostImage}
+                style={[styles.previewPostImage, { backgroundColor: colors.surface }]}
               />
               {post.coinsReceived > 0 && (
                 <View style={styles.previewPostBadge}>
@@ -222,16 +226,16 @@ export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesT
           ))}
           {/* Fill empty slots with placeholders */}
           {Array.from({ length: Math.max(0, 5 - (item.previewPosts?.length || 0)) }).map((_, index) => (
-            <View key={`empty-${index}`} style={[styles.previewPostWrapper, styles.previewPostEmpty]}>
-              <Ionicons name="image-outline" size={20} color="#D1D5DB" />
+            <View key={`empty-${index}`} style={[styles.previewPostWrapper, styles.previewPostEmpty, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Ionicons name="image-outline" size={20} color={colors.text.tertiary} />
             </View>
           ))}
         </View>
       )}
       {/* Show empty state if no posts */}
       {(!item.previewPosts || item.previewPosts.length === 0) && (
-        <View style={styles.noPreviewContainer}>
-          <Text style={styles.noPreviewText}>No posts yet - be the first to share!</Text>
+        <View style={[styles.noPreviewContainer, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.noPreviewText, { color: colors.text.secondary }]}>No posts yet - be the first to share!</Text>
         </View>
       )}
     </TouchableOpacity>
@@ -239,9 +243,9 @@ export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesT
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color="#7C3AED" />
-        <Text style={styles.loadingText}>Loading communities...</Text>
+        <Text style={[styles.loadingText, { color: colors.text.secondary }]}>Loading communities...</Text>
       </View>
     );
   }
@@ -254,14 +258,14 @@ export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesT
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
       }
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.background }]}
       contentContainerStyle={styles.topicsList}
       ListHeaderComponent={renderCategoriesHeader}
       ListEmptyComponent={
         <View style={styles.emptyState}>
-          <Ionicons name="compass-outline" size={48} color="#D1D5DB" />
-          <Text style={styles.emptyTitle}>No communities found</Text>
-          <Text style={styles.emptySubtitle}>
+          <Ionicons name="compass-outline" size={48} color={colors.text.tertiary} />
+          <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>No communities found</Text>
+          <Text style={[styles.emptySubtitle, { color: colors.text.secondary }]}>
             {searchQuery
               ? 'Try a different search term'
               : 'Be the first to create one!'}
@@ -275,18 +279,15 @@ export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesT
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
   },
   loadingText: {
     marginTop: 12,
     fontSize: 16,
-    color: '#6B7280',
   },
   categoriesList: {
     maxHeight: 50,
@@ -301,10 +302,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 8,
     paddingHorizontal: 12,
-    backgroundColor: '#FFFFFF',
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
     marginRight: 8,
   },
   categoryChipActive: {
@@ -317,7 +316,6 @@ const styles = StyleSheet.create({
   },
   categoryText: {
     fontSize: 14,
-    color: '#6B7280',
   },
   categoryTextActive: {
     color: '#7C3AED',
@@ -328,11 +326,9 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   topicCard: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
-    shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
@@ -367,11 +363,9 @@ const styles = StyleSheet.create({
   topicName: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#1F2937',
   },
   topicStats: {
     fontSize: 13,
-    color: '#6B7280',
     marginTop: 2,
   },
   followButton: {
@@ -381,7 +375,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   followingButton: {
-    backgroundColor: '#E5E7EB',
   },
   followButtonText: {
     fontSize: 14,
@@ -393,7 +386,6 @@ const styles = StyleSheet.create({
   },
   topicDescription: {
     fontSize: 14,
-    color: '#6B7280',
     marginTop: 8,
     lineHeight: 20,
   },
@@ -404,12 +396,10 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#374151',
     marginTop: 16,
   },
   emptySubtitle: {
     fontSize: 14,
-    color: '#6B7280',
     marginTop: 4,
   },
   // Preview posts styles
@@ -428,12 +418,9 @@ const styles = StyleSheet.create({
   previewPostImage: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#F3F4F6',
   },
   previewPostEmpty: {
-    backgroundColor: '#F9FAFB',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
     borderStyle: 'dashed',
     justifyContent: 'center',
     alignItems: 'center',
@@ -457,13 +444,11 @@ const styles = StyleSheet.create({
   noPreviewContainer: {
     marginTop: 12,
     paddingVertical: 16,
-    backgroundColor: '#F9FAFB',
     borderRadius: 8,
     alignItems: 'center',
   },
   noPreviewText: {
     fontSize: 13,
-    color: '#9CA3AF',
     fontStyle: 'italic',
   },
 });

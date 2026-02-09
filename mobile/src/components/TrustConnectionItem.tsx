@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getImageUrl } from '../services/api';
+import { useTheme } from '../theme';
 
 interface TrustConnection {
   id: string;
@@ -32,6 +33,7 @@ export const TrustConnectionItem: React.FC<TrustConnectionItemProps> = ({
   onMessagePress,
   onProfilePress,
 }) => {
+  const { colors } = useTheme();
   const { otherUser, trustScore, currentStreak, longestStreak, isMutualFollow, totalExchangeDays, lastExchangeDate } = connection;
 
   // Get rank info based on trust score
@@ -62,7 +64,7 @@ export const TrustConnectionItem: React.FC<TrustConnectionItemProps> = ({
 
   return (
     <TouchableOpacity
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.card }]}
       onPress={() => onProfilePress?.(connection) || onPress?.(connection)}
       activeOpacity={0.7}
     >
@@ -72,13 +74,13 @@ export const TrustConnectionItem: React.FC<TrustConnectionItemProps> = ({
           {avatarUrl ? (
             <Image source={{ uri: avatarUrl }} style={styles.avatar} />
           ) : (
-            <View style={[styles.avatar, styles.avatarPlaceholder]}>
-              <Ionicons name="person" size={18} color="#9CA3AF" />
+            <View style={[styles.avatar, styles.avatarPlaceholder, { backgroundColor: colors.surfaceVariant }]}>
+              <Ionicons name="person" size={18} color={colors.icon.secondary} />
             </View>
           )}
         </View>
         {currentStreak > 0 && (
-          <View style={styles.streakBadge}>
+          <View style={[styles.streakBadge, { borderColor: colors.card }]}>
             <Ionicons name="flame" size={9} color="#FFF" />
             <Text style={styles.streakBadgeText}>{currentStreak}</Text>
           </View>
@@ -88,7 +90,7 @@ export const TrustConnectionItem: React.FC<TrustConnectionItemProps> = ({
       {/* User Info */}
       <View style={styles.infoSection}>
         <View style={styles.nameRow}>
-          <Text style={styles.username} numberOfLines={1}>@{otherUser.username}</Text>
+          <Text style={[styles.username, { color: colors.text.primary }]} numberOfLines={1}>@{otherUser.username}</Text>
           {isMutualFollow && (
             <View style={styles.mutualIcon}>
               <Ionicons name="people" size={10} color="#8B5CF6" />
@@ -103,17 +105,17 @@ export const TrustConnectionItem: React.FC<TrustConnectionItemProps> = ({
         {/* Stats Row */}
         <View style={styles.statsRow}>
           <View style={styles.statItem}>
-            <Ionicons name="calendar-outline" size={10} color="#9CA3AF" />
-            <Text style={styles.statText}>{totalExchangeDays}d</Text>
+            <Ionicons name="calendar-outline" size={10} color={colors.icon.secondary} />
+            <Text style={[styles.statText, { color: colors.text.tertiary }]}>{totalExchangeDays}d</Text>
           </View>
-          <View style={styles.statDivider} />
+          <View style={[styles.statDivider, { backgroundColor: colors.disabled }]} />
           <View style={styles.statItem}>
-            <Ionicons name="time-outline" size={10} color="#9CA3AF" />
-            <Text style={styles.statText}>{formatLastExchange()}</Text>
+            <Ionicons name="time-outline" size={10} color={colors.icon.secondary} />
+            <Text style={[styles.statText, { color: colors.text.tertiary }]}>{formatLastExchange()}</Text>
           </View>
           {longestStreak > 0 && (
             <>
-              <View style={styles.statDivider} />
+              <View style={[styles.statDivider, { backgroundColor: colors.disabled }]} />
               <View style={styles.statItem}>
                 <Ionicons name="trophy-outline" size={10} color="#F59E0B" />
                 <Text style={[styles.statText, { color: '#F59E0B' }]}>{longestStreak}</Text>

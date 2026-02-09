@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, CommonActions } from '@react-navigation/native';
+import { useTheme } from '../../theme';
 import { api } from '../../services/api';
 import Avatar from '../../components/Avatar';
 import { AvatarCustomizations } from '../../components/AvatarRenderer';
@@ -39,6 +40,7 @@ interface PeopleTabProps {
 }
 
 export default function PeopleTab({ searchQuery, navigation }: PeopleTabProps) {
+  const { colors, isDark } = useTheme();
   const [users, setUsers] = useState<SearchUser[]>([]);
   const [followingUsers, setFollowingUsers] = useState<SearchUser[]>([]);
   const [recommendedUsers, setRecommendedUsers] = useState<SearchUser[]>([]);
@@ -249,7 +251,7 @@ export default function PeopleTab({ searchQuery, navigation }: PeopleTabProps) {
         />
 
         <View style={styles.userInfo}>
-          <Text style={styles.username}>{item.username}</Text>
+          <Text style={[styles.username, { color: colors.text.primary }]}>{item.username}</Text>
           {showReason && item.recommendationReason ? (
             <View style={styles.reasonBadge}>
               <Ionicons
@@ -264,13 +266,13 @@ export default function PeopleTab({ searchQuery, navigation }: PeopleTabProps) {
               <Text style={styles.reasonText}>{item.recommendationReason}</Text>
             </View>
           ) : item.positivityRank ? (
-            <Text style={styles.rank}>{item.positivityRank}</Text>
+            <Text style={[styles.rank, { color: colors.text.secondary }]}>{item.positivityRank}</Text>
           ) : null}
         </View>
 
         {(showMessage || item.isFollowing) && (
           <TouchableOpacity
-            style={styles.messageButton}
+            style={[styles.messageButton, { backgroundColor: colors.inputBackground }]}
             onPress={() => handleMessage(item)}
             disabled={isLoadingMessage}
           >
@@ -285,17 +287,17 @@ export default function PeopleTab({ searchQuery, navigation }: PeopleTabProps) {
         <TouchableOpacity
           style={[
             styles.followButton,
-            item.isFollowing && styles.followingButton
+            item.isFollowing && [styles.followingButton, { backgroundColor: colors.inputBackground, borderColor: colors.text.tertiary }]
           ]}
           onPress={() => handleFollow(item)}
           disabled={isLoadingFollow}
         >
           {isLoadingFollow ? (
-            <ActivityIndicator size="small" color={item.isFollowing ? '#000' : '#FFF'} />
+            <ActivityIndicator size="small" color={item.isFollowing ? colors.text.primary : '#FFF'} />
           ) : (
             <Text style={[
               styles.followButtonText,
-              item.isFollowing && styles.followingButtonText
+              item.isFollowing && { color: colors.text.primary }
             ]}>
               {item.isFollowing ? 'Following' : 'Follow'}
             </Text>
@@ -339,9 +341,9 @@ export default function PeopleTab({ searchQuery, navigation }: PeopleTabProps) {
   if (hasSearched && users.length === 0) {
     return (
       <View style={styles.centerContent}>
-        <Ionicons name="person-outline" size={64} color="#C7C7CC" />
-        <Text style={styles.emptyTitle}>No users found</Text>
-        <Text style={styles.emptySubtitle}>
+        <Ionicons name="person-outline" size={64} color={colors.text.tertiary} />
+        <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>No users found</Text>
+        <Text style={[styles.emptySubtitle, { color: colors.text.secondary }]}>
           Try searching with a different username
         </Text>
       </View>
@@ -360,10 +362,10 @@ export default function PeopleTab({ searchQuery, navigation }: PeopleTabProps) {
   // Show following users
   if (followingUsers.length > 0) {
     return (
-      <View style={styles.container}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Your Friends</Text>
-          <Text style={styles.sectionSubtitle}>People you follow</Text>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={[styles.sectionHeader, { backgroundColor: colors.background }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Your Friends</Text>
+          <Text style={[styles.sectionSubtitle, { color: colors.text.secondary }]}>People you follow</Text>
         </View>
         <FlatList
           data={followingUsers}
@@ -388,12 +390,12 @@ export default function PeopleTab({ searchQuery, navigation }: PeopleTabProps) {
   // Show recommended users
   if (recommendedUsers.length > 0) {
     return (
-      <View style={styles.container}>
-        <View style={styles.sectionHeader}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={[styles.sectionHeader, { backgroundColor: colors.background }]}>
           <Ionicons name="sparkles" size={20} color="#FBBF24" style={styles.sectionIcon} />
           <View>
-            <Text style={styles.sectionTitle}>Suggested for You</Text>
-            <Text style={styles.sectionSubtitle}>People you might want to follow</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Suggested for You</Text>
+            <Text style={[styles.sectionSubtitle, { color: colors.text.secondary }]}>People you might want to follow</Text>
           </View>
         </View>
         <FlatList
@@ -410,9 +412,9 @@ export default function PeopleTab({ searchQuery, navigation }: PeopleTabProps) {
   // Empty state
   return (
     <View style={styles.centerContent}>
-      <Ionicons name="people-outline" size={64} color="#C7C7CC" />
-      <Text style={styles.emptyTitle}>Find Friends</Text>
-      <Text style={styles.emptySubtitle}>
+      <Ionicons name="people-outline" size={64} color={colors.text.tertiary} />
+      <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>Find Friends</Text>
+      <Text style={[styles.emptySubtitle, { color: colors.text.secondary }]}>
         Search for users by their username to follow them
       </Text>
     </View>
@@ -422,7 +424,6 @@ export default function PeopleTab({ searchQuery, navigation }: PeopleTabProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF',
   },
   centerContent: {
     flex: 1,
@@ -451,19 +452,16 @@ const styles = StyleSheet.create({
   username: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#000',
     marginBottom: 2,
   },
   rank: {
     fontSize: 13,
-    color: '#8E8E93',
     textTransform: 'capitalize',
   },
   messageButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F2F2F7',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 8,
@@ -477,17 +475,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   followingButton: {
-    backgroundColor: '#F2F2F7',
     borderWidth: 1,
-    borderColor: '#C7C7CC',
   },
   followButtonText: {
     fontSize: 14,
     fontWeight: '600',
     color: '#FFF',
-  },
-  followingButtonText: {
-    color: '#000',
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -495,7 +488,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 8,
-    backgroundColor: '#FFF',
   },
   sectionIcon: {
     marginRight: 10,
@@ -503,12 +495,10 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#000',
     marginBottom: 2,
   },
   sectionSubtitle: {
     fontSize: 13,
-    color: '#8E8E93',
   },
   reasonBadge: {
     flexDirection: 'row',
@@ -529,13 +519,11 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#000',
     marginTop: 16,
     marginBottom: 8,
   },
   emptySubtitle: {
     fontSize: 14,
-    color: '#8E8E93',
     textAlign: 'center',
   },
 });

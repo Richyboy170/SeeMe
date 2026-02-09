@@ -14,6 +14,7 @@ import Avatar from '../../components/Avatar';
 import PostViewerModal from '../../components/PostViewerModal';
 import TopicMembersModal from '../../components/TopicMembersModal';
 import TopicEditModal from '../../components/TopicEditModal';
+import { useTheme } from '../../theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -64,6 +65,7 @@ type TabType = 'posts' | 'about' | 'encouragers';
 export default function TopicPageScreen({ route, navigation }: any) {
     const { topicSlug } = route.params;
     const insets = useSafeAreaInsets();
+    const { colors, isDark } = useTheme();
     const [topic, setTopic] = useState<Topic | null>(null);
     const [posts, setPosts] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -229,8 +231,8 @@ export default function TopicPageScreen({ route, navigation }: any) {
             </View>
 
             {/* Info Card */}
-            <View style={styles.infoCard}>
-                <View style={styles.emojiContainer}>
+            <View style={[styles.infoCard, { backgroundColor: colors.card }]}>
+                <View style={[styles.emojiContainer, { backgroundColor: colors.inputBackground, borderColor: colors.card }]}>
                     {topic?.iconImageUrl ? (
                         <Image
                             source={{ uri: getImageUrl(topic.iconImageUrl) || topic.iconImageUrl }}
@@ -242,32 +244,32 @@ export default function TopicPageScreen({ route, navigation }: any) {
                         <Text style={styles.emoji}>{topic?.iconEmoji || '🏷️'}</Text>
                     )}
                 </View>
-                <Text style={styles.topicName}>{topic?.name}</Text>
+                <Text style={[styles.topicName, { color: colors.text.primary }]}>{topic?.name}</Text>
 
                 {/* Stats - Members is now clickable */}
-                <View style={styles.statsRow}>
+                <View style={[styles.statsRow, { borderColor: colors.separator }]}>
                     <TouchableOpacity
                         style={styles.stat}
                         onPress={() => setShowMembersModal(true)}
                     >
-                        <Text style={styles.statNumber}>{topic?.followerCount || 0}</Text>
+                        <Text style={[styles.statNumber, { color: colors.text.primary }]}>{topic?.followerCount || 0}</Text>
                         <Text style={[styles.statLabel, styles.statLabelClickable]}>Members</Text>
                         <Ionicons name="chevron-forward" size={12} color="#7C3AED" style={styles.statChevron} />
                     </TouchableOpacity>
-                    <View style={styles.statDivider} />
+                    <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
                     <View style={styles.stat}>
-                        <Text style={styles.statNumber}>{topic?.postCount || 0}</Text>
-                        <Text style={styles.statLabel}>Posts</Text>
+                        <Text style={[styles.statNumber, { color: colors.text.primary }]}>{topic?.postCount || 0}</Text>
+                        <Text style={[styles.statLabel, { color: colors.text.secondary }]}>Posts</Text>
                     </View>
-                    <View style={styles.statDivider} />
+                    <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
                     <View style={styles.stat}>
-                        <Text style={styles.statNumber}>{topic?.weeklyPostCount || 0}</Text>
-                        <Text style={styles.statLabel}>This Week</Text>
+                        <Text style={[styles.statNumber, { color: colors.text.primary }]}>{topic?.weeklyPostCount || 0}</Text>
+                        <Text style={[styles.statLabel, { color: colors.text.secondary }]}>This Week</Text>
                     </View>
                 </View>
 
                 {topic?.description && (
-                    <Text style={styles.description}>{topic.description}</Text>
+                    <Text style={[styles.description, { color: colors.text.secondary }]}>{topic.description}</Text>
                 )}
 
                 {/* Actions */}
@@ -285,8 +287,8 @@ export default function TopicPageScreen({ route, navigation }: any) {
                             {topic?.isFollowing ? 'Joined' : 'Join'}
                         </Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
-                        <Ionicons name="share-outline" size={24} color="#6B7280" />
+                    <TouchableOpacity style={[styles.shareButton, { backgroundColor: colors.inputBackground }]} onPress={handleShare}>
+                        <Ionicons name="share-outline" size={24} color={colors.text.secondary} />
                     </TouchableOpacity>
                 </View>
 
@@ -300,7 +302,7 @@ export default function TopicPageScreen({ route, navigation }: any) {
                             source={{ uri: topic.creator.avatarUrl || 'https://via.placeholder.com/24' }}
                             style={styles.creatorAvatar}
                         />
-                        <Text style={styles.creatorText}>
+                        <Text style={[styles.creatorText, { color: colors.text.secondary }]}>
                             Created by <Text style={styles.creatorName}>@{topic.creator.username}</Text>
                         </Text>
                     </TouchableOpacity>
@@ -308,7 +310,7 @@ export default function TopicPageScreen({ route, navigation }: any) {
             </View>
 
             {/* Tabs */}
-            <View style={styles.tabsContainer}>
+            <View style={[styles.tabsContainer, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
                 {(['posts', 'about', 'encouragers'] as TabType[]).map((tab) => (
                     <TouchableOpacity
                         key={tab}
@@ -318,9 +320,9 @@ export default function TopicPageScreen({ route, navigation }: any) {
                         <Ionicons
                             name={tab === 'posts' ? 'grid' : tab === 'about' ? 'information-circle' : 'heart'}
                             size={20}
-                            color={activeTab === tab ? '#7C3AED' : '#6B7280'}
+                            color={activeTab === tab ? '#7C3AED' : colors.text.secondary}
                         />
-                        <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+                        <Text style={[styles.tabText, { color: colors.text.secondary }, activeTab === tab && styles.tabTextActive]}>
                             {tab === 'posts' ? 'Posts' : tab === 'about' ? 'About' : 'Top Helpers'}
                         </Text>
                     </TouchableOpacity>
@@ -331,23 +333,24 @@ export default function TopicPageScreen({ route, navigation }: any) {
 
     const renderEncouragersTab = () => (
         <View style={styles.encouragersContainer}>
-            <Text style={styles.encouragersTitle}>Top Encouragers</Text>
-            <Text style={styles.encouragersSubtitle}>
+            <Text style={[styles.encouragersTitle, { color: colors.text.primary }]}>Top Encouragers</Text>
+            <Text style={[styles.encouragersSubtitle, { color: colors.text.secondary }]}>
                 These members help beginners the most!
             </Text>
 
             {/* Toggle: Community vs Global */}
-            <View style={styles.leaderboardToggle}>
+            <View style={[styles.leaderboardToggle, { backgroundColor: colors.inputBackground }]}>
                 <TouchableOpacity
                     style={[
                         styles.leaderboardToggleBtn,
-                        leaderboardView === 'community' && styles.leaderboardToggleBtnActive
+                        leaderboardView === 'community' && [styles.leaderboardToggleBtnActive, { backgroundColor: colors.card }]
                     ]}
                     onPress={() => setLeaderboardView('community')}
                 >
                     <Text style={styles.leaderboardToggleEmoji}>{topic?.iconEmoji}</Text>
                     <Text style={[
                         styles.leaderboardToggleText,
+                        { color: colors.text.secondary },
                         leaderboardView === 'community' && styles.leaderboardToggleTextActive
                     ]}>
                         This Community
@@ -356,17 +359,18 @@ export default function TopicPageScreen({ route, navigation }: any) {
                 <TouchableOpacity
                     style={[
                         styles.leaderboardToggleBtn,
-                        leaderboardView === 'global' && styles.leaderboardToggleBtnActive
+                        leaderboardView === 'global' && [styles.leaderboardToggleBtnActive, { backgroundColor: colors.card }]
                     ]}
                     onPress={() => setLeaderboardView('global')}
                 >
                     <Ionicons
                         name="globe"
                         size={16}
-                        color={leaderboardView === 'global' ? '#7C3AED' : '#6B7280'}
+                        color={leaderboardView === 'global' ? '#7C3AED' : colors.text.secondary}
                     />
                     <Text style={[
                         styles.leaderboardToggleText,
+                        { color: colors.text.secondary },
                         leaderboardView === 'global' && styles.leaderboardToggleTextActive
                     ]}>
                         Global
@@ -374,7 +378,7 @@ export default function TopicPageScreen({ route, navigation }: any) {
                 </TouchableOpacity>
             </View>
 
-            <Text style={styles.leaderboardScopeText}>
+            <Text style={[styles.leaderboardScopeText, { color: colors.text.secondary }]}>
                 {leaderboardView === 'community'
                     ? `Coins given to posts in ${topic?.name}`
                     : 'Total coins given across all communities'
@@ -390,7 +394,7 @@ export default function TopicPageScreen({ route, navigation }: any) {
                     {currentLeaderboard.map((entry, index) => (
                         <TouchableOpacity
                             key={entry.user.id}
-                            style={styles.encouragerItem}
+                            style={[styles.encouragerItem, { backgroundColor: colors.card }]}
                             onPress={() => navigation.navigate('Profile', { userId: entry.user.id })}
                         >
                             <View style={styles.rankContainer}>
@@ -404,7 +408,7 @@ export default function TopicPageScreen({ route, navigation }: any) {
                                 style={styles.encouragerAvatar}
                             />
                             <View style={styles.encouragerInfo}>
-                                <Text style={styles.encouragerName}>@{entry.user.username}</Text>
+                                <Text style={[styles.encouragerName, { color: colors.text.primary }]}>@{entry.user.username}</Text>
                                 <View style={styles.encouragerStats}>
                                     <Ionicons name="logo-bitcoin" size={14} color="#F59E0B" />
                                     <Text style={styles.encouragerCoins}>
@@ -430,8 +434,8 @@ export default function TopicPageScreen({ route, navigation }: any) {
                 </>
             ) : (
                 <View style={styles.emptyEncouragers}>
-                    <Ionicons name="heart-outline" size={48} color="#D1D5DB" />
-                    <Text style={styles.emptyText}>
+                    <Ionicons name="heart-outline" size={48} color={colors.disabled} />
+                    <Text style={[styles.emptyText, { color: colors.text.secondary }]}>
                         {leaderboardView === 'community'
                             ? 'No encouragers in this community yet. Be the first to help beginners!'
                             : 'No encouragers yet. Start giving coins to climb the leaderboard!'
@@ -444,38 +448,38 @@ export default function TopicPageScreen({ route, navigation }: any) {
 
     const renderAboutTab = () => (
         <View style={styles.aboutContainer}>
-            <View style={styles.aboutSection}>
-                <Text style={styles.aboutSectionTitle}>About</Text>
-                <Text style={styles.aboutText}>
+            <View style={[styles.aboutSection, { backgroundColor: colors.card }]}>
+                <Text style={[styles.aboutSectionTitle, { color: colors.text.primary }]}>About</Text>
+                <Text style={[styles.aboutText, { color: colors.text.secondary }]}>
                     {topic?.description || 'No description available.'}
                 </Text>
             </View>
 
-            <View style={styles.aboutSection}>
-                <Text style={styles.aboutSectionTitle}>Our Values</Text>
+            <View style={[styles.aboutSection, { backgroundColor: colors.card }]}>
+                <Text style={[styles.aboutSectionTitle, { color: colors.text.primary }]}>Our Values</Text>
                 <View style={styles.valueItem}>
                     <Text style={styles.valueEmoji}>🌱</Text>
-                    <Text style={styles.valueText}>
-                        <Text style={styles.valueBold}>Beginner-Friendly:</Text> Everyone starts somewhere. Encourage growth!
+                    <Text style={[styles.valueText, { color: colors.text.secondary }]}>
+                        <Text style={[styles.valueBold, { color: colors.text.primary }]}>Beginner-Friendly:</Text> Everyone starts somewhere. Encourage growth!
                     </Text>
                 </View>
                 <View style={styles.valueItem}>
                     <Text style={styles.valueEmoji}>💝</Text>
-                    <Text style={styles.valueText}>
-                        <Text style={styles.valueBold}>Encouragement First:</Text> Give coins to uplift, not judge quality.
+                    <Text style={[styles.valueText, { color: colors.text.secondary }]}>
+                        <Text style={[styles.valueBold, { color: colors.text.primary }]}>Encouragement First:</Text> Give coins to uplift, not judge quality.
                     </Text>
                 </View>
                 <View style={styles.valueItem}>
                     <Text style={styles.valueEmoji}>🤝</Text>
-                    <Text style={styles.valueText}>
-                        <Text style={styles.valueBold}>Supportive Community:</Text> Help each other improve together.
+                    <Text style={[styles.valueText, { color: colors.text.secondary }]}>
+                        <Text style={[styles.valueBold, { color: colors.text.primary }]}>Supportive Community:</Text> Help each other improve together.
                     </Text>
                 </View>
             </View>
 
-            <View style={styles.aboutSection}>
-                <Text style={styles.aboutSectionTitle}>Invite Link</Text>
-                <View style={styles.inviteLinkBox}>
+            <View style={[styles.aboutSection, { backgroundColor: colors.card }]}>
+                <Text style={[styles.aboutSectionTitle, { color: colors.text.primary }]}>Invite Link</Text>
+                <View style={[styles.inviteLinkBox, { backgroundColor: colors.inputBackground }]}>
                     <Text style={styles.inviteLink}>seeme.app/invite/{topic?.inviteCode}</Text>
                     <TouchableOpacity style={styles.copyButton} onPress={handleShare}>
                         <Ionicons name="share" size={16} color="#7C3AED" />
@@ -487,12 +491,12 @@ export default function TopicPageScreen({ route, navigation }: any) {
     );
 
     const renderPostsHeader = () => (
-        <View style={styles.postsHeaderContainer}>
+        <View style={[styles.postsHeaderContainer, { backgroundColor: colors.background }]}>
             <View style={styles.postsHeaderLeft}>
                 <Ionicons name="images" size={20} color="#7C3AED" />
-                <Text style={styles.postsHeaderTitle}>Community Posts</Text>
+                <Text style={[styles.postsHeaderTitle, { color: colors.text.primary }]}>Community Posts</Text>
             </View>
-            <Text style={styles.postsHeaderCount}>{posts.length} posts</Text>
+            <Text style={[styles.postsHeaderCount, { color: colors.text.secondary }]}>{posts.length} posts</Text>
         </View>
     );
 
@@ -504,7 +508,7 @@ export default function TopicPageScreen({ route, navigation }: any) {
                 onPress={() => openPost(item, index)}
                 activeOpacity={0.9}
             >
-                <View style={styles.postImageContainer}>
+                <View style={[styles.postImageContainer, { backgroundColor: colors.border }]}>
                     <Image
                         source={{ uri: getImageUrl(item.processedImageUrl) || getImageUrl(item.originalImageUrl) || '' }}
                         style={styles.postImage}
@@ -553,15 +557,15 @@ export default function TopicPageScreen({ route, navigation }: any) {
 
     if (loading) {
         return (
-            <View style={styles.loadingContainer}>
+            <View style={[styles.loadingContainer, { backgroundColor: colors.card }]}>
                 <ActivityIndicator size="large" color="#7C3AED" />
-                <Text style={styles.loadingText}>Loading community...</Text>
+                <Text style={[styles.loadingText, { color: colors.text.tertiary }]}>Loading community...</Text>
             </View>
         );
     }
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, { backgroundColor: colors.background }]}>
             {activeTab === 'posts' ? (
                 <FlatList
                     data={posts}
@@ -579,12 +583,12 @@ export default function TopicPageScreen({ route, navigation }: any) {
                     }
                     contentContainerStyle={styles.postsGrid}
                     ListEmptyComponent={
-                        <View style={styles.emptyPosts}>
+                        <View style={[styles.emptyPosts, { backgroundColor: colors.card }]}>
                             <View style={styles.emptyIconContainer}>
                                 <Ionicons name="camera-outline" size={32} color="#7C3AED" />
                             </View>
-                            <Text style={styles.emptyTitle}>No posts yet</Text>
-                            <Text style={styles.emptySubtitle}>
+                            <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>No posts yet</Text>
+                            <Text style={[styles.emptySubtitle, { color: colors.text.secondary }]}>
                                 Be the first to share in {topic?.name}!
                             </Text>
                             {topic?.isFollowing && (

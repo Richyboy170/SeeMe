@@ -32,6 +32,7 @@ import { VRMAvatarRenderer, AvatarCustomization } from '../../components/3d/VRMA
 // Services
 import { solvePose, MediaPipeLandmarks, SolvedPose, getDefaultPose } from '../../services/poseService';
 import { api } from '../../services/api';
+import { useTheme } from '../../theme';
 
 // Data
 import { DEFAULT_AVATARS, DefaultAvatar, SKIN_COLOR_PRESETS, HAIR_COLOR_PRESETS, EYE_COLOR_PRESETS } from '../../data/defaultAvatars';
@@ -56,6 +57,7 @@ interface ProcessingState {
 // ============================================================
 
 export function FullBodyAvatarScreenVRM() {
+  const { colors, isDark } = useTheme();
   const navigation = useNavigation();
 
   // Avatar model selection

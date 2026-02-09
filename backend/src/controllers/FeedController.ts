@@ -82,6 +82,7 @@ export class FeedController {
         where: {
           userId: feedUserIds,
           status: PostStatus.COMPLETED,
+          isArchived: { [Op.ne]: true },
           [Op.or]: [
             { visibility: { [Op.in]: [PostVisibility.FRIENDS_ONLY, PostVisibility.TOPICS_AND_FRIENDS] } },
             { visibility: null as any }  // Backwards compatibility for older posts
@@ -210,6 +211,7 @@ export class FeedController {
       const { rows: posts, count } = await Post.findAndCountAll({
         where: {
           status: PostStatus.COMPLETED,
+          isArchived: { [Op.ne]: true },
           [Op.or]: [
             { visibility: PostVisibility.TOPICS_AND_FRIENDS },
             { visibility: null as any }  // Backwards compatibility

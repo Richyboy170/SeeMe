@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAccountContext } from '../contexts/AccountContext';
+import { useTheme } from '../theme';
 import Avatar from './Avatar';
 
 interface ProfileTabButtonProps {
@@ -24,6 +25,7 @@ export default function ProfileTabButton({
     onPress,
     accessibilityState,
 }: ProfileTabButtonProps) {
+    const { colors } = useTheme();
     const focused = accessibilityState?.selected ?? false;
     const lastTapTimeRef = useRef<number>(0);
     const tapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -109,6 +111,7 @@ export default function ProfileTabButton({
                 <View style={[
                     styles.avatarContainer,
                     focused && styles.avatarContainerFocused,
+                    focused && { borderColor: colors.tabActive },
                 ]}>
                     <Avatar
                         size={24}
@@ -118,7 +121,7 @@ export default function ProfileTabButton({
                     />
                     {/* Multiple accounts indicator dot */}
                     {accounts.length > 1 && (
-                        <View style={styles.multiAccountDot} />
+                        <View style={[styles.multiAccountDot, { borderColor: colors.background }]} />
                     )}
                 </View>
             ) : (
@@ -126,18 +129,18 @@ export default function ProfileTabButton({
                     <Ionicons
                         name={focused ? 'person' : 'person-outline'}
                         size={24}
-                        color={focused ? '#FBBF24' : 'gray'}
+                        color={focused ? colors.tabActive : colors.tabInactive}
                     />
                     {/* Multiple accounts indicator dot */}
                     {accounts.length > 1 && (
-                        <View style={styles.multiAccountDot} />
+                        <View style={[styles.multiAccountDot, { borderColor: colors.background }]} />
                     )}
                 </View>
             )}
             {/* Profile label */}
             <Text style={[
                 styles.label,
-                { color: focused ? '#FBBF24' : 'gray' }
+                { color: focused ? colors.tabActive : colors.tabInactive }
             ]}>
                 Profile
             </Text>
@@ -162,7 +165,7 @@ const styles = StyleSheet.create({
         borderColor: 'transparent',
     },
     avatarContainerFocused: {
-        borderColor: '#FBBF24',
+        borderColor: undefined,
     },
     iconContainer: {
         position: 'relative',
@@ -178,7 +181,7 @@ const styles = StyleSheet.create({
         borderRadius: 4,
         backgroundColor: '#10B981',
         borderWidth: 1.5,
-        borderColor: '#FFFFFF',
+        borderColor: undefined,
     },
     label: {
         fontSize: 10,

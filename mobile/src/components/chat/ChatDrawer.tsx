@@ -10,7 +10,6 @@ import {
   RefreshControl,
   ActivityIndicator,
   Dimensions,
-  useColorScheme,
   PanResponder,
   KeyboardAvoidingView,
   Platform,
@@ -33,6 +32,7 @@ import GifPicker from './GifPicker';
 import MessageReactions from './MessageReactions';
 import QuotedMessage from './QuotedMessage';
 import VoiceMessageBubble from './VoiceMessageBubble';
+import { useTheme } from '../../theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DRAWER_WIDTH = SCREEN_WIDTH;
@@ -111,37 +111,21 @@ export interface ChatDrawerRef {
   isInChatbox: () => boolean; // Check if currently viewing a conversation
 }
 
-// Theme colors
-const themes = {
-  dark: {
-    background: '#000000',
-    cardBackground: '#16181C',
-    text: '#E7E9EA',
-    textSecondary: '#71767B',
-    separator: '#2F3336',
-    border: '#2F3336',
-    accent: '#1D9BF0',
-    headerBg: '#000000',
-    inputBg: '#202327',
-    overlay: 'rgba(0, 0, 0, 0.6)',
-  },
-  light: {
-    background: '#FFFFFF',
-    cardBackground: '#F7F9F9',
-    text: '#0F1419',
-    textSecondary: '#536471',
-    separator: '#EFF3F4',
-    border: '#CFD9DE',
-    accent: '#1D9BF0',
-    headerBg: '#FFFFFF',
-    inputBg: '#EFF3F4',
-    overlay: 'rgba(0, 0, 0, 0.4)',
-  },
-};
 
 const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(({ visible, onClose, externalAnim, pageAnim, isPageStyle = false }, ref) => {
-  const colorScheme = useColorScheme();
-  const colors = colorScheme === 'dark' ? themes.dark : themes.light;
+  const { colors: themeColors, isDark } = useTheme();
+  const colors = {
+    background: themeColors.background,
+    cardBackground: themeColors.card,
+    text: themeColors.text.primary,
+    textSecondary: themeColors.text.secondary,
+    separator: themeColors.separator,
+    border: themeColors.border,
+    accent: themeColors.text.link,
+    headerBg: themeColors.background,
+    inputBg: themeColors.inputBackground,
+    overlay: themeColors.overlay,
+  };
   const insets = useSafeAreaInsets();
   const { refreshUnreadCount, decrementUnreadCount } = useUnreadCount();
 

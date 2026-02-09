@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { api } from '../../services/api';
 import Avatar from '../../components/Avatar';
+import { useTheme } from '../../theme';
 
 interface FollowRequest {
   id: string;
@@ -28,6 +29,7 @@ interface FollowRequest {
 }
 
 export default function FollowRequestsScreen() {
+  const { colors, isDark } = useTheme();
   const navigation = useNavigation<any>();
   const [requests, setRequests] = useState<FollowRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,7 +126,7 @@ export default function FollowRequestsScreen() {
     const isLoading = actionLoading === item.id;
 
     return (
-      <View style={styles.requestItem}>
+      <View style={[styles.requestItem, { borderBottomColor: colors.border }]}>
         <TouchableOpacity
           style={styles.userInfo}
           onPress={() => handleUserPress(item.requester)}
@@ -139,27 +141,27 @@ export default function FollowRequestsScreen() {
             style={styles.avatar}
           />
           <View style={styles.userDetails}>
-            <Text style={styles.username}>{item.requester.username}</Text>
-            <Text style={styles.timeAgo}>{formatTimeAgo(item.createdAt)}</Text>
+            <Text style={[styles.username, { color: colors.text.primary }]}>{item.requester.username}</Text>
+            <Text style={[styles.timeAgo, { color: colors.text.secondary }]}>{formatTimeAgo(item.createdAt)}</Text>
           </View>
         </TouchableOpacity>
 
         <View style={styles.actionButtons}>
           {isLoading ? (
-            <ActivityIndicator size="small" color="#3897F0" />
+            <ActivityIndicator size="small" color={colors.text.link} />
           ) : (
             <>
               <TouchableOpacity
-                style={styles.acceptButton}
+                style={[styles.acceptButton, { backgroundColor: colors.text.link }]}
                 onPress={() => handleAccept(item.id)}
               >
-                <Text style={styles.acceptButtonText}>Accept</Text>
+                <Text style={[styles.acceptButtonText, { color: colors.text.inverse }]}>Accept</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.rejectButton}
+                style={[styles.rejectButton, { backgroundColor: colors.surface }]}
                 onPress={() => handleReject(item.id)}
               >
-                <Ionicons name="close" size={20} color="#8E8E93" />
+                <Ionicons name="close" size={20} color={colors.text.secondary} />
               </TouchableOpacity>
             </>
           )}
@@ -170,14 +172,14 @@ export default function FollowRequestsScreen() {
 
   if (loading && requests.length === 0) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
-        <ActivityIndicator size="large" color="#3897F0" />
+      <View style={[styles.container, styles.centerContent, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.text.link} />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <FlatList
         data={requests}
         keyExtractor={(item) => item.id}
@@ -190,9 +192,9 @@ export default function FollowRequestsScreen() {
         onEndReachedThreshold={0.5}
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Ionicons name="people-outline" size={64} color="#C7C7CC" />
-            <Text style={styles.emptyTitle}>No Follow Requests</Text>
-            <Text style={styles.emptySubtitle}>
+            <Ionicons name="people-outline" size={64} color={colors.text.tertiary} />
+            <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>No Follow Requests</Text>
+            <Text style={[styles.emptySubtitle, { color: colors.text.secondary }]}>
               When someone requests to follow you, you'll see it here
             </Text>
           </View>
@@ -200,7 +202,7 @@ export default function FollowRequestsScreen() {
         ListFooterComponent={
           loading && requests.length > 0 ? (
             <View style={styles.loadingMore}>
-              <ActivityIndicator size="small" color="#3897F0" />
+              <ActivityIndicator size="small" color={colors.text.link} />
             </View>
           ) : null
         }
@@ -212,7 +214,6 @@ export default function FollowRequestsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF',
   },
   centerContent: {
     justifyContent: 'center',
@@ -232,7 +233,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#E5E5EA',
   },
   userInfo: {
     flexDirection: 'row',
@@ -251,12 +251,10 @@ const styles = StyleSheet.create({
   username: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#000',
     marginBottom: 2,
   },
   timeAgo: {
     fontSize: 13,
-    color: '#8E8E93',
   },
   actionButtons: {
     flexDirection: 'row',
@@ -264,7 +262,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   acceptButton: {
-    backgroundColor: '#3897F0',
     paddingHorizontal: 20,
     paddingVertical: 8,
     borderRadius: 8,
@@ -272,13 +269,11 @@ const styles = StyleSheet.create({
   acceptButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#FFF',
   },
   rejectButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#F2F2F7',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -290,13 +285,11 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#000',
     marginTop: 16,
     marginBottom: 8,
   },
   emptySubtitle: {
     fontSize: 14,
-    color: '#8E8E93',
     textAlign: 'center',
   },
   loadingMore: {

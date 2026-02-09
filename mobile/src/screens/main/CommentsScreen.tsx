@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import { api } from '../../services/api';
 import { useCoinCelebration } from '../../contexts/CoinCelebrationContext';
+import { useTheme } from '../../theme';
 import Avatar from '../../components/Avatar';
 import { AvatarCustomizations } from '../../components/AvatarRenderer';
 
@@ -44,6 +45,7 @@ export default function CommentsScreen() {
   const route = useRoute<CommentsScreenRouteProp>();
   const { postId } = route.params;
   const { showCelebration } = useCoinCelebration();
+  const { colors, isDark } = useTheme();
 
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -173,18 +175,18 @@ export default function CommentsScreen() {
       />
       <View style={styles.replyContent}>
         <View style={styles.replyHeader}>
-          <Text style={styles.replyUsername}>@{reply.user.username}</Text>
-          <Text style={styles.replyTime}>{formatTimeAgo(reply.createdAt)}</Text>
+          <Text style={[styles.replyUsername, { color: colors.text.primary }]}>@{reply.user.username}</Text>
+          <Text style={[styles.replyTime, { color: colors.text.secondary }]}>{formatTimeAgo(reply.createdAt)}</Text>
         </View>
-        <Text style={styles.replyText}>
-          <Text style={styles.mentionText}>@{parentUsername} </Text>
+        <Text style={[styles.replyText, { color: colors.text.primary }]}>
+          <Text style={[styles.mentionText, { color: colors.text.link }]}>@{parentUsername} </Text>
           {reply.content}
         </Text>
         <TouchableOpacity
           style={styles.replyButton}
           onPress={() => handleReply(reply)}
         >
-          <Text style={styles.replyButtonText}>Reply</Text>
+          <Text style={[styles.replyButtonText, { color: colors.text.secondary }]}>Reply</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -206,17 +208,17 @@ export default function CommentsScreen() {
           />
           <View style={styles.commentContent}>
             <View style={styles.commentHeader}>
-              <Text style={styles.username}>@{item.user.username}</Text>
-              <Text style={styles.timestamp}>{formatTimeAgo(item.createdAt)}</Text>
+              <Text style={[styles.username, { color: colors.text.primary }]}>@{item.user.username}</Text>
+              <Text style={[styles.timestamp, { color: colors.text.secondary }]}>{formatTimeAgo(item.createdAt)}</Text>
             </View>
-            <Text style={styles.commentText}>{item.content}</Text>
+            <Text style={[styles.commentText, { color: colors.text.primary }]}>{item.content}</Text>
             <View style={styles.commentActions}>
               <TouchableOpacity
                 style={styles.replyButton}
                 onPress={() => handleReply(item)}
               >
-                <Ionicons name="chatbubble-outline" size={14} color="#6B7280" />
-                <Text style={styles.replyButtonText}>Reply</Text>
+                <Ionicons name="chatbubble-outline" size={14} color={colors.text.secondary} />
+                <Text style={[styles.replyButtonText, { color: colors.text.secondary }]}>Reply</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -229,8 +231,8 @@ export default function CommentsScreen() {
               style={styles.viewRepliesButton}
               onPress={() => toggleReplies(item.id)}
             >
-              <View style={styles.repliesLine} />
-              <Text style={styles.viewRepliesText}>
+              <View style={[styles.repliesLine, { backgroundColor: colors.border }]} />
+              <Text style={[styles.viewRepliesText, { color: colors.text.secondary }]}>
                 {isExpanded
                   ? 'Hide replies'
                   : `View ${item.replies!.length} ${item.replies!.length === 1 ? 'reply' : 'replies'}`}
@@ -250,15 +252,15 @@ export default function CommentsScreen() {
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.centered]}>
-        <ActivityIndicator size="large" color="#FBBF24" />
+      <View style={[styles.container, styles.centered, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.gift} />
       </View>
     );
   }
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={90}
     >
@@ -269,31 +271,31 @@ export default function CommentsScreen() {
         contentContainerStyle={styles.list}
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Ionicons name="chatbubbles-outline" size={64} color="#D1D5DB" />
-            <Text style={styles.emptyText}>No comments yet</Text>
-            <Text style={styles.emptySubtext}>Be the first to comment!</Text>
+            <Ionicons name="chatbubbles-outline" size={64} color={colors.disabled} />
+            <Text style={[styles.emptyText, { color: colors.text.primary }]}>No comments yet</Text>
+            <Text style={[styles.emptySubtext, { color: colors.text.secondary }]}>Be the first to comment!</Text>
           </View>
         }
       />
 
       {/* Input area */}
-      <View style={styles.inputContainer}>
+      <View style={[styles.inputContainer, { borderTopColor: colors.border, backgroundColor: colors.background }]}>
         {replyingTo && (
-          <View style={styles.replyingToBar}>
-            <Text style={styles.replyingToText}>
+          <View style={[styles.replyingToBar, { backgroundColor: colors.inputBackground }]}>
+            <Text style={[styles.replyingToText, { color: colors.text.secondary }]}>
               Replying to @{replyingTo.user.username}
             </Text>
             <TouchableOpacity onPress={cancelReply}>
-              <Ionicons name="close" size={20} color="#6B7280" />
+              <Ionicons name="close" size={20} color={colors.text.secondary} />
             </TouchableOpacity>
           </View>
         )}
         <View style={styles.inputRow}>
           <TextInput
             ref={inputRef}
-            style={styles.input}
+            style={[styles.input, { backgroundColor: colors.inputBackground, color: colors.text.primary }]}
             placeholder={replyingTo ? 'Write a reply...' : 'Add a comment...'}
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor={colors.text.secondary}
             value={newComment}
             onChangeText={setNewComment}
             multiline
@@ -302,15 +304,16 @@ export default function CommentsScreen() {
           <TouchableOpacity
             style={[
               styles.sendButton,
-              (!newComment.trim() || submitting) && styles.sendButtonDisabled
+              { backgroundColor: colors.gift },
+              (!newComment.trim() || submitting) && [styles.sendButtonDisabled, { backgroundColor: colors.disabled }]
             ]}
             onPress={handleSubmit}
             disabled={!newComment.trim() || submitting}
           >
             {submitting ? (
-              <ActivityIndicator size="small" color="#FFF" />
+              <ActivityIndicator size="small" color={colors.text.inverse} />
             ) : (
-              <Ionicons name="send" size={20} color="#FFF" />
+              <Ionicons name="send" size={20} color={colors.text.inverse} />
             )}
           </TouchableOpacity>
         </View>
@@ -322,7 +325,6 @@ export default function CommentsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF',
   },
   centered: {
     justifyContent: 'center',
@@ -353,16 +355,13 @@ const styles = StyleSheet.create({
   username: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#111827',
     marginRight: 8,
   },
   timestamp: {
     fontSize: 12,
-    color: '#9CA3AF',
   },
   commentText: {
     fontSize: 15,
-    color: '#374151',
     lineHeight: 20,
   },
   commentActions: {
@@ -376,7 +375,6 @@ const styles = StyleSheet.create({
   },
   replyButtonText: {
     fontSize: 13,
-    color: '#6B7280',
     fontWeight: '500',
   },
   repliesSection: {
@@ -391,12 +389,10 @@ const styles = StyleSheet.create({
   repliesLine: {
     width: 24,
     height: 1,
-    backgroundColor: '#E5E7EB',
     marginRight: 8,
   },
   viewRepliesText: {
     fontSize: 13,
-    color: '#6B7280',
     fontWeight: '500',
   },
   repliesList: {
@@ -420,20 +416,16 @@ const styles = StyleSheet.create({
   replyUsername: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#111827',
     marginRight: 6,
   },
   replyTime: {
     fontSize: 11,
-    color: '#9CA3AF',
   },
   replyText: {
     fontSize: 14,
-    color: '#374151',
     lineHeight: 18,
   },
   mentionText: {
-    color: '#3B82F6',
     fontWeight: '500',
   },
   emptyState: {
@@ -444,18 +436,14 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#374151',
     marginTop: 16,
     marginBottom: 8,
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#6B7280',
   },
   inputContainer: {
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-    backgroundColor: '#FFF',
   },
   replyingToBar: {
     flexDirection: 'row',
@@ -463,11 +451,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: '#F3F4F6',
   },
   replyingToText: {
     fontSize: 13,
-    color: '#6B7280',
   },
   inputRow: {
     flexDirection: 'row',
@@ -478,23 +464,20 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 10,
     fontSize: 15,
     maxHeight: 100,
-    color: '#111827',
   },
   sendButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#FBBF24',
     justifyContent: 'center',
     alignItems: 'center',
   },
   sendButtonDisabled: {
-    backgroundColor: '#D1D5DB',
+    // backgroundColor applied dynamically via inline style
   },
 });

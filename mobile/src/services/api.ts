@@ -230,27 +230,38 @@ class ApiClient {
     try {
       const formData = new FormData();
 
+      // Map file extension to a valid MIME type
+      const getMimeType = (uri: string): string => {
+        const ext = uri.split('.').pop()?.toLowerCase();
+        if (ext === 'png') return 'image/png';
+        if (ext === 'webp') return 'image/webp';
+        if (ext === 'heic') return 'image/heic';
+        if (ext === 'heif') return 'image/heif';
+        return 'image/jpeg'; // default for jpg, jpeg, or unknown extensions
+      };
+
       // Create file object for the cropped image
       const filename = imageUri.split('/').pop() || 'photo.jpg';
-      const match = /\.(\w+)$/.exec(filename);
-      const type = match ? `image/${match[1]}` : 'image/jpeg';
+      const type = getMimeType(imageUri);
+      // Ensure filename has a proper image extension
+      const safeName = /\.(jpe?g|png|webp|heic|heif)$/i.test(filename) ? filename : `${filename}.jpg`;
 
       formData.append('image', {
         uri: imageUri,
         type: type,
-        name: filename,
+        name: safeName,
       } as any);
 
       // Append original (uncropped) image if different from cropped
       if (originalImageUri && originalImageUri !== imageUri) {
         const origFilename = originalImageUri.split('/').pop() || 'original.jpg';
-        const origMatch = /\.(\w+)$/.exec(origFilename);
-        const origType = origMatch ? `image/${origMatch[1]}` : 'image/jpeg';
+        const origType = getMimeType(originalImageUri);
+        const safeOrigName = /\.(jpe?g|png|webp|heic|heif)$/i.test(origFilename) ? origFilename : `${origFilename}.jpg`;
 
         formData.append('originalImage', {
           uri: originalImageUri,
           type: origType,
-          name: origFilename,
+          name: safeOrigName,
         } as any);
       }
 
@@ -539,6 +550,39 @@ class ApiClient {
 
   async deleteComment(commentId: string) {
     const response = await this.client.delete(`/comments/${commentId}`);
+    return response.data;
+  }
+
+  async updatePost(postId: string, caption: string, imageUri?: string) {
+    if (imageUri) {
+      const formData = new FormData();
+      formData.append('caption', caption);
+      formData.append('image', {
+        uri: imageUri,
+        type: 'image/jpeg',
+        name: 'edited-image.jpg',
+      } as any);
+      const response = await this.client.put(`/posts/${postId}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    }
+    const response = await this.client.put(`/posts/${postId}`, { caption });
+    return response.data;
+  }
+
+  async deletePost(postId: string) {
+    const response = await this.client.delete(`/posts/${postId}`);
+    return response.data;
+  }
+
+  async archivePost(postId: string) {
+    const response = await this.client.put(`/posts/${postId}/archive`);
+    return response.data;
+  }
+
+  async unarchivePost(postId: string) {
+    const response = await this.client.put(`/posts/${postId}/unarchive`);
     return response.data;
   }
 
