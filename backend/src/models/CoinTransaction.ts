@@ -14,6 +14,7 @@ export interface CoinTransactionAttributes {
   relatedCommentId: string | null;
   topicId: string | null;  // Phase 3.3: Topic-specific transactions
   message: string | null;
+  collected: boolean;
   createdAt: Date;
 }
 
@@ -22,7 +23,7 @@ export interface CoinTransactionAttributes {
  */
 interface CoinTransactionCreationAttributes extends Optional<
   CoinTransactionAttributes,
-  'id' | 'fromUserId' | 'toUserId' | 'relatedPostId' | 'relatedCommentId' | 'topicId' | 'message' | 'createdAt'
+  'id' | 'fromUserId' | 'toUserId' | 'relatedPostId' | 'relatedCommentId' | 'topicId' | 'message' | 'collected' | 'createdAt'
 > {}
 
 /**
@@ -49,6 +50,7 @@ export class CoinTransaction extends Model<CoinTransactionAttributes, CoinTransa
   public relatedCommentId!: string | null;
   public topicId!: string | null;
   public message!: string | null;
+  public collected!: boolean;
   public readonly createdAt!: Date;
 }
 
@@ -150,6 +152,12 @@ CoinTransaction.init(
       type: DataTypes.TEXT,
       allowNull: true,
       comment: 'Optional message when giving coins'
+    },
+    collected: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      comment: 'Whether received coins have been collected by the user'
     },
     createdAt: {
       type: DataTypes.DATE,

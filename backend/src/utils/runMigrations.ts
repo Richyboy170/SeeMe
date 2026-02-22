@@ -14,6 +14,11 @@ import * as addTopicAdminsAndIconImage from '../migrations/add-topic-admins-and-
 import * as addChatEnhancements from '../migrations/add-chat-enhancements';
 import * as addPostCoinCost from '../migrations/add-post-coin-cost';
 import * as addPostArchive from '../migrations/add-post-archive';
+import * as addTopicSearchKeywords from '../migrations/add-topic-search-keywords';
+import * as addSkyCoins from '../migrations/add-sky-coins';
+import * as addDecorationStore from '../migrations/add-decoration-store';
+import * as addStoryOfMeTable from '../migrations/add-story-of-me-table';
+import * as addCoinCollectedFlag from '../migrations/add-coin-collected-flag';
 
 /**
  * Run database migrations
@@ -90,6 +95,31 @@ const migrations = [
     name: 'add-post-archive',
     up: addPostArchive.up,
     down: addPostArchive.down
+  },
+  {
+    name: 'add-topic-search-keywords',
+    up: addTopicSearchKeywords.up,
+    down: addTopicSearchKeywords.down
+  },
+  {
+    name: 'add-sky-coins',
+    up: addSkyCoins.up,
+    down: addSkyCoins.down
+  },
+  {
+    name: 'add-decoration-store',
+    up: addDecorationStore.up,
+    down: addDecorationStore.down
+  },
+  {
+    name: 'add-story-of-me-table',
+    up: addStoryOfMeTable.up,
+    down: addStoryOfMeTable.down
+  },
+  {
+    name: 'add-coin-collected-flag',
+    up: addCoinCollectedFlag.up,
+    down: addCoinCollectedFlag.down
   }
   // Add more migrations here as needed
 ];

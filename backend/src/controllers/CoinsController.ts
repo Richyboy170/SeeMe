@@ -3,7 +3,29 @@ import { CoinsService } from '../services/CoinsService';
 import { AuthRequest } from '../middleware/auth';
 import { CoinGivingActivity } from '../models/CoinGivingActivity';
 import { User } from '../models/User';
+import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
 import { logger } from '../utils/logger';
+
+// Helper to format avatar data for API response
+function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
+  if (!avatar) return null;
+  return {
+    id: avatar.id,
+    style: avatar.style,
+    customizations: {
+      skinTone: avatar.skinTone,
+      eyeColor: avatar.eyeColor,
+      eyeSize: avatar.eyeSize,
+      hairColor: avatar.hairColor,
+      hairStyle: avatar.hairStyle,
+      accessories: {
+        glasses: avatar.glasses,
+        hat: avatar.hat,
+        earrings: avatar.earrings,
+      },
+    },
+  };
+}
 
 /**
  * CoinsController - Handles all coins-related HTTP requests
@@ -215,6 +237,35 @@ export class CoinsController {
   }
 
   /**
+   * Collect received coins (deferred Sky Coins)
+   * @route POST /api/coins/collect
+   * @access Private
+   */
+  static async collectCoins(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.id;
+      const { transactionIds } = req.body;
+
+      if (!transactionIds || !Array.isArray(transactionIds) || transactionIds.length === 0) {
+        res.status(400).json({ error: 'transactionIds array required' });
+        return;
+      }
+
+      const result = await CoinsService.collectReceivedCoins(userId, transactionIds);
+
+      res.json(result);
+    } catch (error) {
+      logger.error('Error collecting coins', { error, userId: req.user?.id });
+
+      if (error instanceof Error) {
+        res.status(400).json({ error: error.message });
+      } else {
+        res.status(500).json({ error: 'Failed to collect coins' });
+      }
+    }
+  }
+
+  /**
    * Get recent coins received from other users (for notifications)
    * @route GET /api/coins/received
    * @access Private
@@ -225,9 +276,28 @@ export class CoinsController {
       const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
       const since = req.query.since as string; // Optional: only get coins since this date
 
-      const received = await CoinsService.getReceivedCoins(userId, limit, since);
+      // Optional: filter by collected status (?collected=true or ?collected=false)
+      let collectedFilter: boolean | undefined;
+      if (req.query.collected === 'true') collectedFilter = true;
+      else if (req.query.collected === 'false') collectedFilter = false;
 
-      res.json({ received });
+      const received = await CoinsService.getReceivedCoins(userId, limit, since, collectedFilter);
+
+      // Batch-fetch active avatars for all senders
+      const senderIds = [...new Set(received.map(r => r.fromUserId).filter(Boolean))];
+      const avatars = senderIds.length > 0
+        ? await AvatarConfigSQL.findAll({
+            where: { userId: senderIds, isActive: true },
+          })
+        : [];
+      const avatarsByUserId = new Map(avatars.map(a => [a.userId, formatAvatarForResponse(a)]));
+
+      const enriched = received.map(coin => ({
+        ...coin,
+        fromActiveAvatar: avatarsByUserId.get(coin.fromUserId) || null,
+      }));
+
+      res.json({ received: enriched });
     } catch (error) {
       logger.error('Error getting received coins', { error, userId: req.user?.id });
       res.status(500).json({ error: 'Failed to get received coins' });

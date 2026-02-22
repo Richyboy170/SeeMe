@@ -29,6 +29,7 @@ import PostViewerModal from '../../components/PostViewerModal';
 import Avatar from '../../components/Avatar';
 import { AvatarCustomizations } from '../../components/AvatarRenderer';
 import ProfileMedalsSection from '../../components/profile/ProfileMedalsSection';
+import StoryOfMeSection from '../../components/profile/StoryOfMeSection';
 import FavoriteButton from '../../components/favorites/FavoriteButton';
 import TrustGauge from '../../components/TrustGauge';
 
@@ -706,19 +707,40 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
 
           {/* Friendship Score */}
           {!isOwnProfile && trustData?.hasConnection && (
-            <View style={styles.trustGaugeContainer}>
+            <TouchableOpacity
+              style={styles.trustGaugeContainer}
+              activeOpacity={0.7}
+              onPress={() => {
+                navigation.dispatch(
+                  CommonActions.navigate({
+                    name: 'Coins',
+                    params: {
+                      screen: 'FriendshipDetail',
+                      params: {
+                        otherUserId: user.id,
+                        otherUsername: user.username,
+                        otherAvatarUrl: user.avatarUrl,
+                      },
+                    },
+                  })
+                );
+              }}
+            >
               <TrustGauge
                 trustScore={trustData.trustScore}
                 currentStreak={trustData.currentStreak}
                 isMutualFollow={trustData.isMutualFollow}
                 theme={isDark ? 'dark' : 'light'}
               />
-            </View>
+            </TouchableOpacity>
           )}
         </View>
 
         {/* Medals Section */}
         <ProfileMedalsSection userId={user.id} isOwnProfile={isOwnProfile} />
+
+        {/* Story of Me Section */}
+        <StoryOfMeSection userId={user.id} isOwnProfile={isOwnProfile} />
 
         {/* Grid/Tabs Header */}
         <View style={[styles.tabsContainer, { backgroundColor: colors.background, borderBottomColor: colors.borderLight }]}>

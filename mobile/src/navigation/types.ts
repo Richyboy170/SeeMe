@@ -26,6 +26,11 @@ export type CoinsStackParamList = {
   GiveLeaderboard: undefined;
   CoinHistory: undefined;
   GivingActivity: undefined;
+  FriendshipDetail: {
+    otherUserId: string;
+    otherUsername: string;
+    otherAvatarUrl?: string;
+  };
 };
 
 export type ChatStackParamList = {
@@ -72,6 +77,9 @@ export type FeedStackParamList = {
     userId: string;
     username: string;
   };
+  TopicPage: {
+    topicSlug: string;
+  };
   Conversations: undefined;
   Chat: {
     conversationId: string;
@@ -92,7 +100,8 @@ export type ProfileStackParamList = {
 };
 
 export type CreatePostStackParamList = {
-  CreatePostHome: undefined;
+  CreatePostHome: { resumeDraftId?: string } | undefined;
+  DraftsGallery: undefined;
   FullBodyAvatar: {
     imageUri?: string;
   };

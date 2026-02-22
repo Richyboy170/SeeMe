@@ -30,6 +30,8 @@ import savedPostsRoutes from './routes/savedPosts';
 import repostsRoutes from './routes/reposts';
 // Trust Score routes
 import trustRoutes from './routes/trust';
+// Decoration Store routes
+import decorationsRoutes from './routes/decorations';
 
 const app = express();
 
@@ -95,6 +97,9 @@ app.use('/api/reposts', repostsRoutes);
 
 // Trust Score routes
 app.use('/api/trust', trustRoutes);
+
+// Decoration Store routes
+app.use('/api/decorations', decorationsRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response) => {

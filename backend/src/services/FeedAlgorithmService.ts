@@ -7,7 +7,56 @@ import { Repost } from '../models/Repost';
 import { SavedPost } from '../models/SavedPost';
 import { UserInteraction, InteractionType } from '../models/UserInteraction';
 import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
+import { Topic } from '../models/Topic';
+import { Comment } from '../models/Comment';
+import { DecorationService } from './DecorationService';
 import { logger } from '../utils/logger';
+
+/**
+ * Batch fetch top N recent comments for a list of post IDs.
+ */
+async function batchFetchRecentComments(
+  postIds: string[],
+  limit: number = 3
+): Promise<Map<string, Array<{ id: string; content: string; user: { id: string; username: string }; createdAt: Date }>>> {
+  const map = new Map<string, Array<{ id: string; content: string; user: { id: string; username: string }; createdAt: Date }>>();
+  if (postIds.length === 0) return map;
+
+  const comments = await Comment.findAll({
+    where: {
+      postId: postIds,
+      parentCommentId: null,
+    },
+    include: [
+      {
+        model: User,
+        as: 'user',
+        attributes: ['id', 'username'],
+      },
+    ],
+    order: [['createdAt', 'DESC']],
+    attributes: ['id', 'postId', 'content', 'createdAt'],
+  });
+
+  for (const c of comments) {
+    const postId = c.postId;
+    if (!map.has(postId)) {
+      map.set(postId, []);
+    }
+    const arr = map.get(postId)!;
+    if (arr.length < limit) {
+      const userData = (c as any).user;
+      arr.push({
+        id: c.id,
+        content: c.content,
+        user: userData ? { id: userData.id, username: userData.username } : { id: '', username: 'Unknown' },
+        createdAt: c.createdAt,
+      });
+    }
+  }
+
+  return map;
+}
 
 /**
  * Feed Algorithm Service
@@ -102,11 +151,19 @@ export class FeedAlgorithmService {
             { visibility: null as any }  // Backwards compatibility
           ]
         },
-        include: [{
-          model: User,
-          as: 'user',
-          attributes: ['id', 'username', 'activeAvatarId']
-        }],
+        include: [
+          {
+            model: User,
+            as: 'user',
+            attributes: ['id', 'username', 'activeAvatarId']
+          },
+          {
+            model: Topic,
+            as: 'topics',
+            attributes: ['id', 'name', 'slug', 'iconEmoji'],
+            through: { attributes: [] }
+          }
+        ],
         order: [['createdAt', 'DESC']],
         limit: postsToFetch,
         offset: 0,
@@ -141,11 +198,19 @@ export class FeedAlgorithmService {
             where: {
               status: PostStatus.COMPLETED
             },
-            include: [{
-              model: User,
-              as: 'user',
-              attributes: ['id', 'username', 'activeAvatarId']
-            }],
+            include: [
+              {
+                model: User,
+                as: 'user',
+                attributes: ['id', 'username', 'activeAvatarId']
+              },
+              {
+                model: Topic,
+                as: 'topics',
+                attributes: ['id', 'name', 'slug', 'iconEmoji'],
+                through: { attributes: [] }
+              }
+            ],
             attributes: [
               'id',
               'userId',
@@ -245,21 +310,31 @@ export class FeedAlgorithmService {
       const savedPostIds = new Set(savedPosts.map(sp => sp.postId));
       const repostedPostMap = new Map(userReposts.map(r => [r.originalPostId, r.type]));
 
-      // Fetch active avatars for all users in the feed
+      // Fetch active avatars & decorations for all users in the feed
       const allUserIds = new Set<string>();
       paginatedItems.forEach(item => {
-        const postUser = item.post.get ? item.post.get('user') : item.post.user;
-        if (postUser?.id) allUserIds.add(postUser.id);
+        // Extract userId from the eager-loaded user association or raw dataValues
+        const postUserObj = item.post.user || item.post.get?.('user');
+        const postUserId = postUserObj?.id || postUserObj?.dataValues?.id || item.post.dataValues?.userId;
+        if (postUserId) allUserIds.add(postUserId);
         if (item.repostedBy?.id) allUserIds.add(item.repostedBy.id);
       });
 
+      const userIdArray = Array.from(allUserIds);
       const avatars = await AvatarConfigSQL.findAll({
         where: {
-          userId: Array.from(allUserIds),
+          userId: userIdArray,
           isActive: true,
         },
       });
       const avatarsByUserId = new Map(avatars.map(a => [a.userId, a]));
+
+      // Fetch active decorations for all users in the feed
+      const decorationsByUserId = await DecorationService.batchResolveActiveDecorations(userIdArray);
+
+      // Fetch top 3 recent comments for each post
+      const feedPostIds = paginatedItems.map(item => item.post.id);
+      const recentCommentsByPostId = await batchFetchRecentComments(feedPostIds, 3);
 
       // Format response
       const formattedPosts = paginatedItems.map(item => {
@@ -290,6 +365,9 @@ export class FeedAlgorithmService {
           savedByMe: savedPostIds.has(item.post.id),
           repostedByMe: repostedPostMap.has(item.post.id),
           myRepostType: repostedPostMap.get(item.post.id) || null,
+          topics: (item.post.get ? (item.post as any).get('topics') : (item.post as any).topics) || [],
+          decoration: decorationsByUserId.get(postUser?.id || '') || null,
+          recentComments: recentCommentsByPostId.get(item.post.id) || [],
           // Algorithm metadata
           _algorithmScore: item.score,
           _algorithmReasons: item.reasons
@@ -686,6 +764,9 @@ export class FeedAlgorithmService {
     });
     const likedPostIds = new Set(likes.map(like => like.postId));
 
+    // Fetch top 3 recent comments for each post
+    const recentCommentsByPostId = await batchFetchRecentComments(postIds, 3);
+
     return {
       posts: posts.map(post => ({
         id: post.id,
@@ -696,7 +777,8 @@ export class FeedAlgorithmService {
         likesCount: post.likesCount,
         commentsCount: post.commentsCount,
         createdAt: post.createdAt,
-        likedByMe: likedPostIds.has(post.id)
+        likedByMe: likedPostIds.has(post.id),
+        recentComments: recentCommentsByPostId.get(post.id) || [],
       })),
       pagination: {
         page,

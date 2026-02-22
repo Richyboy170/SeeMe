@@ -35,8 +35,14 @@ import savedPostsRoutes from './routes/savedPosts';
 import repostsRoutes from './routes/reposts';
 // Trust Score routes
 import trustRoutes from './routes/trust';
+// Story of Me routes
+import storiesRoutes from './routes/stories';
+// Decoration Store routes
+import decorationsRoutes from './routes/decorations';
 import { celeryClient } from './config/celery';
 import { seedDefaultTopics } from './utils/seedDefaultTopics';
+import { seedDecorations } from './utils/seedDecorations';
+import { StoryOfMeService } from './services/StoryOfMeService';
 
 const app = express();
 
@@ -106,6 +112,12 @@ app.use('/api/reposts', repostsRoutes);
 
 // Trust Score routes
 app.use('/api/trust', trustRoutes);
+
+// Story of Me routes
+app.use('/api/stories', storiesRoutes);
+
+// Decoration Store routes
+app.use('/api/decorations', decorationsRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response) => {
@@ -177,6 +189,9 @@ const startServer = async () => {
     // Seed default communities if none exist
     await seedDefaultTopics();
 
+    // Seed decoration store items if none exist
+    await seedDecorations();
+
     // Initialize Socket.io
     io = initializeSocket(httpServer);
     logger.info('Socket.io initialized');
@@ -189,6 +204,15 @@ const startServer = async () => {
       logger.info(`Auth API available at http://${HOST}:${PORT}/api/auth`);
       logger.info(`Socket.io available at ws://${HOST}:${PORT}`);
     });
+
+    // Scheduled story generation - check hourly, generate on Sundays at 11 PM
+    setInterval(async () => {
+      const now = new Date();
+      if (now.getDay() === 0 && now.getHours() === 23) {
+        logger.info('Running scheduled weekly story generation');
+        await StoryOfMeService.generateAllWeeklyStories();
+      }
+    }, 60 * 60 * 1000); // every hour
   } catch (error) {
     logger.error('Failed to start server', { error });
     process.exit(1);

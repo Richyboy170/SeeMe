@@ -28,6 +28,11 @@ import { UserGlobalMedal } from './UserGlobalMedal';
 import { FriendTrust } from './FriendTrust';
 import { FriendTrustDailyLog } from './FriendTrustDailyLog';
 
+// Decoration Store imports
+import { PostDecoration } from './PostDecoration';
+import { UserDecoration } from './UserDecoration';
+import { UserActiveDecoration } from './UserActiveDecoration';
+
 /**
  * Set up model associations
  * This file should be imported after all models are defined
@@ -709,5 +714,70 @@ export const setupAssociations = () => {
   FriendTrustDailyLog.belongsTo(FriendTrust, {
     foreignKey: 'friendTrustId',
     as: 'friendTrust'
+  });
+
+  // ===== DECORATION STORE ASSOCIATIONS =====
+
+  // User -> UserDecoration: One-to-Many
+  User.hasMany(UserDecoration, {
+    foreignKey: 'userId',
+    as: 'decorationPurchases',
+    onDelete: 'CASCADE'
+  });
+
+  // UserDecoration -> User: Many-to-One
+  UserDecoration.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user'
+  });
+
+  // PostDecoration -> UserDecoration: One-to-Many
+  PostDecoration.hasMany(UserDecoration, {
+    foreignKey: 'decorationId',
+    as: 'purchases',
+    onDelete: 'CASCADE'
+  });
+
+  // UserDecoration -> PostDecoration: Many-to-One
+  UserDecoration.belongsTo(PostDecoration, {
+    foreignKey: 'decorationId',
+    as: 'decoration'
+  });
+
+  // User -> UserActiveDecoration: One-to-One
+  User.hasOne(UserActiveDecoration, {
+    foreignKey: 'userId',
+    as: 'activeDecoration',
+    onDelete: 'CASCADE'
+  });
+
+  // UserActiveDecoration -> User: One-to-One
+  UserActiveDecoration.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user'
+  });
+
+  // UserActiveDecoration -> PostDecoration (light background)
+  UserActiveDecoration.belongsTo(PostDecoration, {
+    foreignKey: 'lightBackgroundId',
+    as: 'lightBackground'
+  });
+
+  // UserActiveDecoration -> PostDecoration (dark background)
+  UserActiveDecoration.belongsTo(PostDecoration, {
+    foreignKey: 'darkBackgroundId',
+    as: 'darkBackground'
+  });
+
+  // UserActiveDecoration -> PostDecoration (frame)
+  UserActiveDecoration.belongsTo(PostDecoration, {
+    foreignKey: 'frameId',
+    as: 'frame'
+  });
+
+  // UserActiveDecoration -> PostDecoration (icon color)
+  UserActiveDecoration.belongsTo(PostDecoration, {
+    foreignKey: 'iconColorId',
+    as: 'iconColor'
   });
 };

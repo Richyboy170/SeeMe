@@ -17,6 +17,8 @@ export interface PositivityCoinsAttributes {
   coinsFromAds: number;
   coinsFromCooldown: number;
   coinsFromOther: number;
+  skyCoins: number;
+  lifetimeSkyCoinsEarned: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -37,6 +39,8 @@ interface PositivityCoinsCreationAttributes extends Optional<
   | 'coinsFromAds'
   | 'coinsFromCooldown'
   | 'coinsFromOther'
+  | 'skyCoins'
+  | 'lifetimeSkyCoinsEarned'
   | 'createdAt'
   | 'updatedAt'
 > {}
@@ -58,6 +62,8 @@ export class PositivityCoins extends Model<PositivityCoinsAttributes, Positivity
   public coinsFromAds!: number;
   public coinsFromCooldown!: number;
   public coinsFromOther!: number;
+  public skyCoins!: number;
+  public lifetimeSkyCoinsEarned!: number;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 }
@@ -165,6 +171,18 @@ PositivityCoins.init(
       defaultValue: 0,
       allowNull: false,
       comment: 'Coins from other sources'
+    },
+    skyCoins: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: false,
+      comment: 'Sky Coins - received from other users'
+    },
+    lifetimeSkyCoinsEarned: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: false,
+      comment: 'Total Sky Coins ever received from other users'
     },
     createdAt: {
       type: DataTypes.DATE,

@@ -454,6 +454,158 @@ export class TrustScoreService {
   }
 
   /**
+   * Get detailed friendship data for the detail screen
+   * Includes daily logs, score breakdown, and relationship insights
+   */
+  static async getFriendshipDetail(
+    currentUserId: string,
+    otherUserId: string,
+    month?: string // YYYY-MM
+  ): Promise<{
+    trust: {
+      trustScore: number;
+      currentStreak: number;
+      longestStreak: number;
+      totalExchangeDays: number;
+      bidirectionalDays: number;
+      totalCoinsYouGave: number;
+      totalCoinsTheyGave: number;
+      exchangeCountYouGave: number;
+      exchangeCountTheyGave: number;
+      isMutualFollow: boolean;
+      isActive: boolean;
+      friendsSince: string | null;
+      lastExchangeDate: string | null;
+    };
+    dailyLogs: Array<{
+      date: string;
+      youGave: number;
+      theyGave: number;
+      isBidirectional: boolean;
+    }>;
+    insights: {
+      consistency: { score: number; max: number; streakPart: number; engagementPart: number };
+      bidirectionality: { score: number; max: number; ratioPart: number; balancePart: number };
+      generosity: { score: number; max: number };
+    };
+  }> {
+    const { userIdA, userIdB } = FriendTrust.getCanonicalOrder(currentUserId, otherUserId);
+    const isCurrentUserA = currentUserId === userIdA;
+
+    const trust = await FriendTrust.findOne({
+      where: { userIdA, userIdB }
+    });
+
+    const isMutualFollow = await this.areMutualFollows(currentUserId, otherUserId);
+
+    if (!trust) {
+      return {
+        trust: {
+          trustScore: 0, currentStreak: 0, longestStreak: 0,
+          totalExchangeDays: 0, bidirectionalDays: 0,
+          totalCoinsYouGave: 0, totalCoinsTheyGave: 0,
+          exchangeCountYouGave: 0, exchangeCountTheyGave: 0,
+          isMutualFollow, isActive: false,
+          friendsSince: null, lastExchangeDate: null,
+        },
+        dailyLogs: [],
+        insights: {
+          consistency: { score: 0, max: 60, streakPart: 0, engagementPart: 0 },
+          bidirectionality: { score: 0, max: 30, ratioPart: 0, balancePart: 0 },
+          generosity: { score: 0, max: 10 },
+        },
+      };
+    }
+
+    // Build date filter for daily logs
+    let dateFilter: any = {};
+    if (month) {
+      // Specific month: YYYY-MM
+      const [year, mon] = month.split('-').map(Number);
+      const startDate = `${year}-${String(mon).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, mon, 0).getDate();
+      const endDate = `${year}-${String(mon).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      dateFilter = { [Op.between]: [startDate, endDate] };
+    } else {
+      // Default: last 3 months
+      const now = new Date();
+      const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+      const startDate = threeMonthsAgo.toISOString().split('T')[0];
+      const endDate = now.toISOString().split('T')[0];
+      dateFilter = { [Op.between]: [startDate, endDate] };
+    }
+
+    const logs = await FriendTrustDailyLog.findAll({
+      where: {
+        friendTrustId: trust.id,
+        logDate: dateFilter,
+      },
+      order: [['logDate', 'ASC']],
+    });
+
+    // Translate A/B → you/they
+    const dailyLogs = logs.map(log => ({
+      date: log.logDate,
+      youGave: isCurrentUserA ? log.coinsAToB : log.coinsBToA,
+      theyGave: isCurrentUserA ? log.coinsBToA : log.coinsAToB,
+      isBidirectional: log.isBidirectional,
+    }));
+
+    // Check if active
+    let isActive = false;
+    if (trust.lastExchangeDate) {
+      const lastDate = new Date(trust.lastExchangeDate);
+      const now = new Date();
+      const diffDays = Math.floor((now.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+      isActive = diffDays <= 7;
+    }
+
+    // Compute score breakdown
+    const streakPart = Math.min(30, trust.currentStreak * 2);
+    const engagementPart = Math.min(30, trust.totalExchangeDays * 0.5);
+    const consistencyScore = streakPart + engagementPart;
+
+    let ratioPart = 0;
+    if (trust.totalExchangeDays > 0) {
+      ratioPart = (trust.bidirectionalDays / trust.totalExchangeDays) * 20;
+    }
+    const maxTx = Math.max(trust.exchangeCountAToB, trust.exchangeCountBToA);
+    const minTx = Math.min(trust.exchangeCountAToB, trust.exchangeCountBToA);
+    let balancePart = 0;
+    if (maxTx > 0) {
+      balancePart = (minTx / maxTx) * 10;
+    }
+    const bidirectionalityScore = ratioPart + balancePart;
+
+    const totalCoins = trust.totalCoinsAToB + trust.totalCoinsBToA;
+    const generosityScore = Math.min(10, Math.log10(totalCoins + 1) * 3);
+
+    return {
+      trust: {
+        trustScore: trust.trustScore,
+        currentStreak: trust.currentStreak,
+        longestStreak: trust.longestStreak,
+        totalExchangeDays: trust.totalExchangeDays,
+        bidirectionalDays: trust.bidirectionalDays,
+        totalCoinsYouGave: isCurrentUserA ? trust.totalCoinsAToB : trust.totalCoinsBToA,
+        totalCoinsTheyGave: isCurrentUserA ? trust.totalCoinsBToA : trust.totalCoinsAToB,
+        exchangeCountYouGave: isCurrentUserA ? trust.exchangeCountAToB : trust.exchangeCountBToA,
+        exchangeCountTheyGave: isCurrentUserA ? trust.exchangeCountBToA : trust.exchangeCountAToB,
+        isMutualFollow,
+        isActive,
+        friendsSince: trust.createdAt ? trust.createdAt.toISOString() : null,
+        lastExchangeDate: trust.lastExchangeDate,
+      },
+      dailyLogs,
+      insights: {
+        consistency: { score: Math.round(consistencyScore), max: 60, streakPart: Math.round(streakPart), engagementPart: Math.round(engagementPart) },
+        bidirectionality: { score: Math.round(bidirectionalityScore), max: 30, ratioPart: Math.round(ratioPart), balancePart: Math.round(balancePart) },
+        generosity: { score: Math.round(generosityScore), max: 10 },
+      },
+    };
+  }
+
+  /**
    * Check if two users mutually follow each other
    */
   static async areMutualFollows(userId1: string, userId2: string): Promise<boolean> {

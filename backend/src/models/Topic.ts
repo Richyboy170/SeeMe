@@ -18,6 +18,7 @@ export interface TopicAttributes {
     isOfficial: boolean;
     isActive: boolean;
     isDiscoverable: boolean;
+    searchKeywords: string | null;
     minAge: number;
     beginnerBoostEnabled: boolean;
     encouragementMultiplier: number;
@@ -28,7 +29,7 @@ export interface TopicAttributes {
 export interface TopicCreationAttributes extends Optional<TopicAttributes,
     'id' | 'description' | 'iconEmoji' | 'iconImageUrl' | 'coverImageUrl' | 'creatorId' |
     'followerCount' | 'postCount' | 'weeklyPostCount' | 'isOfficial' |
-    'isActive' | 'isDiscoverable' | 'minAge' | 'beginnerBoostEnabled' |
+    'isActive' | 'isDiscoverable' | 'searchKeywords' | 'minAge' | 'beginnerBoostEnabled' |
     'encouragementMultiplier' | 'createdAt' | 'updatedAt'> {}
 
 export class Topic extends Model<TopicAttributes, TopicCreationAttributes> implements TopicAttributes {
@@ -48,6 +49,7 @@ export class Topic extends Model<TopicAttributes, TopicCreationAttributes> imple
     public isOfficial!: boolean;
     public isActive!: boolean;
     public isDiscoverable!: boolean;
+    public searchKeywords!: string | null;
     public minAge!: number;
     public beginnerBoostEnabled!: boolean;
     public encouragementMultiplier!: number;
@@ -148,6 +150,11 @@ Topic.init(
         isDiscoverable: {
             type: DataTypes.BOOLEAN,
             defaultValue: true,
+        },
+        searchKeywords: {
+            type: DataTypes.TEXT,
+            allowNull: true,
+            field: 'search_keywords',
         },
         minAge: {
             type: DataTypes.INTEGER,

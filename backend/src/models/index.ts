@@ -42,3 +42,11 @@ export { UserGlobalMedal } from './UserGlobalMedal';
 // Trust Score Models
 export { FriendTrust } from './FriendTrust';
 export { FriendTrustDailyLog } from './FriendTrustDailyLog';
+
+// Decoration Store Models
+export { PostDecoration } from './PostDecoration';
+export { UserDecoration } from './UserDecoration';
+export { UserActiveDecoration } from './UserActiveDecoration';
+
+// Story of Me Models
+export { StoryOfMe } from './StoryOfMe';

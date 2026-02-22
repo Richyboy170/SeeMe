@@ -91,6 +91,44 @@ export class TrustController {
   }
 
   /**
+   * Get detailed friendship data between current user and another user
+   * GET /api/trust/friendship/:userId?month=YYYY-MM
+   */
+  static async getFriendshipDetail(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const currentUserId = req.user?.id;
+      const { userId: otherUserId } = req.params;
+      const { month } = req.query;
+
+      if (!currentUserId) {
+        res.status(401).json({ error: 'User not authenticated' });
+        return;
+      }
+
+      if (!otherUserId) {
+        res.status(400).json({ error: 'User ID is required' });
+        return;
+      }
+
+      if (currentUserId === otherUserId) {
+        res.status(400).json({ error: 'Cannot get friendship detail with yourself' });
+        return;
+      }
+
+      const detail = await TrustScoreService.getFriendshipDetail(
+        currentUserId,
+        otherUserId,
+        month as string | undefined
+      );
+
+      res.status(200).json(detail);
+    } catch (error) {
+      logger.error('Error getting friendship detail', { error });
+      res.status(500).json({ error: 'Failed to get friendship detail' });
+    }
+  }
+
+  /**
    * Get trust statistics summary for the current user
    * GET /api/trust/stats
    */

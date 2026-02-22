@@ -5,11 +5,63 @@ import { User } from '../models/User';
 import { Follow } from '../models/Follow';
 import { Like } from '../models/Like';
 import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
+import { Topic } from '../models/Topic';
 import { AuthRequest } from '../middleware/auth';
 import { redisClient, redisAvailable } from '../config/redis';
 import { logger } from '../utils/logger';
 import { FeedAlgorithmService } from '../services/FeedAlgorithmService';
 import { InteractionType } from '../models/UserInteraction';
+import { DecorationService } from '../services/DecorationService';
+import { Comment } from '../models/Comment';
+
+/**
+ * Batch fetch top N recent comments for a list of post IDs.
+ * Returns a Map of postId -> Comment[] (top-level only, newest first).
+ */
+async function batchFetchRecentComments(
+  postIds: string[],
+  limit: number = 3
+): Promise<Map<string, Array<{ id: string; content: string; user: { id: string; username: string }; createdAt: Date }>>> {
+  const map = new Map<string, Array<{ id: string; content: string; user: { id: string; username: string }; createdAt: Date }>>();
+  if (postIds.length === 0) return map;
+
+  // Fetch top-level comments for all posts, newest first
+  const comments = await Comment.findAll({
+    where: {
+      postId: postIds,
+      parentCommentId: null,
+    },
+    include: [
+      {
+        model: User,
+        as: 'user',
+        attributes: ['id', 'username'],
+      },
+    ],
+    order: [['createdAt', 'DESC']],
+    attributes: ['id', 'postId', 'content', 'createdAt'],
+  });
+
+  // Group by postId and keep only top N per post
+  for (const c of comments) {
+    const postId = c.postId;
+    if (!map.has(postId)) {
+      map.set(postId, []);
+    }
+    const arr = map.get(postId)!;
+    if (arr.length < limit) {
+      const userData = (c as any).user;
+      arr.push({
+        id: c.id,
+        content: c.content,
+        user: userData ? { id: userData.id, username: userData.username } : { id: '', username: 'Unknown' },
+        createdAt: c.createdAt,
+      });
+    }
+  }
+
+  return map;
+}
 
 // Helper to format avatar data for API response
 function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
@@ -88,16 +140,25 @@ export class FeedController {
             { visibility: null as any }  // Backwards compatibility for older posts
           ]
         },
-        include: [{
-          model: User,
-          as: 'user',
-          attributes: ['id', 'username', 'activeAvatarId']
-        }],
+        include: [
+          {
+            model: User,
+            as: 'user',
+            attributes: ['id', 'username', 'activeAvatarId']
+          },
+          {
+            model: Topic,
+            as: 'topics',
+            attributes: ['id', 'name', 'slug', 'iconEmoji'],
+            through: { attributes: [] }
+          }
+        ],
         order: [['createdAt', 'DESC']],
         limit,
         offset,
         attributes: [
           'id',
+          'userId',
           'processedImageUrl',
           'thumbnailUrl',
           'originalImageUrl',
@@ -130,16 +191,23 @@ export class FeedController {
       });
       const avatarsByUserId = new Map(avatars.map(a => [a.userId, a]));
 
+      // Fetch active decorations for all post authors
+      const decorationsByUserId = await DecorationService.batchResolveActiveDecorations(authorIds);
+
+      // Fetch top 3 recent comments for each post
+      const recentCommentsByPostId = await batchFetchRecentComments(postIds, 3);
+
       const response = {
         posts: posts.map(post => {
-          const user = post.get('user') as any;
+          const userModel = post.get('user') as any;
+          const userData = userModel ? (userModel.get ? userModel.get({ plain: true }) : userModel) : null;
           const avatar = avatarsByUserId.get(post.userId);
           return {
             id: post.id,
-            user: {
-              ...user,
+            user: userData ? {
+              ...userData,
               activeAvatar: formatAvatarForResponse(avatar || null),
-            },
+            } : null,
             imageUrl: post.processedImageUrl,
             thumbnailUrl: post.thumbnailUrl,
             originalImageUrl: post.originalImageUrl,
@@ -148,6 +216,11 @@ export class FeedController {
             commentsCount: post.commentsCount,
             createdAt: post.createdAt,
             likedByMe: likedPostIds.has(post.id),
+            topics: ((post as any).topics || []).map((t: any) => ({
+              id: t.id, name: t.name, slug: t.slug, iconEmoji: t.iconEmoji,
+            })),
+            decoration: decorationsByUserId.get(post.userId) || null,
+            recentComments: recentCommentsByPostId.get(post.id) || [],
           };
         }),
         pagination: {
@@ -217,16 +290,25 @@ export class FeedController {
             { visibility: null as any }  // Backwards compatibility
           ]
         },
-        include: [{
-          model: User,
-          as: 'user',
-          attributes: ['id', 'username', 'activeAvatarId']
-        }],
+        include: [
+          {
+            model: User,
+            as: 'user',
+            attributes: ['id', 'username', 'activeAvatarId']
+          },
+          {
+            model: Topic,
+            as: 'topics',
+            attributes: ['id', 'name', 'slug', 'iconEmoji'],
+            through: { attributes: [] }
+          }
+        ],
         order: [['createdAt', 'DESC']],
         limit,
         offset,
         attributes: [
           'id',
+          'userId',
           'processedImageUrl',
           'thumbnailUrl',
           'originalImageUrl',
@@ -261,16 +343,24 @@ export class FeedController {
       });
       const avatarsByUserId = new Map(avatars.map(a => [a.userId, a]));
 
+      // Fetch active decorations for all post authors
+      const decorationsByUserId = await DecorationService.batchResolveActiveDecorations(authorIds);
+
+      // Fetch top 3 recent comments for each post
+      const postIds = posts.map(p => p.id);
+      const recentCommentsByPostId = await batchFetchRecentComments(postIds, 3);
+
       const response = {
         posts: posts.map(post => {
-          const user = post.get('user') as any;
+          const userModel = post.get('user') as any;
+          const userData = userModel ? (userModel.get ? userModel.get({ plain: true }) : userModel) : null;
           const avatar = avatarsByUserId.get(post.userId);
           return {
             id: post.id,
-            user: {
-              ...user,
+            user: userData ? {
+              ...userData,
               activeAvatar: formatAvatarForResponse(avatar || null),
-            },
+            } : null,
             imageUrl: post.processedImageUrl,
             thumbnailUrl: post.thumbnailUrl,
             originalImageUrl: post.originalImageUrl,
@@ -279,6 +369,11 @@ export class FeedController {
             commentsCount: post.commentsCount,
             createdAt: post.createdAt,
             likedByMe: likedPostIds.has(post.id),
+            topics: ((post as any).topics || []).map((t: any) => ({
+              id: t.id, name: t.name, slug: t.slug, iconEmoji: t.iconEmoji,
+            })),
+            decoration: decorationsByUserId.get(post.userId) || null,
+            recentComments: recentCommentsByPostId.get(post.id) || [],
           };
         }),
         pagination: {

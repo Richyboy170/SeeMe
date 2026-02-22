@@ -65,7 +65,7 @@ export const TrustConnectionItem: React.FC<TrustConnectionItemProps> = ({
   return (
     <TouchableOpacity
       style={[styles.container, { backgroundColor: colors.card }]}
-      onPress={() => onProfilePress?.(connection) || onPress?.(connection)}
+      onPress={() => onPress ? onPress(connection) : onProfilePress?.(connection)}
       activeOpacity={0.7}
     >
       {/* Avatar with ring */}

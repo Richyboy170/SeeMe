@@ -33,6 +33,13 @@ router.post('/give', authenticateToken, CoinsController.giveCoins);
 router.get('/history', authenticateToken, CoinsController.getHistory);
 
 /**
+ * @route   POST /api/coins/collect
+ * @desc    Collect received coins (deferred Sky Coins)
+ * @access  Private
+ */
+router.post('/collect', authenticateToken, CoinsController.collectCoins);
+
+/**
  * @route   GET /api/coins/received
  * @desc    Get recent coins received from other users (notifications)
  * @access  Private

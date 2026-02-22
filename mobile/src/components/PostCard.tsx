@@ -17,9 +17,12 @@ import SharePostModal from './SharePostModal';
 import PostActionsBar from './PostActionsBar';
 import Avatar from './Avatar';
 import { AvatarCustomizations } from './AvatarRenderer';
+import { LinearGradient } from 'expo-linear-gradient';
 import { getImageUrl, api } from '../services/api';
 import { formatTimeAgo, getPostImageUrl } from '../utils/postHelpers';
 import { useTheme } from '../theme';
+import { ResolvedDecoration, DecorationStyleBackground, DecorationStyleFrame, DecorationStyleIconColors, CornerDecorationConfig } from '../types/decorations';
+import CornerDecorations from './CornerDecorations';
 
 const TABLET_BREAKPOINT = 600;
 
@@ -58,6 +61,8 @@ interface PostCardProps {
     repostedByMe?: boolean;
     myRepostType?: 'repost' | 'quote' | null;
     createdAt: string;
+    // Decoration data
+    decoration?: ResolvedDecoration | null;
     // Repost-specific fields
     isRepost?: boolean;
     repostedBy?: RepostedByUser;
@@ -196,6 +201,41 @@ export default function PostCard({
       }, DOUBLE_TAP_DELAY);
     }
   };
+
+  // Resolve decoration styles
+  const decoration = post.decoration;
+  const bgDecoration: DecorationStyleBackground | null =
+    isDark ? (decoration?.darkBackground as DecorationStyleBackground | null) || null
+           : (decoration?.lightBackground as DecorationStyleBackground | null) || null;
+  const frameDecoration: DecorationStyleFrame | null = (decoration?.frame as DecorationStyleFrame | null) || null;
+  const frameCornerConfig: CornerDecorationConfig | null = frameDecoration?.cornerDecorations || null;
+  const bgCornerConfig: CornerDecorationConfig | null = bgDecoration?.cornerDecorations || null;
+  const iconDecoration: DecorationStyleIconColors | null = (decoration?.iconColors as DecorationStyleIconColors | null) || null;
+
+  // Text colors: use decoration override or default theme colors
+  const decorTextColor = bgDecoration?.textColor || colors.text.primary;
+  const decorCaptionColor = bgDecoration?.captionColor || colors.text.primary;
+
+  // Icon colors: use decoration override or defaults
+  const likeIconColor = (liked: boolean) => liked ? (iconDecoration?.likeColor || '#FF3B30') : (iconDecoration?.likeColor || colors.text.primary);
+  const commentIconColor = iconDecoration?.commentColor || colors.text.primary;
+  const shareIconColor = iconDecoration?.shareColor || colors.text.primary;
+  const giftIconColor = iconDecoration?.giftColor || '#FBBF24';
+  const saveIconColor = iconDecoration?.saveColor || colors.text.primary;
+
+  // Frame style for image wrapper
+  const frameStyle = frameDecoration ? {
+    borderWidth: frameDecoration.borderWidth,
+    borderColor: frameDecoration.borderColor,
+    borderRadius: frameDecoration.borderRadius,
+    ...(frameDecoration.shadowColor ? {
+      shadowColor: frameDecoration.shadowColor,
+      shadowOpacity: frameDecoration.shadowOpacity || 0.3,
+      shadowRadius: frameDecoration.shadowRadius || 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 4,
+    } : {}),
+  } : {};
 
   // Calculate image dimensions
   const phoneImageSize = width - 24; // Account for horizontal padding (12 each side)
@@ -342,17 +382,17 @@ export default function PostCard({
           <Ionicons
             name={liked ? 'heart' : 'heart-outline'}
             size={isTablet ? 24 : 28}
-            color={liked ? '#FF3B30' : colors.text.primary}
+            color={likeIconColor(liked)}
           />
           {likesCount > 0 && (
-            <Text style={[styles.actionCount, { color: colors.text.primary }]}>{likesCount}</Text>
+            <Text style={[styles.actionCount, { color: decorTextColor }]}>{likesCount}</Text>
           )}
         </TouchableOpacity>
 
         <TouchableOpacity onPress={handleComment} style={styles.actionButton}>
-          <Ionicons name="chatbubble-outline" size={isTablet ? 22 : 26} color={colors.text.primary} />
+          <Ionicons name="chatbubble-outline" size={isTablet ? 22 : 26} color={commentIconColor} />
           {post.commentsCount > 0 && (
-            <Text style={[styles.actionCount, { color: colors.text.primary }]}>{post.commentsCount}</Text>
+            <Text style={[styles.actionCount, { color: decorTextColor }]}>{post.commentsCount}</Text>
           )}
         </TouchableOpacity>
 
@@ -361,7 +401,7 @@ export default function PostCard({
             <Ionicons
               name={post.repostedByMe ? 'repeat' : 'repeat-outline'}
               size={isTablet ? 22 : 26}
-              color={post.repostedByMe ? '#10B981' : colors.text.primary}
+              color={post.repostedByMe ? '#10B981' : shareIconColor}
             />
             {(post.repostCount || 0) > 0 && (
               <Text style={[styles.actionCount, post.repostedByMe && styles.repostedCount]}>
@@ -375,7 +415,7 @@ export default function PostCard({
           onPress={() => setGiveModalVisible(true)}
           style={styles.actionButton}
         >
-          <Ionicons name="gift" size={isTablet ? 22 : 26} color="#FBBF24" />
+          <Ionicons name="gift" size={isTablet ? 22 : 26} color={giftIconColor} />
         </TouchableOpacity>
       </View>
 
@@ -384,7 +424,7 @@ export default function PostCard({
           <Ionicons
             name={saved ? 'bookmark' : 'bookmark-outline'}
             size={isTablet ? 24 : 26}
-            color={saved ? '#FBBF24' : colors.text.primary}
+            color={saved ? saveIconColor : saveIconColor}
           />
         </TouchableOpacity>
       )}
@@ -615,9 +655,40 @@ export default function PostCard({
     );
   }
 
+  // Helper to wrap content in background decoration
+  const wrapWithBackground = (content: React.ReactNode) => {
+    if (bgDecoration?.type === 'gradient' && bgDecoration.colors) {
+      return (
+        <LinearGradient
+          colors={bgDecoration.colors as [string, string, ...string[]]}
+          locations={bgDecoration.locations as [number, number, ...number[]] | undefined}
+          start={bgDecoration.start || { x: 0, y: 0 }}
+          end={bgDecoration.end || { x: 1, y: 1 }}
+          style={styles.container}
+        >
+          {bgCornerConfig && <CornerDecorations config={bgCornerConfig} />}
+          {content}
+        </LinearGradient>
+      );
+    }
+    if (bgDecoration?.type === 'solid' && bgDecoration.color) {
+      return (
+        <View style={[styles.container, { backgroundColor: bgDecoration.color }]}>
+          {bgCornerConfig && <CornerDecorations config={bgCornerConfig} />}
+          {content}
+        </View>
+      );
+    }
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        {content}
+      </View>
+    );
+  };
+
   // Regular post layout (non-repost)
-  return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+  const postContent = (
+    <>
       {/* Header */}
       <TouchableOpacity style={styles.header} onPress={handleUserPress}>
         <Avatar
@@ -628,21 +699,22 @@ export default function PostCard({
           avatarStyle={post.user.activeAvatar?.style}
         />
         <View style={styles.userInfo}>
-          <Text style={[styles.username, { color: colors.text.primary }]}>@{post.user.username}</Text>
-          <Text style={[styles.timestamp, { color: colors.text.secondary }]}>{formatTimeAgo(post.createdAt)}</Text>
+          <Text style={[styles.username, { color: decorTextColor }]}>@{post.user.username}</Text>
+          <Text style={[styles.timestamp, { color: decorCaptionColor }]}>{formatTimeAgo(post.createdAt)}</Text>
         </View>
       </TouchableOpacity>
 
       {/* Caption - Above image */}
       {post.caption && (
         <View style={styles.captionContainer}>
-          <Text style={[styles.caption, { color: colors.text.primary }]}>{post.caption}</Text>
+          <Text style={[styles.caption, { color: decorTextColor }]}>{post.caption}</Text>
         </View>
       )}
 
-      {/* Image with padding */}
-      <View style={styles.imageWrapper}>
+      {/* Image with padding and optional frame */}
+      <View style={[styles.imageWrapper, frameStyle]}>
         {renderImage()}
+        {frameCornerConfig && <CornerDecorations config={frameCornerConfig} />}
       </View>
 
       {/* Actions */}
@@ -669,8 +741,10 @@ export default function PostCard({
       />
 
       {renderImageViewer()}
-    </View>
+    </>
   );
+
+  return wrapWithBackground(postContent);
 }
 
 const styles = StyleSheet.create({

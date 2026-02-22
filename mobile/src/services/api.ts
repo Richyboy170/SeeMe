@@ -371,8 +371,17 @@ class ApiClient {
     return response.data;
   }
 
-  async getReceivedCoins(limit: number = 10) {
-    const response = await this.client.get(`/coins/received?limit=${limit}`);
+  async getReceivedCoins(limit: number = 10, collected?: boolean) {
+    let url = `/coins/received?limit=${limit}`;
+    if (collected !== undefined) {
+      url += `&collected=${collected}`;
+    }
+    const response = await this.client.get(url);
+    return response.data;
+  }
+
+  async collectCoins(transactionIds: string[]) {
+    const response = await this.client.post('/coins/collect', { transactionIds });
     return response.data;
   }
 
@@ -817,6 +826,73 @@ class ApiClient {
 
   async getTrustStats() {
     const response = await this.client.get('/trust/stats');
+    return response.data;
+  }
+
+  async getFriendshipDetail(userId: string, month?: string) {
+    const params = month ? `?month=${month}` : '';
+    const response = await this.client.get(`/trust/friendship/${userId}${params}`);
+    return response.data;
+  }
+
+  // Story of Me methods
+  async getMyStories(periodType?: string) {
+    const params = periodType ? `?periodType=${periodType}` : '';
+    const response = await this.client.get(`/stories/me${params}`);
+    return response.data;
+  }
+
+  async getUserStories(userId: string, periodType?: string) {
+    const params = periodType ? `?periodType=${periodType}` : '';
+    const response = await this.client.get(`/stories/user/${userId}${params}`);
+    return response.data;
+  }
+
+  async getLatestStory(userId: string, periodType?: string) {
+    const params = periodType ? `?periodType=${periodType}` : '';
+    const response = await this.client.get(`/stories/user/${userId}/latest${params}`);
+    return response.data;
+  }
+
+  async generateStory(periodType: string = 'weekly') {
+    const response = await this.client.post('/stories/generate', { periodType });
+    return response.data;
+  }
+
+  // Decoration Store methods
+  async getDecorationStore(category?: string) {
+    const params = category ? `?category=${category}` : '';
+    const response = await this.client.get(`/decorations/store${params}`);
+    return response.data;
+  }
+
+  async getMyDecorations() {
+    const response = await this.client.get('/decorations/mine');
+    return response.data;
+  }
+
+  async purchaseDecoration(decorationId: string) {
+    const response = await this.client.post('/decorations/purchase', { decorationId });
+    return response.data;
+  }
+
+  async getMyActiveDecoration() {
+    const response = await this.client.get('/decorations/active');
+    return response.data;
+  }
+
+  async setActiveDecoration(config: {
+    lightBackgroundId?: string | null;
+    darkBackgroundId?: string | null;
+    frameId?: string | null;
+    iconColorId?: string | null;
+  }) {
+    const response = await this.client.put('/decorations/active', config);
+    return response.data;
+  }
+
+  async getUserActiveDecoration(userId: string) {
+    const response = await this.client.get(`/decorations/user/${userId}/active`);
     return response.data;
   }
 

@@ -16,6 +16,18 @@ router.get(
 );
 
 /**
+ * @route   GET /api/trust/friendship/:userId
+ * @desc    Get detailed friendship data with daily logs and insights
+ * @access  Private
+ * @query   month - Optional month filter (YYYY-MM)
+ */
+router.get(
+  '/friendship/:userId',
+  authenticateToken,
+  TrustController.getFriendshipDetail
+);
+
+/**
  * @route   GET /api/trust/connections
  * @desc    List all trust connections (paginated)
  * @access  Private

@@ -16,6 +16,7 @@ const defaultTopics = [
     inviteCode: 'DIGART',
     isOfficial: true,
     encouragementMultiplier: 1.2,
+    searchKeywords: 'digital art, illustration, graphic design, drawing, painting, Procreate, Photoshop, digital painting, vector art, concept art, sketch, artwork, creative, visual art, tablet drawing',
   },
   {
     name: 'Music Makers',
@@ -25,6 +26,7 @@ const defaultTopics = [
     category: 'creative',
     inviteCode: 'MUSIK1',
     isOfficial: true,
+    searchKeywords: 'music, musicians, producer, beats, songwriter, singing, guitar, piano, rapper, hip hop, EDM, rock, pop, DJ, music production, band, vocals, drums, bass, instrument, composing, recording',
   },
   {
     name: 'Writers Corner',
@@ -34,6 +36,7 @@ const defaultTopics = [
     category: 'creative',
     inviteCode: 'WRITE1',
     isOfficial: true,
+    searchKeywords: 'writing, poetry, stories, novels, scripts, author, fiction, nonfiction, creative writing, screenplay, blogging, journalist, prose, literature, essay, fanfiction, storytelling',
   },
   {
     name: 'Photography',
@@ -43,6 +46,7 @@ const defaultTopics = [
     category: 'creative',
     inviteCode: 'PHOTOG',
     isOfficial: true,
+    searchKeywords: 'photography, camera, photos, portrait, landscape, street photography, DSLR, mirrorless, editing, Lightroom, composition, exposure, lens, macro, wildlife photography, photo editing',
   },
   {
     name: 'Cosplay & Costumes',
@@ -52,6 +56,7 @@ const defaultTopics = [
     category: 'creative',
     inviteCode: 'COSPLY',
     isOfficial: true,
+    searchKeywords: 'cosplay, costumes, costume design, fandom, convention, comic con, anime cosplay, props, armor, sewing, wigs, makeup, character, superhero, halloween, dress up',
   },
   {
     name: 'Animation Station',
@@ -61,6 +66,7 @@ const defaultTopics = [
     category: 'creative',
     inviteCode: 'ANIMAT',
     isOfficial: true,
+    searchKeywords: 'animation, animator, 2D animation, 3D animation, motion graphics, After Effects, Blender, cartoon, storyboard, frame by frame, rigging, VFX, visual effects, stop motion, animated film',
   },
 
   // Hobbies Category
@@ -73,6 +79,7 @@ const defaultTopics = [
     inviteCode: 'GAMERS',
     isOfficial: true,
     encouragementMultiplier: 1.3,
+    searchKeywords: 'gaming, video games, gamer, PlayStation, Xbox, Nintendo, Switch, PC gaming, Steam, esports, multiplayer, RPG, FPS, Fortnite, Minecraft, game reviews, twitch, streaming',
   },
   {
     name: 'Plant Parents',
@@ -82,6 +89,7 @@ const defaultTopics = [
     category: 'hobbies',
     inviteCode: 'PLANTS',
     isOfficial: true,
+    searchKeywords: 'plants, gardening, houseplants, succulents, indoor plants, garden, flowers, herbs, propagation, plant care, monstera, pothos, cactus, terrarium, botany, green thumb, planting',
   },
   {
     name: 'DIY & Crafts',
@@ -91,6 +99,7 @@ const defaultTopics = [
     category: 'hobbies',
     inviteCode: 'DIYCFT',
     isOfficial: true,
+    searchKeywords: 'DIY, crafts, woodworking, knitting, crochet, handmade, sewing, jewelry making, pottery, ceramics, resin, scrapbooking, quilting, embroidery, upcycling, maker, crafting',
   },
   {
     name: 'Board Game Geeks',
@@ -100,6 +109,7 @@ const defaultTopics = [
     category: 'hobbies',
     inviteCode: 'BRDGAM',
     isOfficial: true,
+    searchKeywords: 'board games, tabletop, card games, Dungeons and Dragons, D&D, strategy games, game night, Catan, chess, puzzles, dice, RPG tabletop, miniatures, wargaming, cooperative games',
   },
   {
     name: 'Collectors Club',
@@ -109,6 +119,7 @@ const defaultTopics = [
     category: 'hobbies',
     inviteCode: 'COLECT',
     isOfficial: true,
+    searchKeywords: 'collecting, sneakers, trading cards, Pokemon cards, action figures, vinyl records, Funko Pop, stamps, coins, vintage, antiques, memorabilia, rare finds, limited edition, collectibles',
   },
   {
     name: 'Pet Lovers',
@@ -119,6 +130,7 @@ const defaultTopics = [
     inviteCode: 'PETLUV',
     isOfficial: true,
     encouragementMultiplier: 1.5,
+    searchKeywords: 'pets, dogs, cats, puppy, kitten, animals, pet care, dog training, cat lovers, hamster, rabbit, fish, reptiles, birds, aquarium, veterinary, adopt, rescue, furry friends',
   },
   {
     name: 'Anime & Manga',
@@ -128,6 +140,7 @@ const defaultTopics = [
     category: 'hobbies',
     inviteCode: 'ANIMNG',
     isOfficial: true,
+    searchKeywords: 'anime, manga, otaku, Japanese animation, weeb, Naruto, One Piece, Dragon Ball, Attack on Titan, Studio Ghibli, light novels, waifu, cosplay anime, Japanese culture, shonen, seinen',
   },
 
   // Lifestyle Category
@@ -140,6 +153,7 @@ const defaultTopics = [
     inviteCode: 'FOODIE',
     isOfficial: true,
     encouragementMultiplier: 1.2,
+    searchKeywords: 'food, cooking, recipes, baking, chef, restaurant, foodie, cuisine, meal prep, vegan, vegetarian, desserts, kitchen, culinary, food photography, street food, gourmet, nutrition',
   },
   {
     name: 'Travel Diaries',
@@ -149,6 +163,7 @@ const defaultTopics = [
     category: 'lifestyle',
     inviteCode: 'TRAVEL',
     isOfficial: true,
+    searchKeywords: 'travel, adventure, vacation, trip, backpacking, tourism, destinations, wanderlust, road trip, flights, hotels, hostel, sightseeing, explore, passport, travel tips, solo travel, budget travel',
   },
   {
     name: 'Fashion Forward',
@@ -158,6 +173,7 @@ const defaultTopics = [
     category: 'lifestyle',
     inviteCode: 'FASHUN',
     isOfficial: true,
+    searchKeywords: 'fashion, style, OOTD, outfit, clothing, streetwear, thrift, vintage fashion, designer, accessories, shoes, sneakers, trends, wardrobe, sustainable fashion, makeup, beauty',
   },
   {
     name: 'Cozy Home',
@@ -167,6 +183,7 @@ const defaultTopics = [
     category: 'lifestyle',
     inviteCode: 'COZYHM',
     isOfficial: true,
+    searchKeywords: 'home decor, interior design, organization, minimalism, furniture, apartment, room makeover, aesthetic, cozy, hygge, decorating, renovation, DIY home, living space, bedroom, kitchen design',
   },
   {
     name: 'Mindfulness',
@@ -177,6 +194,7 @@ const defaultTopics = [
     inviteCode: 'MINDFL',
     isOfficial: true,
     encouragementMultiplier: 1.5,
+    searchKeywords: 'mindfulness, meditation, mental health, self-care, wellness, anxiety, therapy, journaling, gratitude, stress relief, breathing, yoga, calm, positive thinking, emotional health, well-being, mental wellness',
   },
   {
     name: 'Coffee & Tea',
@@ -186,6 +204,7 @@ const defaultTopics = [
     category: 'lifestyle',
     inviteCode: 'CAFFNE',
     isOfficial: true,
+    searchKeywords: 'coffee, tea, espresso, latte, cappuccino, cafe, barista, brewing, pour over, French press, matcha, herbal tea, coffee beans, roasting, caffeine, cold brew, coffee shop',
   },
 
   // Fitness Category
@@ -198,6 +217,7 @@ const defaultTopics = [
     inviteCode: 'GYMFIT',
     isOfficial: true,
     encouragementMultiplier: 1.4,
+    searchKeywords: 'gym, fitness, workout, exercise, weightlifting, bodybuilding, strength training, crossfit, muscle, gains, cardio, HIIT, lifting, health, personal trainer, bench press, squats, deadlift',
   },
   {
     name: 'Runners World',
@@ -207,6 +227,7 @@ const defaultTopics = [
     category: 'fitness',
     inviteCode: 'RUNNER',
     isOfficial: true,
+    searchKeywords: 'running, jogging, marathon, 5K, 10K, half marathon, trail running, exercise, cardio, treadmill, sprinting, track, cross country, Strava, race, endurance, pace, runner',
   },
   {
     name: 'Yoga Flow',
@@ -216,6 +237,7 @@ const defaultTopics = [
     category: 'fitness',
     inviteCode: 'YOGAFM',
     isOfficial: true,
+    searchKeywords: 'yoga, poses, flexibility, stretching, vinyasa, hatha, hot yoga, exercise, meditation, balance, pilates, wellness, namaste, asana, mindful movement, body-mind, relaxation',
   },
   {
     name: 'Outdoor Adventures',
@@ -225,6 +247,7 @@ const defaultTopics = [
     category: 'fitness',
     inviteCode: 'OUTADV',
     isOfficial: true,
+    searchKeywords: 'hiking, climbing, camping, outdoors, nature, backpacking, trails, rock climbing, mountain, wilderness, kayaking, fishing, surfing, cycling, adventure sports, national parks, exploration',
   },
   {
     name: 'Sports Fans',
@@ -234,6 +257,7 @@ const defaultTopics = [
     category: 'fitness',
     inviteCode: 'SPORTS',
     isOfficial: true,
+    searchKeywords: 'sports, football, basketball, soccer, baseball, tennis, NFL, NBA, FIFA, athlete, team, championship, cricket, rugby, hockey, MMA, boxing, esports, Olympics',
   },
   {
     name: 'Martial Arts',
@@ -243,6 +267,7 @@ const defaultTopics = [
     category: 'fitness',
     inviteCode: 'MRTART',
     isOfficial: true,
+    searchKeywords: 'martial arts, BJJ, boxing, karate, taekwondo, MMA, judo, muay thai, kung fu, self defense, kickboxing, wrestling, jiu jitsu, training, belt, sparring, combat sports, dojo',
   },
 
   // Learning Category
@@ -255,6 +280,7 @@ const defaultTopics = [
     inviteCode: 'LANGLN',
     isOfficial: true,
     encouragementMultiplier: 1.3,
+    searchKeywords: 'language learning, Spanish, French, Japanese, Korean, Duolingo, vocabulary, grammar, polyglot, bilingual, translation, Chinese, German, Italian, ESL, linguistics, foreign language',
   },
   {
     name: 'Study Buddies',
@@ -265,6 +291,7 @@ const defaultTopics = [
     inviteCode: 'STUDYB',
     isOfficial: true,
     encouragementMultiplier: 1.4,
+    searchKeywords: 'study, students, homework, exam, college, university, school, notes, academic, GPA, study tips, tutoring, education, test prep, SAT, ACT, scholarship, learning, high school',
   },
   {
     name: 'Science Nerds',
@@ -274,6 +301,7 @@ const defaultTopics = [
     category: 'learning',
     inviteCode: 'SCINCE',
     isOfficial: true,
+    searchKeywords: 'science, physics, chemistry, biology, astronomy, space, experiments, research, STEM, lab, quantum, evolution, genetics, climate, environmental science, math, engineering, discovery',
   },
   {
     name: 'Book Club',
@@ -283,6 +311,7 @@ const defaultTopics = [
     category: 'learning',
     inviteCode: 'BOOKRD',
     isOfficial: true,
+    searchKeywords: 'books, reading, book club, novel, fiction, nonfiction, author, library, Kindle, audiobook, literature, book review, recommendation, bestseller, thriller, romance, fantasy, sci-fi',
   },
   {
     name: 'Career Growth',
@@ -292,6 +321,7 @@ const defaultTopics = [
     category: 'learning',
     inviteCode: 'CAREER',
     isOfficial: true,
+    searchKeywords: 'career, job, resume, interview, LinkedIn, professional development, networking, promotion, salary, freelance, remote work, entrepreneurship, workplace, skills, job search, mentorship',
   },
   {
     name: 'History Buffs',
@@ -301,6 +331,7 @@ const defaultTopics = [
     category: 'learning',
     inviteCode: 'HISTOR',
     isOfficial: true,
+    searchKeywords: 'history, ancient, medieval, world war, civilization, archaeology, historical, museum, heritage, culture, empire, dynasty, revolution, historical events, timeline, historical figures',
   },
 
   // Tech Category
@@ -313,6 +344,7 @@ const defaultTopics = [
     inviteCode: 'CODERS',
     isOfficial: true,
     encouragementMultiplier: 1.2,
+    searchKeywords: 'coding, programming, developer, software, JavaScript, Python, React, web development, app development, algorithm, GitHub, software engineer, HTML, CSS, TypeScript, full stack, backend, frontend, API',
   },
   {
     name: 'Tech News',
@@ -322,6 +354,7 @@ const defaultTopics = [
     category: 'tech',
     inviteCode: 'TCHNWS',
     isOfficial: true,
+    searchKeywords: 'tech news, technology, gadgets, iPhone, Android, Apple, Google, Samsung, reviews, innovation, software updates, hardware, wearable, smart home, tech industry, product launch',
   },
   {
     name: 'PC Builders',
@@ -331,6 +364,7 @@ const defaultTopics = [
     category: 'tech',
     inviteCode: 'PCBULD',
     isOfficial: true,
+    searchKeywords: 'PC build, custom PC, hardware, GPU, CPU, RAM, motherboard, battlestation, setup, monitor, keyboard, mouse, RGB, overclocking, gaming PC, computer, desktop, peripherals',
   },
   {
     name: 'AI Explorers',
@@ -340,6 +374,7 @@ const defaultTopics = [
     category: 'tech',
     inviteCode: 'AIEXPL',
     isOfficial: true,
+    searchKeywords: 'AI, artificial intelligence, machine learning, deep learning, neural network, ChatGPT, GPT, LLM, data science, Python, TensorFlow, PyTorch, NLP, computer vision, robotics, automation, generative AI',
   },
   {
     name: 'Cybersecurity',
@@ -350,6 +385,7 @@ const defaultTopics = [
     inviteCode: 'CYBSEC',
     isOfficial: true,
     minAge: 16,
+    searchKeywords: 'cybersecurity, hacking, infosec, privacy, security, encryption, VPN, firewall, malware, phishing, ethical hacking, penetration testing, CTF, network security, data protection, password',
   },
   {
     name: 'Startup Life',
@@ -359,6 +395,7 @@ const defaultTopics = [
     category: 'tech',
     inviteCode: 'STRTUP',
     isOfficial: true,
+    searchKeywords: 'startup, entrepreneur, founder, business, venture capital, pitch, MVP, product, SaaS, funding, investor, Y Combinator, innovation, growth, hustle, side project, launch, bootstrapping',
   },
   {
     name: 'Web3 & Crypto',
@@ -369,6 +406,7 @@ const defaultTopics = [
     inviteCode: 'WEB3CR',
     isOfficial: true,
     minAge: 18,
+    searchKeywords: 'web3, crypto, cryptocurrency, blockchain, Bitcoin, Ethereum, NFT, DeFi, decentralized, smart contracts, Solana, token, wallet, mining, trading, metaverse, DAO',
   },
 ];
 
@@ -384,18 +422,34 @@ export async function seedDefaultTopics(): Promise<void> {
 
     if (missing.length === 0) {
       logger.info(`All ${defaultTopics.length} default communities already exist, nothing to seed`);
-      return;
+    } else {
+      logger.info(`Found ${existingSlugs.length} existing communities, seeding ${missing.length} missing ones...`);
+
+      const topicsToCreate = missing.map(topic => ({
+        id: uuidv4(),
+        ...topic,
+      }));
+
+      const created = await Topic.bulkCreate(topicsToCreate);
+      logger.info(`Created ${created.length} default communities (${existingSlugs.length} already existed)`);
     }
 
-    logger.info(`Found ${existingSlugs.length} existing communities, seeding ${missing.length} missing ones...`);
+    // Update searchKeywords for existing topics that don't have them yet
+    const keywordMap = new Map(defaultTopics.map(t => [t.slug, t.searchKeywords]));
+    const topicsNeedingKeywords = await Topic.findAll({
+      where: { searchKeywords: null, slug: defaultTopics.map(t => t.slug) },
+      attributes: ['id', 'slug'],
+    });
 
-    const topicsToCreate = missing.map(topic => ({
-      id: uuidv4(),
-      ...topic,
-    }));
-
-    const created = await Topic.bulkCreate(topicsToCreate);
-    logger.info(`Created ${created.length} default communities (${existingSlugs.length} already existed)`);
+    if (topicsNeedingKeywords.length > 0) {
+      for (const topic of topicsNeedingKeywords) {
+        const keywords = keywordMap.get(topic.slug);
+        if (keywords) {
+          await topic.update({ searchKeywords: keywords });
+        }
+      }
+      logger.info(`Updated searchKeywords for ${topicsNeedingKeywords.length} existing communities`);
+    }
   } catch (error) {
     logger.error('Failed to seed default communities', { error });
     // Don't throw - this shouldn't crash the server

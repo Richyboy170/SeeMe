@@ -110,11 +110,10 @@ export default function ProfileTabButton({
             {activeAccount && activeAccount.avatarUrl ? (
                 <View style={[
                     styles.avatarContainer,
-                    focused && styles.avatarContainerFocused,
-                    focused && { borderColor: colors.tabActive },
+                    focused && { borderColor: colors.tabActive, borderWidth: 2.5 },
                 ]}>
                     <Avatar
-                        size={24}
+                        size={22}
                         avatarUrl={activeAccount.avatarUrl}
                         username={activeAccount.username}
                         showBorder={false}
@@ -163,9 +162,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         borderWidth: 2,
         borderColor: 'transparent',
-    },
-    avatarContainerFocused: {
-        borderColor: undefined,
     },
     iconContainer: {
         position: 'relative',

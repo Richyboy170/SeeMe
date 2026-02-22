@@ -39,7 +39,7 @@ export function CommentPreview({
   totalComments,
   onViewAllComments,
   onUserPress,
-  maxComments = 2,
+  maxComments = 3,
   colors,
 }: CommentPreviewProps) {
   if (!comments || comments.length === 0) {
@@ -49,25 +49,8 @@ export function CommentPreview({
   const displayComments = comments.slice(0, maxComments);
   const hasMoreComments = totalComments > maxComments;
 
-  const truncateText = (text: string, maxLength: number = 100) => {
-    if (text.length <= maxLength) return text;
-    return text.substring(0, maxLength).trim() + '...';
-  };
-
   return (
     <View style={styles.container}>
-      {/* View all comments link */}
-      {hasMoreComments && (
-        <TouchableOpacity
-          onPress={onViewAllComments}
-          style={styles.viewAllButton}
-        >
-          <Text style={[styles.viewAllText, { color: colors.textSecondary }]}>
-            View all {totalComments} comments
-          </Text>
-        </TouchableOpacity>
-      )}
-
       {/* Comment previews */}
       {displayComments.map((comment) => (
         <View key={comment.id} style={styles.commentRow}>
@@ -80,10 +63,22 @@ export function CommentPreview({
             style={[styles.commentText, { color: colors.text }]}
             numberOfLines={2}
           >
-            {truncateText(comment.content)}
+            {comment.content}
           </Text>
         </View>
       ))}
+
+      {/* View all comments link */}
+      {hasMoreComments && (
+        <TouchableOpacity
+          onPress={onViewAllComments}
+          style={styles.viewAllButton}
+        >
+          <Text style={[styles.viewAllText, { color: colors.textSecondary }]}>
+            View all {totalComments} comments
+          </Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }

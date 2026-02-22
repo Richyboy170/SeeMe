@@ -24,7 +24,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation, CommonActions } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { ResolvedDecoration, DecorationStyleBackground, DecorationStyleFrame, DecorationStyleIconColors, CornerDecorationConfig } from '../../types/decorations';
+import CornerDecorations from '../../components/CornerDecorations';
 import Avatar from '../../components/Avatar';
 import GiveCoinsModal from '../../components/coins/GiveCoinsModal';
 import CoinCelebration from '../../components/coins/CoinCelebration';
@@ -46,6 +49,41 @@ type FeedScreenNavigationProp = StackNavigationProp<FeedStackParamList, 'FeedHom
 
 const TABLET_BREAKPOINT = 600;
 const MAX_CONTENT_WIDTH = 600;
+
+/**
+ * Blend a hex color toward a base color.
+ * @param hex - Source color (e.g. decoration accent)
+ * @param base - Target base color (near-white or near-dark)
+ * @param baseRatio - 0 = all source, 1 = all base (0.88 = 88% base, 12% source)
+ */
+function blendHex(hex: string, base: string, baseRatio: number): string {
+  try {
+    const parse = (h: string) => {
+      const c = h.replace('#', '');
+      if (c.length === 3) {
+        return {
+          r: parseInt(c[0] + c[0], 16),
+          g: parseInt(c[1] + c[1], 16),
+          b: parseInt(c[2] + c[2], 16),
+        };
+      }
+      return {
+        r: parseInt(c.substring(0, 2), 16),
+        g: parseInt(c.substring(2, 4), 16),
+        b: parseInt(c.substring(4, 6), 16),
+      };
+    };
+    const s = parse(hex);
+    const b = parse(base);
+    const mix = (a: number, d: number) => Math.round(a * (1 - baseRatio) + d * baseRatio);
+    const r = mix(s.r, b.r);
+    const g = mix(s.g, b.g);
+    const bl = mix(s.b, b.b);
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${bl.toString(16).padStart(2, '0')}`;
+  } catch {
+    return base;
+  }
+}
 
 // Flat color type used by TweetCard (mapped from global theme)
 interface FeedColors {
@@ -107,12 +145,16 @@ interface Post {
   repostedByMe?: boolean;
   createdAt: string;
   recentComments?: Comment[];
+  // Decoration data from backend
+  decoration?: ResolvedDecoration | null;
   // Repost-specific fields (for showing "X reposted" header)
   isRepost?: boolean;
   repostedBy?: RepostedByUser;
   repostType?: 'repost' | 'quote';
   repostComment?: string | null;
   repostCreatedAt?: string;
+  // Topic data from backend
+  topics?: Array<{ id: string; name: string; slug: string; iconEmoji: string | null }>;
 }
 
 // Twitter-style Tweet Card Component
@@ -127,6 +169,7 @@ function TweetCard({
   onRepost,
   onShare,
   onNavigateToProfile,
+  onTopicPress,
   onMorePress,
   onCoinPickerChange,
   currentUserId,
@@ -142,18 +185,67 @@ function TweetCard({
   onRepost: (post: Post) => void;
   onShare: (post: Post) => void;
   onNavigateToProfile: (userId: string, username: string) => void;
+  onTopicPress: (topicSlug: string) => void;
   onMorePress: (post: Post) => void;
   onCoinPickerChange?: (active: boolean) => void;
   currentUserId: string;
   colors: ThemeColors;
 }) {
   const { width } = useWindowDimensions();
+  const { isDark } = useTheme();
   const [liked, setLiked] = React.useState(post.likedByMe || false);
   const [likesCount, setLikesCount] = React.useState(post.likesCount);
   const [reposted, setReposted] = React.useState(post.repostedByMe || false);
   const [repostCount, setRepostCount] = React.useState(post.repostCount || 0);
   const [showHeartOverlay, setShowHeartOverlay] = React.useState(false);
   const [repostExpanded, setRepostExpanded] = React.useState(false);
+
+  // ── Decoration resolution ──────────────────────────────────────────
+  const decoration = post.decoration;
+  const bgDecoration: DecorationStyleBackground | null =
+    decoration
+      ? isDark
+        ? (decoration.darkBackground as DecorationStyleBackground | null) ?? null
+        : (decoration.lightBackground as DecorationStyleBackground | null) ?? null
+      : null;
+  const frameDecoration: DecorationStyleFrame | null =
+    (decoration?.frame as DecorationStyleFrame | null) ?? null;
+  const frameCornerConfig: CornerDecorationConfig | null = frameDecoration?.cornerDecorations ?? null;
+  const bgCornerConfig: CornerDecorationConfig | null = bgDecoration?.cornerDecorations ?? null;
+  const iconDecoration: DecorationStyleIconColors | null =
+    (decoration?.iconColors as DecorationStyleIconColors | null) ?? null;
+
+  // Feed uses muted backgrounds, so text stays with theme defaults for readability
+  const dTextColor = colors.text;
+  const dSecondaryColor = colors.textSecondary;
+  const dIconDefault = colors.iconDefault;
+
+  // Icon color overrides
+  const dLikeColor = (isLiked: boolean) =>
+    isLiked ? (iconDecoration?.likeColor || colors.like) : (iconDecoration?.likeColor || dIconDefault);
+  const dCommentColor = iconDecoration?.commentColor || dIconDefault;
+  const dRepostColor = (isRepostedFlag: boolean) =>
+    isRepostedFlag ? (iconDecoration?.shareColor || '#00BA7C') : (iconDecoration?.shareColor || dIconDefault);
+  const dGiftColor = iconDecoration?.giftColor || colors.gift;
+  const dShareColor = iconDecoration?.shareColor || dIconDefault;
+
+  // Frame style for media container
+  const frameStyle = frameDecoration
+    ? {
+        borderWidth: frameDecoration.borderWidth,
+        borderColor: frameDecoration.borderColor,
+        borderRadius: frameDecoration.borderRadius,
+        ...(frameDecoration.shadowColor
+          ? {
+              shadowColor: frameDecoration.shadowColor,
+              shadowOpacity: frameDecoration.shadowOpacity ?? 0.3,
+              shadowRadius: frameDecoration.shadowRadius ?? 8,
+              shadowOffset: { width: 0, height: 2 },
+              elevation: ((frameDecoration.shadowRadius ?? 4) * 2),
+            }
+          : {}),
+      }
+    : null;
 
   // Quick coin drag-to-send state (Instagram-style)
   const [showCoinPicker, setShowCoinPicker] = React.useState(false);
@@ -373,7 +465,9 @@ function TweetCard({
   }, []);
 
   const imageUri = getImageUrl(post.thumbnailUrl) || getImageUrl(post.imageUrl) || getImageUrl(post.originalImageUrl);
-  const imageWidth = Math.min(width - 82, MAX_CONTENT_WIDTH - 82);
+  // On large screens, account for sidebar; cap image at reasonable max
+  const feedWidth = width >= TABLET_BREAKPOINT ? width - SIDEBAR_WIDTH : width;
+  const imageWidth = Math.min(feedWidth - 82, 700);
 
   // Compact repost layout - reposter is the focus, original post is small preview
   if (post.isRepost && post.repostedBy) {
@@ -413,6 +507,25 @@ function TweetCard({
                   <Text style={styles.repostBadgeText}>reposted</Text>
                 </View>
               </TouchableOpacity>
+              {post.topics && post.topics.length > 0 && (
+                <View style={styles.topicTagRowInline}>
+                  {post.topics.map(topic => (
+                    <TouchableOpacity
+                      key={topic.id}
+                      style={[styles.topicTag, { backgroundColor: colors.textSecondary + '18' }]}
+                      onPress={() => onTopicPress(topic.slug)}
+                      activeOpacity={0.6}
+                    >
+                      <Text style={styles.topicTagIcon}>{topic.iconEmoji || '#'}</Text>
+                      {width >= TABLET_BREAKPOINT && (
+                        <Text style={[styles.topicTagText, { color: colors.textSecondary }]} numberOfLines={1}>
+                          {topic.name}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
               {isOwnPost && (
                 <TouchableOpacity style={styles.moreButton} onPress={() => onMorePress(post)}>
                   <Ionicons name="ellipsis-horizontal" size={16} color={colors.textSecondary} />
@@ -537,9 +650,16 @@ function TweetCard({
                   onTouchEnd={handleGiftTouchEnd}
                   onTouchCancel={handleGiftTouchCancel}
                 >
-                  <View style={styles.actionButton}>
-                    <Ionicons name="gift-outline" size={18} color={colors.gift} />
-                  </View>
+                  <TouchableOpacity
+                    style={[styles.actionButton, width >= TABLET_BREAKPOINT && styles.giftButtonLarge]}
+                    onPress={() => onGiveCoins(post)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="gift" size={width >= TABLET_BREAKPOINT ? 20 : 18} color={colors.gift} />
+                    {width >= TABLET_BREAKPOINT && (
+                      <Text style={[styles.giftButtonText, { color: colors.gift }]}>Send</Text>
+                    )}
+                  </TouchableOpacity>
 
                   {/* Instagram-style Coin Picker - appears above when holding */}
                   {showCoinPicker && (
@@ -608,8 +728,56 @@ function TweetCard({
   }
 
   // Regular post layout (non-repost)
-  return (
-    <View style={[styles.tweetContainer, { backgroundColor: colors.cardBackground }]}>
+  // Muted decoration: subtle tint instead of full color, plus accent strip
+  const mutedBg = (() => {
+    if (!bgDecoration) return colors.cardBackground;
+    const primary = bgDecoration.type === 'gradient' && bgDecoration.colors
+      ? bgDecoration.colors[0]
+      : bgDecoration.color || colors.cardBackground;
+    return blendHex(primary, isDark ? '#161B22' : '#F8F9FA', 0.88);
+  })();
+
+  const cardContent = (
+    <View style={[styles.tweetContainer, { backgroundColor: mutedBg }]}>
+      {bgCornerConfig && <CornerDecorations config={bgCornerConfig} muted />}
+      {/* Decoration accent strip / icon binder – left-edge indicator */}
+      {bgDecoration && (() => {
+        const binder = bgDecoration.binderIcon;
+        if (binder) {
+          const BinderIcon = binder.iconFamily === 'Ionicons' ? Ionicons : MaterialCommunityIcons;
+          const gradientColors = bgDecoration.type === 'gradient' && bgDecoration.colors
+            ? bgDecoration.colors as [string, string, ...string[]]
+            : [bgDecoration.color || '#888', bgDecoration.color || '#888'] as [string, string];
+          return (
+            <LinearGradient
+              colors={gradientColors}
+              locations={bgDecoration.locations as [number, number, ...number[]] | undefined}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.decorIconBinder}
+            >
+              <BinderIcon name={binder.iconName as any} size={10} color={binder.color} style={{ opacity: 0.7 }} />
+              <BinderIcon name={binder.iconName as any} size={10} color={binder.color} style={{ opacity: 0.5 }} />
+              <BinderIcon name={binder.iconName as any} size={10} color={binder.color} style={{ opacity: 0.7 }} />
+            </LinearGradient>
+          );
+        }
+        if (bgDecoration.type === 'gradient' && bgDecoration.colors) {
+          return (
+            <LinearGradient
+              colors={bgDecoration.colors as [string, string, ...string[]]}
+              locations={bgDecoration.locations as [number, number, ...number[]] | undefined}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.decorAccentStrip}
+            />
+          );
+        }
+        if (bgDecoration.type === 'solid' && bgDecoration.color) {
+          return <View style={[styles.decorAccentStrip, { backgroundColor: bgDecoration.color }]} />;
+        }
+        return null;
+      })()}
       {/* Main Tweet Content */}
       <View style={styles.tweetMainContent}>
         {/* Avatar Column */}
@@ -633,20 +801,39 @@ function TweetCard({
               style={styles.userInfoRow}
               onPress={() => onNavigateToProfile(post.user.id, post.user.username)}
             >
-              <Text style={[styles.displayName, { color: colors.text }]} numberOfLines={1}>
+              <Text style={[styles.displayName, { color: dTextColor }]} numberOfLines={1}>
                 {post.user.username}
               </Text>
-              <Text style={[styles.username, { color: colors.textSecondary }]} numberOfLines={1}>
+              <Text style={[styles.username, { color: dSecondaryColor }]} numberOfLines={1}>
                 @{post.user.username}
               </Text>
-              <Text style={[styles.dot, { color: colors.textSecondary }]}>·</Text>
-              <Text style={[styles.timestamp, { color: colors.textSecondary }]}>
+              <Text style={[styles.dot, { color: dSecondaryColor }]}>·</Text>
+              <Text style={[styles.timestamp, { color: dSecondaryColor }]}>
                 {formatTimeAgo(post.createdAt)}
               </Text>
             </TouchableOpacity>
+            {post.topics && post.topics.length > 0 && (
+              <View style={styles.topicTagRowInline}>
+                {post.topics.map(topic => (
+                  <TouchableOpacity
+                    key={topic.id}
+                    style={[styles.topicTag, { backgroundColor: dSecondaryColor + '18' }]}
+                    onPress={() => onTopicPress(topic.slug)}
+                    activeOpacity={0.6}
+                  >
+                    <Text style={styles.topicTagIcon}>{topic.iconEmoji || '#'}</Text>
+                    {width >= TABLET_BREAKPOINT && (
+                      <Text style={[styles.topicTagText, { color: dSecondaryColor }]} numberOfLines={1}>
+                        {topic.name}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
             {isOwnPost && (
               <TouchableOpacity style={styles.moreButton} onPress={() => onMorePress(post)}>
-                <Ionicons name="ellipsis-horizontal" size={16} color={colors.textSecondary} />
+                <Ionicons name="ellipsis-horizontal" size={16} color={dSecondaryColor} />
               </TouchableOpacity>
             )}
           </View>
@@ -655,14 +842,14 @@ function TweetCard({
           <Pressable onPress={handleContentTap}>
             {/* Tweet Text */}
             {post.caption && (
-              <Text style={[styles.tweetText, { color: colors.text }]}>{post.caption}</Text>
+              <Text style={[styles.tweetText, { color: dTextColor }]}>{post.caption}</Text>
             )}
           </Pressable>
 
           {/* Media - Single tap opens viewer, double tap likes */}
           {imageUri && (
             <Pressable
-              style={[styles.mediaContainer, { borderColor: colors.border }]}
+              style={[styles.mediaContainer, { borderColor: colors.border }, frameStyle]}
               onPress={handleImageTap}
             >
               <Image
@@ -670,6 +857,7 @@ function TweetCard({
                 style={[styles.mediaImage, { width: imageWidth, height: imageWidth * 0.75, backgroundColor: colors.mediaBackground }]}
                 resizeMode="cover"
               />
+              {frameCornerConfig && <CornerDecorations config={frameCornerConfig} muted />}
               {/* Heart overlay animation */}
               {showHeartOverlay && (
                 <Animated.View
@@ -694,8 +882,8 @@ function TweetCard({
               style={styles.actionButton}
               onPress={() => onComment(post.id)}
             >
-              <Ionicons name="chatbubble-outline" size={18} color={colors.iconDefault} />
-              <Text style={[styles.actionCount, { color: colors.textSecondary }]}>
+              <Ionicons name="chatbubble-outline" size={18} color={dCommentColor} />
+              <Text style={[styles.actionCount, { color: dSecondaryColor }]}>
                 {formatCount(post.commentsCount)}
               </Text>
             </TouchableOpacity>
@@ -708,9 +896,9 @@ function TweetCard({
               <Ionicons
                 name="repeat-outline"
                 size={20}
-                color={reposted ? '#00BA7C' : colors.iconDefault}
+                color={dRepostColor(reposted)}
               />
-              <Text style={[styles.actionCount, { color: reposted ? '#00BA7C' : colors.textSecondary }]}>
+              <Text style={[styles.actionCount, { color: reposted ? dRepostColor(true) : dSecondaryColor }]}>
                 {formatCount(repostCount)}
               </Text>
             </TouchableOpacity>
@@ -723,9 +911,9 @@ function TweetCard({
               <Ionicons
                 name={liked ? 'heart' : 'heart-outline'}
                 size={18}
-                color={liked ? colors.like : colors.iconDefault}
+                color={dLikeColor(liked)}
               />
-              <Text style={[styles.actionCount, { color: liked ? colors.like : colors.textSecondary }]}>
+              <Text style={[styles.actionCount, { color: liked ? dLikeColor(true) : dSecondaryColor }]}>
                 {formatCount(likesCount)}
               </Text>
             </TouchableOpacity>
@@ -739,9 +927,16 @@ function TweetCard({
                 onTouchEnd={handleGiftTouchEnd}
                 onTouchCancel={handleGiftTouchCancel}
               >
-                <View style={styles.actionButton}>
-                  <Ionicons name="gift-outline" size={18} color={colors.gift} />
-                </View>
+                <TouchableOpacity
+                  style={[styles.actionButton, width >= TABLET_BREAKPOINT && styles.giftButtonLarge]}
+                  onPress={() => onGiveCoins(post)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="gift" size={width >= TABLET_BREAKPOINT ? 20 : 18} color={dGiftColor} />
+                  {width >= TABLET_BREAKPOINT && (
+                    <Text style={[styles.giftButtonText, { color: dGiftColor }]}>Send</Text>
+                  )}
+                </TouchableOpacity>
 
                 {/* Instagram-style Coin Picker - appears above when holding */}
                 {showCoinPicker && (
@@ -794,7 +989,7 @@ function TweetCard({
               style={styles.actionButton}
               onPress={() => onShare(post)}
             >
-              <Ionicons name="share-outline" size={18} color={colors.iconDefault} />
+              <Ionicons name="share-outline" size={18} color={dShareColor} />
             </TouchableOpacity>
           </View>
 
@@ -813,6 +1008,7 @@ function TweetCard({
             <CommentPreview
               comments={post.recentComments}
               totalComments={post.commentsCount}
+              maxComments={3}
               onViewAllComments={() => onComment(post.id)}
               onUserPress={(userId) => {
                 const comment = post.recentComments?.find(c => c.user.id === userId);
@@ -831,6 +1027,8 @@ function TweetCard({
       </View>
     </View>
   );
+
+  return cardContent;
 }
 
 // Twitter-style Image Viewer Modal
@@ -1041,6 +1239,389 @@ function ImageViewerModal({
 
 const SWIPE_THRESHOLD = 80; // Minimum swipe distance to trigger
 
+// Large screen sidebar width
+const SIDEBAR_WIDTH = 260;
+
+// Sidebar component showing friends & communities with seen/unseen ratios for large screens
+interface FriendEntry {
+  userId: string;
+  username: string;
+  avatar?: ActiveAvatar | null;
+  totalPosts: number;
+  seenPosts: number;
+  firstUnseenPostId: string | null;
+  firstPostId: string;
+}
+
+interface CommunityEntry {
+  topicId: string;
+  name: string;
+  iconEmoji: string | null;
+  totalPosts: number;
+  seenPosts: number;
+  firstUnseenPostId: string | null;
+  firstPostId: string;
+}
+
+function FeedSidebar({
+  posts,
+  viewedPostIds,
+  onPostPress,
+  colors,
+}: {
+  posts: Post[];
+  viewedPostIds: Set<string>;
+  onPostPress: (postId: string, userId: string, username: string) => void;
+  colors: ThemeColors;
+}) {
+  const { colors: themeColors } = useTheme();
+
+  // Friends section: group ALL posts by author with seen/unseen ratio
+  const friends = useMemo(() => {
+    const map = new Map<string, FriendEntry>();
+    for (const post of posts) {
+      const postKey = post.feedItemId || post.id;
+      const userId = post.isRepost && post.repostedBy ? post.repostedBy.id : post.user.id;
+      const username = post.isRepost && post.repostedBy ? post.repostedBy.username : post.user.username;
+      const avatar = post.isRepost && post.repostedBy ? post.repostedBy.activeAvatar : post.user.activeAvatar;
+      const isSeen = viewedPostIds.has(postKey);
+
+      if (map.has(userId)) {
+        const entry = map.get(userId)!;
+        entry.totalPosts++;
+        if (isSeen) entry.seenPosts++;
+        if (!isSeen && !entry.firstUnseenPostId) entry.firstUnseenPostId = postKey;
+      } else {
+        map.set(userId, {
+          userId,
+          username,
+          avatar,
+          totalPosts: 1,
+          seenPosts: isSeen ? 1 : 0,
+          firstUnseenPostId: isSeen ? null : postKey,
+          firstPostId: postKey,
+        });
+      }
+    }
+    // Sort: users with unseen posts first, then by most unseen
+    return Array.from(map.values()).sort((a, b) => {
+      const aUnseen = a.totalPosts - a.seenPosts;
+      const bUnseen = b.totalPosts - b.seenPosts;
+      if (aUnseen > 0 && bUnseen === 0) return -1;
+      if (bUnseen > 0 && aUnseen === 0) return 1;
+      return bUnseen - aUnseen;
+    });
+  }, [posts, viewedPostIds]);
+
+  // Communities section: group ALL posts by topic with seen/unseen ratio
+  const communities = useMemo(() => {
+    const map = new Map<string, CommunityEntry>();
+    for (const post of posts) {
+      if (!post.topics || post.topics.length === 0) continue;
+      const postKey = post.feedItemId || post.id;
+      const isSeen = viewedPostIds.has(postKey);
+
+      for (const topic of post.topics) {
+        if (map.has(topic.id)) {
+          const entry = map.get(topic.id)!;
+          entry.totalPosts++;
+          if (isSeen) entry.seenPosts++;
+          if (!isSeen && !entry.firstUnseenPostId) entry.firstUnseenPostId = postKey;
+        } else {
+          map.set(topic.id, {
+            topicId: topic.id,
+            name: topic.name,
+            iconEmoji: topic.iconEmoji,
+            totalPosts: 1,
+            seenPosts: isSeen ? 1 : 0,
+            firstUnseenPostId: isSeen ? null : postKey,
+            firstPostId: postKey,
+          });
+        }
+      }
+    }
+    // Sort: topics with unseen posts first, then by most unseen
+    return Array.from(map.values()).sort((a, b) => {
+      const aUnseen = a.totalPosts - a.seenPosts;
+      const bUnseen = b.totalPosts - b.seenPosts;
+      if (aUnseen > 0 && bUnseen === 0) return -1;
+      if (bUnseen > 0 && aUnseen === 0) return 1;
+      return bUnseen - aUnseen;
+    });
+  }, [posts, viewedPostIds]);
+
+  const totalFriendUnseen = friends.reduce((sum, f) => sum + (f.totalPosts - f.seenPosts), 0);
+  const totalCommunityUnseen = communities.reduce((sum, c) => sum + (c.totalPosts - c.seenPosts), 0);
+  const allCaughtUp = totalFriendUnseen === 0 && totalCommunityUnseen === 0;
+
+  // No posts loaded at all
+  if (friends.length === 0 && communities.length === 0) {
+    return (
+      <View style={sidebarStyles.container}>
+        <View style={[sidebarStyles.sectionHeader, { borderBottomColor: colors.separator }]}>
+          <Ionicons name="newspaper-outline" size={16} color={themeColors.text.link} />
+          <Text style={[sidebarStyles.headerTitle, { color: colors.text }]}>Feed</Text>
+        </View>
+        <View style={sidebarStyles.emptyContainer}>
+          <Ionicons name="sparkles-outline" size={28} color={colors.textSecondary} />
+          <Text style={[sidebarStyles.emptyText, { color: colors.textSecondary }]}>
+            No posts yet
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={sidebarStyles.container}>
+      {/* All caught up banner */}
+      {allCaughtUp && (
+        <View style={[sidebarStyles.sectionHeader, { borderBottomColor: colors.separator }]}>
+          <Ionicons name="checkmark-circle" size={16} color={themeColors.text.link} />
+          <Text style={[sidebarStyles.headerTitle, { color: colors.text }]}>All caught up</Text>
+        </View>
+      )}
+      <ScrollView
+        style={sidebarStyles.list}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={sidebarStyles.listContent}
+      >
+        {/* Friends Section */}
+        {friends.length > 0 && (
+          <>
+            <View style={[sidebarStyles.sectionHeader, { borderBottomColor: colors.separator }]}>
+              <Ionicons name="people-outline" size={16} color={themeColors.text.link} />
+              <Text style={[sidebarStyles.headerTitle, { color: colors.text }]}>Friends</Text>
+              {totalFriendUnseen > 0 && (
+                <View style={[sidebarStyles.countBadge, { backgroundColor: themeColors.text.link }]}>
+                  <Text style={sidebarStyles.countBadgeText}>{totalFriendUnseen}</Text>
+                </View>
+              )}
+            </View>
+            {friends.map((entry) => {
+              const unseen = entry.totalPosts - entry.seenPosts;
+              const isCaughtUp = unseen === 0;
+              return (
+                <TouchableOpacity
+                  key={entry.userId}
+                  style={[sidebarStyles.userRow, isCaughtUp && sidebarStyles.dimmedRow]}
+                  onPress={() => onPostPress(
+                    entry.firstUnseenPostId || entry.firstPostId,
+                    entry.userId,
+                    entry.username
+                  )}
+                  activeOpacity={0.7}
+                >
+                  <Avatar
+                    size={32}
+                    username={entry.username}
+                    customizations={entry.avatar?.customizations}
+                    avatarStyle={entry.avatar?.style}
+                  />
+                  <Text
+                    style={[
+                      sidebarStyles.username,
+                      { color: isCaughtUp ? colors.textSecondary : colors.text }
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {entry.username}
+                  </Text>
+                  <View style={[
+                    sidebarStyles.ratioBadge,
+                    isCaughtUp
+                      ? sidebarStyles.ratioBadgeCaughtUp
+                      : { backgroundColor: themeColors.text.link + '22' }
+                  ]}>
+                    <Text style={[
+                      sidebarStyles.ratioText,
+                      { color: isCaughtUp ? colors.textSecondary : themeColors.text.link }
+                    ]}>
+                      {entry.seenPosts}/{entry.totalPosts}
+                    </Text>
+                  </View>
+                  {!isCaughtUp && (
+                    <Ionicons name="chevron-forward" size={14} color={colors.textSecondary} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </>
+        )}
+
+        {/* Divider between sections */}
+        {friends.length > 0 && communities.length > 0 && (
+          <View style={[sidebarStyles.sectionDivider, { backgroundColor: colors.separator }]} />
+        )}
+
+        {/* Communities Section */}
+        {communities.length > 0 && (
+          <>
+            <View style={[sidebarStyles.sectionHeader, { borderBottomColor: colors.separator }]}>
+              <Ionicons name="grid-outline" size={16} color={themeColors.text.link} />
+              <Text style={[sidebarStyles.headerTitle, { color: colors.text }]}>Communities</Text>
+              {totalCommunityUnseen > 0 && (
+                <View style={[sidebarStyles.countBadge, { backgroundColor: themeColors.text.link }]}>
+                  <Text style={sidebarStyles.countBadgeText}>{totalCommunityUnseen}</Text>
+                </View>
+              )}
+            </View>
+            {communities.map((entry) => {
+              const unseen = entry.totalPosts - entry.seenPosts;
+              const isCaughtUp = unseen === 0;
+              return (
+                <TouchableOpacity
+                  key={entry.topicId}
+                  style={[sidebarStyles.userRow, isCaughtUp && sidebarStyles.dimmedRow]}
+                  onPress={() => onPostPress(
+                    entry.firstUnseenPostId || entry.firstPostId,
+                    '',
+                    entry.name
+                  )}
+                  activeOpacity={0.7}
+                >
+                  <View style={sidebarStyles.emojiContainer}>
+                    <Text style={sidebarStyles.emojiText}>{entry.iconEmoji || '#'}</Text>
+                  </View>
+                  <Text
+                    style={[
+                      sidebarStyles.username,
+                      { color: isCaughtUp ? colors.textSecondary : colors.text }
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {entry.name}
+                  </Text>
+                  <View style={[
+                    sidebarStyles.ratioBadge,
+                    isCaughtUp
+                      ? sidebarStyles.ratioBadgeCaughtUp
+                      : { backgroundColor: themeColors.text.link + '22' }
+                  ]}>
+                    <Text style={[
+                      sidebarStyles.ratioText,
+                      { color: isCaughtUp ? colors.textSecondary : themeColors.text.link }
+                    ]}>
+                      {entry.seenPosts}/{entry.totalPosts}
+                    </Text>
+                  </View>
+                  {!isCaughtUp && (
+                    <Ionicons name="chevron-forward" size={14} color={colors.textSecondary} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+const sidebarStyles = StyleSheet.create({
+  container: {
+    width: SIDEBAR_WIDTH,
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  headerTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    flex: 1,
+  },
+  countBadge: {
+    borderRadius: 10,
+    minWidth: 22,
+    height: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+  },
+  countBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFF',
+  },
+  list: {
+    flex: 1,
+  },
+  listContent: {
+    paddingBottom: 8,
+  },
+  userRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    marginHorizontal: 8,
+    marginVertical: 2,
+    borderRadius: 10,
+    gap: 10,
+  },
+  dimmedRow: {
+    opacity: 0.55,
+  },
+  username: {
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+  },
+  ratioBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  ratioBadgeCaughtUp: {
+    backgroundColor: 'transparent',
+  },
+  ratioText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  emojiContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(128,128,128,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emojiText: {
+    fontSize: 16,
+  },
+  sectionDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 16,
+    marginVertical: 8,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    gap: 8,
+  },
+  emptyText: {
+    fontSize: 13,
+    textAlign: 'center',
+  },
+});
+
 export default function FeedScreen() {
   const navigation = useNavigation<FeedScreenNavigationProp>();
   const { width } = useWindowDimensions();
@@ -1083,6 +1664,38 @@ export default function FeedScreen() {
   const [editImageUri, setEditImageUri] = React.useState<string | null>(null);
   const [editedImageUri, setEditedImageUri] = React.useState<string | null>(null);
   const [showImageEditor, setShowImageEditor] = React.useState(false);
+
+  // Track viewed posts for sidebar (large screens)
+  const [viewedPostIds, setViewedPostIds] = React.useState<Set<string>>(new Set());
+  const flatListRef = React.useRef<FlatList>(null);
+
+  const viewabilityConfig = React.useRef({
+    itemVisiblePercentThreshold: 50,
+    minimumViewTime: 800,
+  }).current;
+
+  const onViewableItemsChanged = React.useRef(({ viewableItems }: { viewableItems: Array<{ item: Post }> }) => {
+    setViewedPostIds(prev => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const vi of viewableItems) {
+        const key = vi.item.feedItemId || vi.item.id;
+        if (!next.has(key)) {
+          next.add(key);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }).current;
+
+  // Scroll to a specific post (used by sidebar)
+  const scrollToPost = React.useCallback((postId: string) => {
+    const index = posts.findIndex(p => (p.feedItemId || p.id) === postId);
+    if (index >= 0 && flatListRef.current) {
+      flatListRef.current.scrollToIndex({ index, animated: true, viewPosition: 0.1 });
+    }
+  }, [posts]);
 
   // Animated value for page position (0 = Feed visible, 1 = Messages visible)
   const screenWidth = Dimensions.get('window').width;
@@ -1252,6 +1865,7 @@ export default function FeedScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
+    setViewedPostIds(new Set()); // Reset viewed tracking on refresh
     try {
       const data = await api.getAlgorithmicFeed(1);
       setPosts(data.posts || []);
@@ -1494,6 +2108,7 @@ export default function FeedScreen() {
       onRepost={handleRepost}
       onShare={handleShare}
       onNavigateToProfile={handleNavigateToProfile}
+      onTopicPress={(slug: string) => navigation.navigate('TopicPage', { topicSlug: slug })}
       onMorePress={handleMorePress}
       onCoinPickerChange={(active: boolean) => { coinPickerActiveRef.current = active; }}
       currentUserId={currentUserId}
@@ -1523,74 +2138,90 @@ export default function FeedScreen() {
       ]}
       {...panResponder.panHandlers}
     >
-      {/* Feed Page - stays in place */}
-      <View
-        style={[
-          styles.feedContainer,
-          { backgroundColor: colors.background },
-          isTablet && { maxWidth: MAX_CONTENT_WIDTH, alignSelf: 'center', width: '100%' }
-        ]}
-      >
-        {/* Custom Home Header */}
+      {/* Feed Page - with optional sidebar on large screens */}
+      <View style={[styles.feedPageLayout, { backgroundColor: colors.background }]}>
         <View
           style={[
-            styles.customHeader,
-            {
-              backgroundColor: colors.background,
-              borderBottomColor: colors.separator,
-              paddingTop: insets.top,
-            },
+            styles.feedContainer,
+            { backgroundColor: colors.background },
           ]}
         >
-          <Text style={[styles.customHeaderTitle, { color: colors.text }]}>Home</Text>
-          <TouchableOpacity
-            style={styles.headerChatButton}
-            onPress={() => setChatDrawerVisible(true)}
+          {/* Custom Home Header */}
+          <View
+            style={[
+              styles.customHeader,
+              {
+                backgroundColor: colors.background,
+                borderBottomColor: colors.separator,
+                paddingTop: insets.top,
+              },
+            ]}
           >
-            <Ionicons name="chatbubbles-outline" size={24} color={colors.text} />
-            {unreadCount > 0 && (
-              <View style={styles.headerChatBadge}>
-                <Text style={styles.headerChatBadgeText}>
-                  {unreadCount > 99 ? '99+' : unreadCount}
+            <Text style={[styles.customHeaderTitle, { color: colors.text }]}>Home</Text>
+            <TouchableOpacity
+              style={styles.headerChatButton}
+              onPress={() => setChatDrawerVisible(true)}
+            >
+              <Ionicons name="chatbubbles-outline" size={24} color={colors.text} />
+              {unreadCount > 0 && (
+                <View style={styles.headerChatBadge}>
+                  <Text style={styles.headerChatBadgeText}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          <FlatList
+            ref={flatListRef}
+            data={posts}
+            keyExtractor={(item) => item.feedItemId || item.id}
+            renderItem={renderPost}
+            ItemSeparatorComponent={renderSeparator}
+            showsVerticalScrollIndicator={false}
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={colors.accent}
+                colors={[colors.accent]}
+              />
+            }
+            ListEmptyComponent={
+              <View style={styles.empty}>
+                <View style={[styles.emptyIconContainer, { backgroundColor: colors.emptyIconBg }]}>
+                  <Ionicons name="newspaper-outline" size={48} color={colors.accent} />
+                </View>
+                <Text style={[styles.emptyTitle, { color: colors.text }]}>Welcome to your timeline!</Text>
+                <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
+                  When you follow people, their posts will show up here.
                 </Text>
+                <TouchableOpacity
+                  style={[styles.findFriendsButton, { backgroundColor: colors.accent }]}
+                  onPress={navigateToFindFriends}
+                >
+                  <Text style={styles.findFriendsText}>Find people to follow</Text>
+                </TouchableOpacity>
               </View>
-            )}
-          </TouchableOpacity>
+            }
+            contentContainerStyle={posts.length === 0 ? { flex: 1 } : undefined}
+          />
         </View>
 
-        <FlatList
-          data={posts}
-          keyExtractor={(item) => item.feedItemId || item.id}
-          renderItem={renderPost}
-          ItemSeparatorComponent={renderSeparator}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={colors.accent}
-              colors={[colors.accent]}
+        {/* Sidebar - only on large screens */}
+        {isTablet && (
+          <View style={{ paddingTop: insets.top, borderLeftWidth: 1, borderLeftColor: colors.separator }}>
+            <FeedSidebar
+              posts={posts}
+              viewedPostIds={viewedPostIds}
+              onPostPress={(postId, _userId, _username) => scrollToPost(postId)}
+              colors={colors}
             />
-          }
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <View style={[styles.emptyIconContainer, { backgroundColor: colors.emptyIconBg }]}>
-                <Ionicons name="newspaper-outline" size={48} color={colors.accent} />
-              </View>
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>Welcome to your timeline!</Text>
-              <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
-                When you follow people, their posts will show up here.
-              </Text>
-              <TouchableOpacity
-                style={[styles.findFriendsButton, { backgroundColor: colors.accent }]}
-                onPress={navigateToFindFriends}
-              >
-                <Text style={styles.findFriendsText}>Find people to follow</Text>
-              </TouchableOpacity>
-            </View>
-          }
-          contentContainerStyle={posts.length === 0 ? { flex: 1 } : undefined}
-        />
+          </View>
+        )}
       </View>
 
       {/* Image Viewer Modal */}
@@ -1821,6 +2452,10 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
   },
+  feedPageLayout: {
+    flex: 1,
+    flexDirection: 'row',
+  },
   feedContainer: {
     flex: 1,
   },
@@ -1845,6 +2480,29 @@ const styles = StyleSheet.create({
   tweetContainer: {
     paddingHorizontal: 16,
     paddingVertical: 12,
+  },
+  // Thin accent strip on the left edge showing decoration color
+  decorAccentStrip: {
+    position: 'absolute',
+    left: 0,
+    top: 8,
+    bottom: 8,
+    width: 3,
+    borderTopRightRadius: 2,
+    borderBottomRightRadius: 2,
+  },
+  // Wider icon binder strip for premium backgrounds
+  decorIconBinder: {
+    position: 'absolute',
+    left: 0,
+    top: 6,
+    bottom: 6,
+    width: 16,
+    borderTopRightRadius: 8,
+    borderBottomRightRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
   },
   // Compact repost styles
   repostBadge: {
@@ -1939,13 +2597,12 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
   userInfoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
-    marginRight: 8,
+    flexShrink: 1,
+    marginRight: 6,
   },
   displayName: {
     fontSize: 15,
@@ -1966,6 +2623,30 @@ const styles = StyleSheet.create({
   },
   moreButton: {
     padding: 4,
+  },
+  topicTagRowInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 'auto',
+    marginRight: 4,
+    gap: 4,
+    flexShrink: 0,
+  },
+  topicTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  topicTagIcon: {
+    fontSize: 14,
+  },
+  topicTagText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 3,
+    maxWidth: 100,
   },
   tweetText: {
     fontSize: 15,
@@ -2006,6 +2687,18 @@ const styles = StyleSheet.create({
   actionCount: {
     fontSize: 13,
     minWidth: 20,
+  },
+  // Large-screen gift button - more prominent with text label
+  giftButtonLarge: {
+    backgroundColor: 'rgba(251, 191, 36, 0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 16,
+    gap: 5,
+  },
+  giftButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 
   // Coin Slider Styles

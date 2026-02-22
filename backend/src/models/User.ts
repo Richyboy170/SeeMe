@@ -12,6 +12,7 @@ export interface UserAttributes {
   googleId: string | null;
   authProvider: 'email' | 'google' | 'both';
   ageVerified: boolean;
+  avatarUrl: string | null;
   activeAvatarId: string | null;
   positivityGiveCounter: number;
   positivityRank: string;
@@ -25,7 +26,7 @@ export interface UserAttributes {
 /**
  * Optional attributes for user creation
  */
-interface UserCreationAttributes extends Optional<UserAttributes, 'id' | 'ageVerified' | 'activeAvatarId' | 'positivityGiveCounter' | 'positivityRank' | 'fcmToken' | 'chatNotificationsEnabled' | 'isPrivate' | 'createdAt' | 'updatedAt' | 'passwordHash' | 'googleId' | 'authProvider'> {}
+interface UserCreationAttributes extends Optional<UserAttributes, 'id' | 'ageVerified' | 'avatarUrl' | 'activeAvatarId' | 'positivityGiveCounter' | 'positivityRank' | 'fcmToken' | 'chatNotificationsEnabled' | 'isPrivate' | 'createdAt' | 'updatedAt' | 'passwordHash' | 'googleId' | 'authProvider'> {}
 
 /**
  * User model representing registered users in the platform

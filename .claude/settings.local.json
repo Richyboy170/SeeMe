@@ -142,7 +142,14 @@
       "Bash(xargs -I {} sh -c 'echo \"\"=== {} ===\"\" && head -30 {}')",
       "Bash(git clean:*)",
       "Bash(del \"\\\\?\\\\C:\\\\Users\\\\HP\\\\Desktop\\\\Richy-coding-hub-2026\\\\SeeMe\\\\nul\")",
-      "Bash(cmd.exe /c \"del \\\\?\\\\C:\\\\Users\\\\HP\\\\Desktop\\\\Richy-coding-hub-2026\\\\SeeMe\\\\nul\")"
+      "Bash(cmd.exe /c \"del \\\\?\\\\C:\\\\Users\\\\HP\\\\Desktop\\\\Richy-coding-hub-2026\\\\SeeMe\\\\nul\")",
+      "Bash(python3:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2ZmQwZWEyNC02ZGIxLTQ0ODktOGI3NS1jY2VjMGQ0ZmFkZjkiLCJ1c2VybmFtZSI6InRlc3RkZWNvIiwiZW1haWwiOiJ0ZXN0ZGVjb0B0ZXN0LmNvbSIsImlhdCI6MTc3MTU5OTY1OH0.a23mwO7IKxsco_gfz6K705E56MXD6WFZZf_e0pIGGoU\")",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJhOWM2NTFhNi0yNDkyLTQ0ZWQtYTkzNi1hMGNlNDZhOWJiY2YiLCJ1c2VybmFtZSI6InJpY2h5dXNlciIsImVtYWlsIjoicmljaHlAdGVzdC5jb20iLCJpYXQiOjE3NzE1OTk4NjZ9.2wbBWIw-OPo3bQtOioRI2IkszptS2tSSE_AKBdQQRXw\")",
+      "Bash(__NEW_LINE_9cc8ce9ae20cc0e2__ curl -s \"http://localhost:3000/api/feed?limit=3\" -H \"Authorization: Bearer $TOKEN\" -o /tmp/feed_response.json)",
+      "Bash(__NEW_LINE_bced46e5f55633e2__ curl -s \"http://localhost:3000/api/feed?limit=3\" -H \"Authorization: Bearer $TOKEN\" -o C:/Users/HP/Desktop/feed_response.json)",
+      "Bash(head:*)",
+      "Bash(grep:*)"
     ]
   }
 }

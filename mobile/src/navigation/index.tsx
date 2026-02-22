@@ -28,10 +28,12 @@ import CommentsScreen from '../screens/main/CommentsScreen';
 import AvatarCustomizationScreen from '../screens/main/AvatarCustomizationScreen';
 import FollowRequestsScreen from '../screens/main/FollowRequestsScreen';
 import FullBodyAvatarScreen from '../screens/main/FullBodyAvatarScreen';
+import DraftsGalleryScreen from '../screens/main/DraftsGalleryScreen';
 import CoinsScreen from '../screens/coins/CoinsScreen';
 import GiveLeaderboardScreen from '../screens/coins/GiveLeaderboardScreen';
 import CoinHistoryScreen from '../screens/coins/CoinHistoryScreen';
 import GivingActivityScreen from '../screens/coins/GivingActivityScreen';
+import FriendshipDetailScreen from '../screens/coins/FriendshipDetailScreen';
 
 // Topic screens (used by DiscoverNavigator)
 import TopicPageScreen from '../screens/topics/TopicPageScreen';
@@ -137,6 +139,14 @@ function CoinsNavigator() {
           headerBackTitle: 'Back'
         }}
       />
+      <CoinsStack.Screen
+        name="FriendshipDetail"
+        component={FriendshipDetailScreen}
+        options={({ route }) => ({
+          title: `@${route.params.otherUsername}`,
+          headerBackTitle: 'Back'
+        })}
+      />
     </CoinsStack.Navigator>
   );
 }
@@ -241,6 +251,14 @@ function FeedNavigator() {
         }}
       />
       <FeedStack.Screen
+        name="TopicPage"
+        component={TopicPageScreen}
+        options={{
+          title: '',
+          headerBackTitle: 'Back',
+        }}
+      />
+      <FeedStack.Screen
         name="Chat"
         component={ChatScreen}
         options={({ route }) => ({
@@ -267,6 +285,14 @@ function CreatePostNavigator() {
         component={CreatePostScreen}
         options={{
           headerShown: false
+        }}
+      />
+      <CreatePostStack.Screen
+        name="DraftsGallery"
+        component={DraftsGalleryScreen}
+        options={{
+          title: 'Drafts',
+          headerBackTitle: 'Back',
         }}
       />
       <CreatePostStack.Screen
@@ -616,16 +642,6 @@ function RootNavigatorContent() {
     setIsAuthenticated(false);
   };
 
-  if (isLoading) {
-    return null; // Or a loading screen
-  }
-
-  const contextValue: UnreadContextType = {
-    unreadCount,
-    refreshUnreadCount,
-    decrementUnreadCount,
-  };
-
   const navigationTheme = useMemo(() => ({
     ...(isDark ? DarkTheme : DefaultTheme),
     colors: {
@@ -638,6 +654,16 @@ function RootNavigatorContent() {
       notification: colors.gift,
     },
   }), [isDark, colors]);
+
+  if (isLoading) {
+    return null; // Or a loading screen
+  }
+
+  const contextValue: UnreadContextType = {
+    unreadCount,
+    refreshUnreadCount,
+    decrementUnreadCount,
+  };
 
   return (
     <UnreadContext.Provider value={contextValue}>

@@ -12,6 +12,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme';
 import KindnessCoin from './KindnessCoin';
+import { SKY_COIN_COLORS } from './SkyCoinIcon';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -300,7 +301,7 @@ export default function CoinInvestAnimation({
   if (!visible) return null;
 
   const soilY = SCREEN_HEIGHT * 0.52;
-  const sparkleColors = ['#10B981', '#34D399', '#6EE7B7', '#FBBF24', '#A7F3D0', '#059669'];
+  const sparkleColors = [SKY_COIN_COLORS.primary, SKY_COIN_COLORS.mid, SKY_COIN_COLORS.light, '#FBBF24', '#E0F2FE', SKY_COIN_COLORS.dark];
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={handleSkip}>
@@ -404,8 +405,8 @@ export default function CoinInvestAnimation({
               },
             ]}
           >
-            <Text style={styles.investText}>Planting kindness</Text>
-            <Text style={styles.subtitleText}>Growing friendships, one post at a time</Text>
+            <Text style={styles.investText}>Reaching for the sky</Text>
+            <Text style={styles.subtitleText}>Your Sky Coins are lifting this post up</Text>
           </Animated.View>
 
           {/* Skip hint */}

@@ -125,7 +125,10 @@ export const generateToken = (user: { id: string; username: string; email: strin
 
   const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
 
-  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn } as jwt.SignOptions);
+  // If JWT_EXPIRES_IN is set to 'never', don't set an expiration
+  const options: jwt.SignOptions = expiresIn === 'never' ? {} : { expiresIn: expiresIn as any };
+
+  return jwt.sign(payload, process.env.JWT_SECRET, options);
 };
 
 /**

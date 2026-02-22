@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { Op } from 'sequelize';
+import Fuse from 'fuse.js';
 import { Topic, TopicFollow, TopicAdmin, PostTopic, UserTopicStatus, User, Post, CoinTransaction, Like } from '../models';
 import { PostStatus } from '../models/Post';
 import { AuthRequest } from '../middleware/auth';
@@ -22,6 +23,120 @@ export class TopicController {
             // topic_admins table may not exist yet
             return false;
         }
+    }
+
+    /**
+     * Get how many posts a user has made in each topic.
+     * Returns Map<topicId, postCount>.
+     */
+    private static async getUserTopicActivity(userId: string): Promise<Map<string, number>> {
+        const sequelize = Topic.sequelize!;
+        const [rows] = await sequelize.query(
+            `SELECT pt.topic_id AS "topicId", COUNT(*) AS "postCount"
+             FROM post_topics pt
+             JOIN posts p ON p.id = pt.post_id
+             WHERE p.user_id = :userId
+             GROUP BY pt.topic_id`,
+            { replacements: { userId } }
+        ) as [Array<{ topicId: string; postCount: string }>, unknown];
+
+        const map = new Map<string, number>();
+        for (const row of rows) {
+            map.set(row.topicId, parseInt(row.postCount, 10));
+        }
+        return map;
+    }
+
+    /**
+     * Score and sort topics for a user based on their posting activity.
+     * Returns topics sorted by personalized relevance score (descending).
+     */
+    private static scoreTopicsForUser(
+        topics: Topic[],
+        userActivity: Map<string, number>,
+        followedTopicIds: string[]
+    ): Topic[] {
+        // Build category frequency map and keyword set from user's active topics
+        const categoryPostCounts = new Map<string, number>();
+        const userKeywords = new Set<string>();
+        let totalUserPosts = 0;
+
+        const topicById = new Map(topics.map(t => [t.id, t]));
+
+        for (const [topicId, postCount] of userActivity) {
+            totalUserPosts += postCount;
+            const topic = topicById.get(topicId);
+            if (!topic) continue;
+
+            // Category frequency
+            categoryPostCounts.set(
+                topic.category,
+                (categoryPostCounts.get(topic.category) || 0) + postCount
+            );
+
+            // Keywords from user's active topics
+            if (topic.searchKeywords) {
+                for (const kw of topic.searchKeywords.split(',')) {
+                    const trimmed = kw.trim().toLowerCase();
+                    if (trimmed) userKeywords.add(trimmed);
+                }
+            }
+        }
+
+        // Find max follower count for popularity normalization
+        let maxFollowerCount = 1;
+        for (const topic of topics) {
+            if (topic.followerCount > maxFollowerCount) {
+                maxFollowerCount = topic.followerCount;
+            }
+        }
+
+        const followedSet = new Set(followedTopicIds);
+
+        // Score each topic
+        const scored = topics.map(topic => {
+            const userPostsInTopic = userActivity.get(topic.id) || 0;
+
+            // 1. Direct activity (0-50)
+            const directScore = 50 * Math.min(1, userPostsInTopic / 5);
+
+            // 2. Category affinity (0-25)
+            const categoryPosts = categoryPostCounts.get(topic.category) || 0;
+            const categoryScore = totalUserPosts > 0
+                ? 25 * (categoryPosts / totalUserPosts)
+                : 0;
+
+            // 3. Keyword overlap (0-15)
+            let keywordScore = 0;
+            if (topic.searchKeywords && userKeywords.size > 0) {
+                const topicKeywords = topic.searchKeywords
+                    .split(',')
+                    .map(kw => kw.trim().toLowerCase())
+                    .filter(Boolean);
+                if (topicKeywords.length > 0) {
+                    const overlap = topicKeywords.filter(kw => userKeywords.has(kw)).length;
+                    keywordScore = 15 * (overlap / topicKeywords.length);
+                }
+            }
+
+            // 4. Popularity (0-10)
+            const popularityScore = 10 * Math.min(1, topic.followerCount / maxFollowerCount);
+
+            // 5. Follow demotion (-5 for followed topics with no direct activity)
+            const followDemotion = (followedSet.has(topic.id) && userPostsInTopic === 0) ? -5 : 0;
+
+            const totalScore = directScore + categoryScore + keywordScore + popularityScore + followDemotion;
+
+            return { topic, score: totalScore };
+        });
+
+        // Sort by score descending, then followerCount as tiebreaker
+        scored.sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            return b.topic.followerCount - a.topic.followerCount;
+        });
+
+        return scored.map(s => s.topic);
     }
 
     /**
@@ -75,43 +190,105 @@ export class TopicController {
                 where.category = category;
             }
 
-            if (search) {
-                where[Op.or] = [
-                    { name: { [Op.like]: `%${search}%` } },
-                    { description: { [Op.like]: `%${search}%` } }
-                ];
-            }
-
-            let order: any[] = [];
-            switch (sort) {
-                case 'popular':
-                    order = [['followerCount', 'DESC']];
-                    break;
-                case 'newest':
-                    order = [['createdAt', 'DESC']];
-                    break;
-                case 'active':
-                    order = [['weeklyPostCount', 'DESC']];
-                    break;
-                default:
-                    order = [['followerCount', 'DESC']];
-            }
-
-            const topics = await Topic.findAll({
-                where,
-                order,
-                limit: Number(limit),
-                offset: Number(offset),
-                include: [{
-                    model: User,
-                    as: 'creator',
-                    attributes: ['id', 'username', 'activeAvatarId']
-                }]
-            });
-
-            // Check if user follows each topic
+            let topics: Topic[];
             let followedTopicIds: string[] = [];
-            if (userId) {
+            let followsFetched = false;
+
+            if (search) {
+                // Fuzzy search with Fuse.js
+                const allTopics = await Topic.findAll({
+                    where,
+                    include: [{
+                        model: User,
+                        as: 'creator',
+                        attributes: ['id', 'username', 'activeAvatarId']
+                    }]
+                });
+
+                const fuse = new Fuse(allTopics.map(t => t.toJSON()), {
+                    keys: [
+                        { name: 'name', weight: 0.4 },
+                        { name: 'searchKeywords', weight: 0.35 },
+                        { name: 'description', weight: 0.2 },
+                        { name: 'category', weight: 0.05 },
+                    ],
+                    threshold: 0.45,
+                    ignoreLocation: true,
+                    distance: 200,
+                    minMatchCharLength: 2,
+                });
+
+                const fuseResults = fuse.search(search as string);
+                // Re-attach the Sequelize model instances for consistency
+                const idToModel = new Map(allTopics.map(t => [t.id, t]));
+                topics = fuseResults
+                    .map(r => idToModel.get(r.item.id))
+                    .filter((t): t is Topic => !!t);
+            } else {
+                const shouldPersonalize = !!userId && (sort === 'popular' || sort === undefined);
+
+                if (shouldPersonalize) {
+                    // Personalized ranking: fetch all matching topics, score in-memory, paginate
+                    const [allTopics, userActivity, follows] = await Promise.all([
+                        Topic.findAll({
+                            where,
+                            order: [['followerCount', 'DESC']],
+                            include: [{
+                                model: User,
+                                as: 'creator',
+                                attributes: ['id', 'username', 'activeAvatarId']
+                            }]
+                        }),
+                        TopicController.getUserTopicActivity(userId!),
+                        TopicFollow.findAll({
+                            where: { userId },
+                            attributes: ['topicId']
+                        })
+                    ]);
+
+                    followedTopicIds = follows.map(f => f.topicId);
+                    followsFetched = true;
+
+                    if (userActivity.size === 0) {
+                        // No posting history — fallback to followerCount DESC with DB pagination
+                        topics = allTopics.slice(Number(offset), Number(offset) + Number(limit));
+                    } else {
+                        const sorted = TopicController.scoreTopicsForUser(allTopics, userActivity, followedTopicIds);
+                        topics = sorted.slice(Number(offset), Number(offset) + Number(limit));
+                    }
+                } else {
+                    // Standard DB-level sort for newest/active or unauthenticated
+                    let order: any[] = [];
+                    switch (sort) {
+                        case 'popular':
+                            order = [['followerCount', 'DESC']];
+                            break;
+                        case 'newest':
+                            order = [['createdAt', 'DESC']];
+                            break;
+                        case 'active':
+                            order = [['weeklyPostCount', 'DESC']];
+                            break;
+                        default:
+                            order = [['followerCount', 'DESC']];
+                    }
+
+                    topics = await Topic.findAll({
+                        where,
+                        order,
+                        limit: Number(limit),
+                        offset: Number(offset),
+                        include: [{
+                            model: User,
+                            as: 'creator',
+                            attributes: ['id', 'username', 'activeAvatarId']
+                        }]
+                    });
+                }
+            }
+
+            // Fetch followed topic IDs if not already fetched by personalization
+            if (userId && !followsFetched) {
                 const follows = await TopicFollow.findAll({
                     where: { userId },
                     attributes: ['topicId']

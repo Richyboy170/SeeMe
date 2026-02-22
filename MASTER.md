@@ -21382,6 +21382,907 @@ export async function seedTopics() {
 
 ---
 
+# PHASE 3.4: DECORATION STORE (SKY COINS ECONOMY)
+
+**Duration:** 1 week
+**Goal:** Let users spend Sky Coins on decorations (backgrounds, frames, icon colors) that make their posts visually unique across the feed
+**Dependencies:** Phase 2.5 (Positivity Coins — Sky Coins field), Phase 2.2 (Feed System), Phase 3.3 (Topics & Community)
+
+---
+
+## OVERVIEW
+
+**Philosophy:**
+> "Your posts should reflect your personality. Decorations let you express yourself beyond just the content — your feed presence becomes uniquely yours."
+
+**Core Concept — The Decoration Economy:**
+- Users earn **Sky Coins** from other users giving them coins (not self-earned Positivity Coins)
+- Sky Coins are spent in the **Decoration Store** to purchase visual enhancements
+- Decorations are **profile-wide** — they apply to ALL of a user's posts
+- Three decoration categories: **Backgrounds**, **Frames**, **Icon Colors**
+- Backgrounds are **theme-separated** — light-mode and dark-mode backgrounds are purchased separately
+- All rendering is **dynamic** (JSON-based `styleData`) — no shipped image assets
+
+**Key Design Decisions:**
+| Decision | Choice | Reasoning |
+|----------|--------|-----------|
+| Currency | Sky Coins only | Sky Coins are social currency (given by others), creating a "community rewards" feel |
+| Scope | Profile-wide | Simpler UX than per-post decoration; consistent identity across feed |
+| Rendering | JSON styleData | Responsive across screen sizes; no asset management; easy to add new items |
+| Backgrounds | Separate light/dark | Each theme variant is its own purchase; ensures proper contrast in both modes |
+| Text colors | Embedded in styleData | `textColor` and `captionColor` auto-adjust to background for guaranteed readability |
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                  DECORATION STORE FLOW                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. User earns Sky Coins from community encouragement           │
+│     └── Other users give coins → skyCoins balance grows         │
+│                                                                  │
+│  2. User opens Coins tab → switches to "Store" sub-tab          │
+│     └── Compact pill segmented control: [Wallet | Store]        │
+│                                                                  │
+│  3. Store shows categories: Backgrounds / Frames / Icons        │
+│     ├── Backgrounds have Light/Dark toggle                      │
+│     └── 2-column grid with live preview cards                   │
+│                                                                  │
+│  4. User taps item → Purchase / Equip / Unequip                 │
+│     └── Purchase deducts Sky Coins via transactional service    │
+│                                                                  │
+│  5. Active decorations resolve in feed API                      │
+│     └── batchResolveActiveDecorations() for all post authors    │
+│                                                                  │
+│  6. PostCard renders decorations dynamically                    │
+│     ├── Background: LinearGradient or solid color               │
+│     ├── Frame: border + shadow on image wrapper                 │
+│     └── Icons: custom colors for like/comment/share/save/gift   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## WORKSTREAM 3.4.1: DATABASE SCHEMA & MODELS
+
+**Agent:** Backend Agent
+**Output:** 3 new Sequelize models, 1 migration, model registration
+
+---
+
+### **Task 3.4.1.1: PostDecoration Model**
+
+Store catalog. Each row is one purchasable decoration item.
+
+**File:** `backend/src/models/PostDecoration.ts`
+
+```
+Fields:
+- id: UUID (PK, default UUIDV4)
+- name: STRING (display name, e.g. "Sunset Glow")
+- category: STRING (background | frame | icon_color) — validated via isIn
+- themeMode: STRING (light | dark | any) — backgrounds use light/dark, frames/icons use "any"
+- priceSkyCoins: INTEGER (cost, min 0)
+- previewOrder: INTEGER (sort order in store display)
+- styleData: TEXT (JSON blob parsed by frontend to render decoration)
+- isActive: BOOLEAN (whether available in store, default true)
+- createdAt, updatedAt
+```
+
+**Table name:** `post_decorations`
+
+**styleData JSON formats by category:**
+
+Background:
+```json
+{
+  "type": "gradient" | "solid",
+  "colors": ["#FDDCB5", "#F8A4B8"],
+  "color": "#F0F0F0",
+  "start": { "x": 0, "y": 0 },
+  "end": { "x": 1, "y": 1 },
+  "textColor": "#1F2937",
+  "captionColor": "#374151"
+}
+```
+
+Frame:
+```json
+{
+  "borderWidth": 2,
+  "borderColor": "#D4A843",
+  "borderRadius": 16,
+  "shadowColor": "#B8860B",
+  "shadowOpacity": 0.3,
+  "shadowRadius": 8
+}
+```
+
+Icon Colors:
+```json
+{
+  "likeColor": "#FF073A",
+  "commentColor": "#39FF14",
+  "shareColor": "#00FFFF",
+  "saveColor": "#FFFF00",
+  "giftColor": "#FF6EC7"
+}
+```
+
+---
+
+### **Task 3.4.1.2: UserDecoration Model**
+
+Tracks purchases. Unique constraint on (userId, decorationId).
+
+**File:** `backend/src/models/UserDecoration.ts`
+
+```
+Fields:
+- id: UUID (PK, default UUIDV4)
+- userId: UUID (FK -> users, onDelete CASCADE)
+- decorationId: UUID (FK -> post_decorations, onDelete CASCADE)
+- purchasedAt: DATE (default NOW)
+- pricePaid: INTEGER (snapshot of price at purchase time, min 0)
+- createdAt, updatedAt
+```
+
+**Table name:** `user_decorations`
+**Constraint:** UNIQUE (user_id, decoration_id)
+
+---
+
+### **Task 3.4.1.3: UserActiveDecoration Model**
+
+One row per user (userId is PK). Stores which decorations are currently active per slot.
+
+**File:** `backend/src/models/UserActiveDecoration.ts`
+
+```
+Fields:
+- userId: UUID (PK, FK -> users, onDelete CASCADE)
+- lightBackgroundId: UUID | null (FK -> post_decorations, onDelete SET NULL)
+- darkBackgroundId: UUID | null (FK -> post_decorations, onDelete SET NULL)
+- frameId: UUID | null (FK -> post_decorations, onDelete SET NULL)
+- iconColorId: UUID | null (FK -> post_decorations, onDelete SET NULL)
+- createdAt, updatedAt
+```
+
+**Table name:** `user_active_decorations`
+
+---
+
+### **Task 3.4.1.4: Migration**
+
+**File:** `backend/src/migrations/add-decoration-store.ts`
+
+Creates 3 tables with snake_case columns (Sequelize `underscored: true` global config maps camelCase model fields automatically). Uses idempotent pattern: `describeTable()` in try/catch — if table exists, skip creation.
+
+Migration registered in `backend/src/utils/runMigrations.ts`.
+
+---
+
+### **Task 3.4.1.5: Model Registration & Associations**
+
+**Files modified:**
+- `backend/src/models/index.ts` — export PostDecoration, UserDecoration, UserActiveDecoration
+- `backend/src/models/associations.ts` — add associations:
+
+```
+User -> UserDecoration: One-to-Many (as 'decorationPurchases')
+UserDecoration -> User: Many-to-One (as 'user')
+PostDecoration -> UserDecoration: One-to-Many (as 'purchases')
+UserDecoration -> PostDecoration: Many-to-One (as 'decoration')
+User -> UserActiveDecoration: One-to-One (as 'activeDecoration')
+UserActiveDecoration -> User: One-to-One (as 'user')
+UserActiveDecoration -> PostDecoration (lightBackgroundId): as 'lightBackground'
+UserActiveDecoration -> PostDecoration (darkBackgroundId): as 'darkBackground'
+UserActiveDecoration -> PostDecoration (frameId): as 'frame'
+UserActiveDecoration -> PostDecoration (iconColorId): as 'iconColor'
+```
+
+---
+
+## WORKSTREAM 3.4.2: BACKEND SERVICE, CONTROLLER & ROUTES
+
+**Agent:** Backend Agent
+**Output:** Service with business logic, controller with HTTP handlers, routes, seed data
+
+---
+
+### **Task 3.4.2.1: DecorationService**
+
+**File:** `backend/src/services/DecorationService.ts`
+
+Static methods following `CoinsService` pattern:
+
+| Method | Purpose |
+|--------|---------|
+| `getStoreItems(category?)` | List active catalog items, ordered by previewOrder |
+| `getUserDecorations(userId)` | User's purchased items with included decoration data |
+| `purchaseDecoration(userId, decorationId)` | **Transactional**: validate item active, check not already owned, verify skyCoins >= price, decrement skyCoins via `PositivityCoins.update()`, create UserDecoration record |
+| `getActiveDecoration(userId)` | Get user's active config with all 4 PostDecoration associations included |
+| `setActiveDecoration(userId, config)` | Validate user owns items, validate category matches slot, validate themeMode matches slot (light/dark for backgrounds), upsert UserActiveDecoration |
+| `batchResolveActiveDecorations(userIds)` | Batch query for feed: joins UserActiveDecoration with PostDecoration for multiple users. Returns `Map<userId, ResolvedDecoration>` with parsed styleData JSON |
+
+**ResolvedDecoration shape:**
+```typescript
+{
+  lightBackground: Record<string, unknown> | null;
+  darkBackground: Record<string, unknown> | null;
+  frame: Record<string, unknown> | null;
+  iconColors: Record<string, unknown> | null;
+}
+```
+
+**Slot validation maps:**
+```
+SLOT_CATEGORY_MAP: lightBackgroundId→background, darkBackgroundId→background, frameId→frame, iconColorId→icon_color
+SLOT_THEME_MAP: lightBackgroundId→light, darkBackgroundId→dark
+```
+
+---
+
+### **Task 3.4.2.2: DecorationController**
+
+**File:** `backend/src/controllers/DecorationController.ts`
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| `getStoreItems` | GET /api/decorations/store?category= | Public | List store catalog |
+| `getMyDecorations` | GET /api/decorations/mine | Private | User's purchased items |
+| `purchaseDecoration` | POST /api/decorations/purchase | Private | Purchase item (body: `{ decorationId }`) |
+| `getMyActiveDecoration` | GET /api/decorations/active | Private | Get my active decoration config |
+| `setActiveDecoration` | PUT /api/decorations/active | Private | Set active (body: `{ lightBackgroundId?, darkBackgroundId?, frameId?, iconColorId? }`) |
+| `getUserActiveDecoration` | GET /api/decorations/user/:userId/active | Public | Get any user's active decoration |
+
+Error handling: `instanceof Error` → 400, else → 500.
+
+---
+
+### **Task 3.4.2.3: Routes & Registration**
+
+**File:** `backend/src/routes/decorations.ts`
+
+Registered in **`backend/src/index.ts`** (NOT app.ts):
+```typescript
+import decorationsRoutes from './routes/decorations';
+app.use('/api/decorations', decorationsRoutes);
+```
+
+---
+
+### **Task 3.4.2.4: Seed Data**
+
+**File:** `backend/src/utils/seedDecorations.ts`
+
+Idempotent seed (checks `PostDecoration.count() > 0` before inserting). Called during server startup in `backend/src/index.ts` after `seedDefaultTopics()`.
+
+**Initial catalog (20 items):**
+
+| Category | Theme | Items | Price Range |
+|----------|-------|-------|-------------|
+| Background | Light | 5 (Sunrise Bloom, Mint Breeze, Lavender Dream, Golden Hour, Cotton Candy) | 15-30 Sky Coins |
+| Background | Dark | 5 (Midnight Ocean, Dark Ember, Twilight Violet, Obsidian Glow, Cosmic Night) | 15-30 Sky Coins |
+| Frame | Any | 6 (Golden Classic, Silver Lining, Neon Pulse, Rose Gold, Electric Blue, Emerald Edge) | 8-15 Sky Coins |
+| Icon Colors | Any | 4 (Neon Pop, Pastel Soft, Ocean Vibes, Sunset Warmth) | 5-10 Sky Coins |
+
+All backgrounds use gradient type with proper textColor/captionColor for contrast:
+- Light backgrounds: dark text (`#1F2937` / `#374151`)
+- Dark backgrounds: light text (`#F9FAFB` / `#D1D5DB`)
+
+---
+
+## WORKSTREAM 3.4.3: FEED INTEGRATION
+
+**Agent:** Backend Agent
+**Output:** Feed API responses include resolved decoration data for each post author
+
+---
+
+### **Task 3.4.3.1: FeedController Modification**
+
+**File:** `backend/src/controllers/FeedController.ts`
+
+In both `getFeed()` and `getDiscoverFeed()`, after the avatar batch lookup:
+
+```typescript
+import { DecorationService } from '../services/DecorationService';
+
+// After avatar batch lookup:
+const decorationsByUserId = await DecorationService.batchResolveActiveDecorations(authorIds);
+
+// In post mapping, add to response:
+decoration: decorationsByUserId.get(post.userId) || null,
+```
+
+Each post in the feed response now includes a `decoration` field with resolved styleData (not IDs), so the frontend can render directly without additional API calls.
+
+---
+
+## WORKSTREAM 3.4.4: MOBILE FRONTEND — TYPES & API
+
+**Agent:** Mobile Agent
+**Output:** TypeScript type definitions, API client methods
+
+---
+
+### **Task 3.4.4.1: Decoration Types**
+
+**File:** `mobile/src/types/decorations.ts`
+
+```typescript
+// Style data interfaces (parsed from JSON)
+DecorationStyleBackground { type, colors?, color?, start?, end?, textColor, captionColor }
+DecorationStyleFrame { borderWidth, borderColor, borderRadius, shadowColor?, shadowOpacity?, shadowRadius? }
+DecorationStyleIconColors { likeColor, commentColor, shareColor, saveColor, giftColor }
+
+// Resolved decoration for feed rendering
+ResolvedDecoration { lightBackground, darkBackground, frame, iconColors }
+
+// API response types
+StoreDecoration { id, name, category, themeMode, priceSkyCoins, previewOrder, styleData, isActive }
+UserOwnedDecoration { id, userId, decorationId, purchasedAt, pricePaid, decoration }
+ActiveDecorationConfig { userId, lightBackgroundId, darkBackgroundId, frameId, iconColorId, lightBackground?, darkBackground?, frame?, iconColor? }
+```
+
+---
+
+### **Task 3.4.4.2: API Client Methods**
+
+**File:** `mobile/src/services/api.ts`
+
+| Method | HTTP | Endpoint |
+|--------|------|----------|
+| `getDecorationStore(category?)` | GET | `/decorations/store?category=` |
+| `getMyDecorations()` | GET | `/decorations/mine` |
+| `purchaseDecoration(decorationId)` | POST | `/decorations/purchase` |
+| `getMyActiveDecoration()` | GET | `/decorations/active` |
+| `setActiveDecoration(config)` | PUT | `/decorations/active` |
+| `getUserActiveDecoration(userId)` | GET | `/decorations/user/:userId/active` |
+
+---
+
+## WORKSTREAM 3.4.5: MOBILE FRONTEND — COINS SCREEN REFACTOR
+
+**Agent:** Mobile Agent
+**Output:** Segmented control on CoinsScreen splitting Wallet and Store views
+
+---
+
+### **Task 3.4.5.1: CoinsScreen Segmented Control**
+
+**File:** `mobile/src/screens/coins/CoinsScreen.tsx`
+
+Add `activeTab` state (`'wallet' | 'store'`). Add compact pill-style segmented control above existing content:
+
+```
+┌────────────────────────────────────┐
+│     [ 💰 Wallet | 🛍 Store ]       │  ← ~32px height, centered pills
+├────────────────────────────────────┤
+│                                    │
+│  (Tab content renders below)       │
+│                                    │
+└────────────────────────────────────┘
+```
+
+- **Wallet tab** → existing ScrollView content (unchanged)
+- **Store tab** → `<DecorationStoreContent skyCoins={skyCoins} onPurchase={reload} />`
+
+Uses `colors.surfaceVariant` for inactive background, `colors.background` for active tab, with Ionicons (`wallet-outline` / `storefront-outline`).
+
+---
+
+## WORKSTREAM 3.4.6: MOBILE FRONTEND — DECORATION STORE UI
+
+**Agent:** Mobile Agent
+**Output:** Store browsing component and preview modal
+
+---
+
+### **Task 3.4.6.1: DecorationStoreContent Component**
+
+**File:** `mobile/src/components/DecorationStoreContent.tsx`
+
+Props: `{ skyCoins: number, onPurchase?: () => void }`
+
+Layout:
+```
+┌──────────────────────────────────┐
+│ ☁ 125 Sky Coins                  │  ← Balance bar
+├──────────────────────────────────┤
+│ [Backgrounds] [Frames] [Icons]   │  ← Category pill tabs
+├──────────────────────────────────┤
+│ (if Backgrounds) [☀ Light|🌙 Dark]│  ← Theme toggle
+├──────────────────────────────────┤
+│ ┌──────┐  ┌──────┐              │
+│ │Preview│  │Preview│             │  ← 2-column FlatList grid
+│ │ Name  │  │ Name  │             │
+│ │ 20☁   │  │ Owned │             │
+│ └──────┘  └──────┘              │
+├──────────────────────────────────┤
+│ ✨ Active: Sunrise Bloom, Golden  │  ← Active summary footer
+└──────────────────────────────────┘
+```
+
+**Preview renderers by category:**
+- Background → `<LinearGradient>` or solid `<View>` filling card preview area
+- Frame → bordered box with matching style
+- Icon Colors → row of 5 colored dots
+
+**Card states:**
+- Not owned → shows price badge (☁ + amount), tap opens purchase Alert
+- Owned → green "Owned" badge, tap equips immediately
+- Active → gold "Active" badge with checkmark, gold border, tap opens unequip Alert
+
+**Dark mode support:** Badge colors adapt via `isDark` conditional (e.g., `rgba(56,189,248,0.12)` for dark price badges vs `#EFF6FF` for light).
+
+Pull-to-refresh supported via `<RefreshControl>`.
+
+---
+
+### **Task 3.4.6.2: DecorationPreview Modal**
+
+**File:** `mobile/src/components/DecorationPreview.tsx`
+
+Full-screen bottom sheet modal showing a mock post with the selected decoration applied:
+
+```
+┌────────────────────────────────────┐
+│  ✕          Item Name           __ │  ← Header with close button
+├────────────────────────────────────┤
+│                                    │
+│  ┌────────────────────────────┐   │
+│  │ 🟣 @sampleuser  ·  2h ago │   │  ← Mock post header
+│  │                            │   │
+│  │ This is how your posts     │   │  ← Mock caption
+│  │ will look with this        │   │
+│  │ decoration!                │   │
+│  │                            │   │
+│  │  ┌──────────────────────┐ │   │  ← Mock image placeholder
+│  │  │       📷             │ │   │
+│  │  └──────────────────────┘ │   │
+│  │                            │   │
+│  │  ❤ 24  💬 8  🔄 3  🎁    │ 🔖│  ← Mock actions with colors
+│  └────────────────────────────┘   │
+│                                    │
+├────────────────────────────────────┤
+│  [ Purchase for 20 ☁ ]            │  ← Action button (gradient)
+│  OR [ Equip ] (green gradient)     │
+│  OR [ Unequip ] (outline button)   │
+└────────────────────────────────────┘
+```
+
+Renders the actual decoration styles on the mock post:
+- Background decorations wrap the post in `<LinearGradient>` or solid `<View>`
+- Frame decorations apply border/shadow to the post container
+- Icon color decorations change the action button colors
+- Text colors override to match background contrast
+
+---
+
+## WORKSTREAM 3.4.7: MOBILE FRONTEND — POSTCARD DECORATION RENDERING
+
+**Agent:** Mobile Agent
+**Output:** PostCard renders decoration backgrounds, frames, and icon colors from feed data
+
+---
+
+### **Task 3.4.7.1: PostCard Decoration Rendering**
+
+**File:** `mobile/src/components/PostCard.tsx`
+
+Add `decoration?: ResolvedDecoration | null` to the post prop interface.
+
+**Background rendering:**
+```typescript
+const bg = isDark ? post.decoration?.darkBackground : post.decoration?.lightBackground;
+```
+- If `bg.type === 'gradient'` → wrap post in `<LinearGradient colors={bg.colors}>`
+- If `bg.type === 'solid'` → wrap post in `<View style={{ backgroundColor: bg.color }}>`
+- Override text colors with `bg.textColor` and `bg.captionColor`
+
+**Frame rendering:**
+```typescript
+const frameStyle = post.decoration?.frame ? {
+  borderWidth: frame.borderWidth,
+  borderColor: frame.borderColor,
+  borderRadius: frame.borderRadius,
+  shadowColor: frame.shadowColor,
+  shadowOpacity: frame.shadowOpacity,
+  shadowRadius: frame.shadowRadius,
+} : {};
+```
+Applied to the image wrapper.
+
+**Icon color rendering:**
+```typescript
+const likeColor = post.decoration?.iconColors?.likeColor || defaultLikeColor;
+const commentColor = post.decoration?.iconColors?.commentColor || defaultColor;
+// ... etc for share, save, gift
+```
+Applied to action button Ionicons.
+
+All decoration values scale responsively using the theme system's `rs()` utility.
+
+---
+
+## PHASE 3.4 COMPLETION CRITERIA
+
+### **Database:**
+- [x] PostDecoration table created with all fields
+- [x] UserDecoration table with unique (userId, decorationId) constraint
+- [x] UserActiveDecoration table with userId as PK
+- [x] Migration is idempotent (safe to re-run)
+- [x] All 3 models registered in index.ts and associations.ts
+
+### **Store Catalog:**
+- [x] 20 seed items created on startup (idempotent)
+- [x] 5 light-mode backgrounds, 5 dark-mode backgrounds
+- [x] 6 frames, 4 icon color sets
+- [x] All items have proper styleData JSON with contrast-safe text colors
+
+### **Purchase Flow:**
+- [x] Sky Coins balance verified before purchase
+- [x] Transactional: skyCoins decremented AND UserDecoration created atomically
+- [x] Duplicate purchase prevented (unique constraint)
+- [x] Price snapshot saved at purchase time
+
+### **Decoration Activation:**
+- [x] Users can equip/unequip decorations per slot
+- [x] Category validation prevents wrong item in wrong slot
+- [x] Theme validation prevents light background in dark slot
+- [x] Ownership validated before equipping
+
+### **Feed Integration:**
+- [x] `batchResolveActiveDecorations()` called for all post authors in feed
+- [x] Both `getFeed()` and `getDiscoverFeed()` include decoration data
+- [x] Decoration field contains resolved styleData (not IDs)
+- [x] No additional API calls needed by frontend to render decorations
+
+### **Mobile — Store UI:**
+- [x] CoinsScreen has Wallet/Store segmented control
+- [x] Store shows categories with pill tabs
+- [x] Background category has Light/Dark toggle
+- [x] 2-column grid with live preview cards
+- [x] Purchase flow with confirmation Alert
+- [x] Equip/unequip with immediate config reload
+- [x] Badge colors adapt to dark mode
+- [x] Pull-to-refresh supported
+
+### **Mobile — PostCard Rendering:**
+- [x] Background decorations render (gradient + solid)
+- [x] Correct theme variant selected based on isDark
+- [x] Frame decorations apply to image wrapper
+- [x] Icon colors override action button colors
+- [x] Text colors adjust to background contrast
+- [x] Graceful fallback when no decoration is set
+
+### **API Endpoints:**
+- [x] GET /api/decorations/store — returns catalog
+- [x] GET /api/decorations/mine — returns user's purchases
+- [x] POST /api/decorations/purchase — deducts coins, creates purchase
+- [x] GET /api/decorations/active — returns active config with associations
+- [x] PUT /api/decorations/active — sets active decoration slots
+- [x] GET /api/decorations/user/:userId/active — public profile decoration
+
+### **Performance:**
+- [ ] Store loads in <300ms
+- [ ] Purchase transaction <500ms
+- [ ] Feed decoration resolution adds <50ms overhead
+- [ ] No N+1 queries (batch resolution)
+
+---
+
+# PHASE 3.5: ENCOURAGEMENT FULL-SCREEN EXPERIENCE
+
+**Duration:** 1 week
+**Goal:** Dedicated full-screen modal where users view all received encouragement messages with interactive coin-collecting animations and Sky Coin rewards
+**Dependencies:** Phase 2.5 (Positivity Coins), Phase 3.3 (Encouragement Coins Extension)
+
+---
+
+## OVERVIEW
+
+**Philosophy:**
+> "Every coin someone sends is a small act of kindness. The Encouragement screen turns those small acts into a celebration the receiver can feel."
+
+**Core Concept - Interactive Encouragement:**
+- Users open a full-screen modal from the **Kindness Received** section on the Coins tab
+- A dark-gradient immersive experience with **floating hearts and sky coins** as background particles
+- Each received coin appears as a **card with a large tappable heart** at center
+- Tapping a heart triggers one of **5 random animations** — the coin transforms into a **Sky Coin**
+- Untapped hearts are **not** collected — Sky Coins only appear after interaction
+- A running **Sky Coins collected** counter appears at the top after the first collect
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                  ENCOURAGEMENT FLOW                             │
+│                                                                 │
+│   Coins Tab                                                     │
+│   ┌──────────────────────────────────┐                          │
+│   │ Kindness Received                │                          │
+│   │ [♥ View Encouragement ✨]        │ ← gradient pill button   │
+│   │ @alice sent 3 coins ...          │                          │
+│   └──────────────────────────────────┘                          │
+│          │ tap                                                   │
+│          ▼                                                       │
+│   ┌──────────────────────────────────┐                          │
+│   │ ✨ You Are Loved ✨     [X]      │ ← full-screen modal      │
+│   │ 42 coins from 8 kind souls      │                          │
+│   │ [🪙 12 Sky Coins collected]      │ ← appears after 1st tap │
+│   │                                  │                          │
+│   │ ┌──────────────────────────────┐ │                          │
+│   │ │ [av] @alice         2h ago   │ │                          │
+│   │ │         ♥ (+3)               │ │ ← tappable heart        │
+│   │ │   "You are amazing!"        │ │ ← prominent message      │
+│   │ └──────────────────────────────┘ │                          │
+│   │ ┌──────────────────────────────┐ │                          │
+│   │ │ [av] @bob           1d ago   │ │                          │
+│   │ │        🪙 (+5)               │ │ ← already collected     │
+│   │ │   "Keep it up!"             │ │                          │
+│   │ └──────────────────────────────┘ │                          │
+│   │        ♥ ♥ 🪙 ♥ (floating)      │ ← background particles   │
+│   └──────────────────────────────────┘                          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## WORKSTREAM 3.5.1: BACKEND — AVATAR ENRICHMENT
+
+**Agent:** Backend Agent
+**Output:** Received coins API returns sender avatar data
+
+---
+
+### **Task 3.5.1.1: Enrich getReceivedCoins with Avatar Data**
+
+**File:** `backend/src/controllers/CoinsController.ts`
+
+In `getReceivedCoins()`, after calling `CoinsService.getReceivedCoins()`:
+
+1. Import `AvatarConfigSQL` model
+2. Add `formatAvatarForResponse()` helper (same pattern as `CommentController.ts`)
+3. Collect unique `fromUserId` values from results
+4. Batch-fetch active avatars: `AvatarConfigSQL.findAll({ where: { userId: [...ids], isActive: true } })`
+5. Map avatars by userId
+6. Enrich each received coin with `fromActiveAvatar` field
+
+```typescript
+// backend/src/controllers/CoinsController.ts — getReceivedCoins method
+
+const received = await CoinsService.getReceivedCoins(userId, limit, since);
+
+// Batch-fetch active avatars for all senders
+const senderIds = [...new Set(received.map(r => r.fromUserId).filter(Boolean))];
+const avatars = senderIds.length > 0
+  ? await AvatarConfigSQL.findAll({ where: { userId: senderIds, isActive: true } })
+  : [];
+const avatarsByUserId = new Map(avatars.map(a => [a.userId, formatAvatarForResponse(a)]));
+
+const enriched = received.map(coin => ({
+  ...coin,
+  fromActiveAvatar: avatarsByUserId.get(coin.fromUserId) || null,
+}));
+
+res.json({ received: enriched });
+```
+
+**Note:** `CoinsService` stays unchanged. Avatar enrichment is controller-layer only.
+
+---
+
+## WORKSTREAM 3.5.2: MOBILE — ENCOURAGEMENT MODAL
+
+**Agent:** Mobile Agent
+**Output:** Full-screen interactive encouragement experience
+
+---
+
+### **Task 3.5.2.1: EncouragementModal Component**
+
+**File:** `mobile/src/components/coins/EncouragementModal.tsx` (NEW)
+
+**Props:**
+```typescript
+interface EncouragementModalProps {
+  visible: boolean;
+  coins: ReceivedCoinItem[];    // enriched with fromActiveAvatar
+  onClose: () => void;
+}
+```
+
+**Component structure:**
+- Full-screen `<Modal>` with dark gradient background (`#1a0a2e` to `#0f3460`)
+- Close button (X) top-right with safe-area inset
+- Animated header: sparkle icons + "You Are Loved" title (spring entrance)
+- Subtitle: total coins + sender count
+- **Sky Coins collected counter** — hidden until first collect, bounces on each new collection
+- **Background particles layer:** 18 particles (mix of hearts and KindnessCoins) floating upward continuously
+- **Scrollable card list** of `EncouragementCard` components
+- Empty state: heart outline + "No encouragements yet"
+- Session key forces full card remount on re-open (resets all tapped states)
+
+**Background Particles:**
+- Each particle has: `translateY` (bottom to top), `translateX` (gentle sway), `opacity` (fade in/out), `rotation`
+- Hearts: `<Ionicons name="heart">` in pinks (`#F91880`, `#EC4899`)
+- Coins: `<KindnessCoin>` with sky-blue gradient
+- All use `useNativeDriver: true`, loop via `.start()` callback
+
+---
+
+### **Task 3.5.2.2: EncouragementCard — Heart-First Layout**
+
+**Card layout (heart as main focus):**
+```
+┌──────────────────────────────────────────────┐
+│  [Avatar 28px] @username              2h ago │  ← compact sender row
+│                                              │
+│              ↓ Tap! ↓                        │  ← tutorial arrows (first 2 cards)
+│                 ♥  (44px, pulsing)           │  ← tappable heart (main element)
+│                +3                            │  ← coin amount
+│                                              │
+│   ┌────────────────────────────────────────┐ │
+│   │  "You are such a wonderful person!"    │ │  ← encouragement message box
+│   └────────────────────────────────────────┘ │
+└──────────────────────────────────────────────┘
+```
+
+**Untapped state:**
+- Heart icon (44px) has subtle pulse animation (scale 1.0 to 1.15, 700ms loop)
+- `Animated.multiply(heartScale, hintPulse)` combines pulse with animation transforms
+
+**After tapping (Sky Coin revealed):**
+```
+┌──────────────────────────────────────────────┐
+│  [Avatar 28px] @username              2h ago │
+│                                              │
+│              [Sky Coin 32px]                 │  ← KindnessCoin sky-blue
+│                +3                            │
+│                                              │
+│   ┌────────────────────────────────────────┐ │
+│   │  "You are such a wonderful person!"    │ │
+│   └────────────────────────────────────────┘ │
+└──────────────────────────────────────────────┘
+```
+
+---
+
+### **Task 3.5.2.3: Five Random Tap Animations**
+
+Each tap randomly selects one of 5 animation types. All use `useNativeDriver: true` and 8 pre-allocated effect particle slots.
+
+| # | Name | Heart Animation | Particle Effect |
+|---|------|----------------|-----------------|
+| 0 | **Chomp** | Shrinks in 3 bites with shake | Orange-gold crumbs fly off each bite |
+| 1 | **Heart Burst** | Spins and shrinks to 0.2 | 8 hearts explode outward radially |
+| 2 | **Dissolve** | Fades and shrinks over 750ms | Gold sparkles rise upward in sequence |
+| 3 | **Bounce Pop** | Bounces 3x, inflates, then pops | Colored confetti scatters in all directions |
+| 4 | **Spiral Away** | Spins while shrinking upward | Trail of stars left behind |
+
+**After any animation completes** calls `revealSky()`:
+- Sky Coin badge springs in (scale 0 to 1, opacity 0 to 1)
+- Calls `onCollected(amount)` which increments the Sky Coins counter in the parent modal
+
+**Effect particles:**
+- 8 pre-allocated Animated.Value sets per card: `{ x, y, scale, opacity, rotation }`
+- Reset before each animation
+- Different icon per animation type: crumbs (circles), hearts, sparkles, confetti (squares), stars
+
+---
+
+### **Task 3.5.2.4: Tutorial Arrows**
+
+**Component:** `TutorialHint` — self-contained bouncing arrows
+
+**Behavior:**
+- Shows on the **first 2 cards** when modal opens
+- Bouncing chevron-down arrows with "Tap!" text (450ms bounce loop)
+- **Auto-dismisses after 2 seconds** via timeout in the modal
+- **Also dismisses immediately** when user taps their first coin
+- Smooth 350ms fade-out animation (not abrupt hide)
+
+---
+
+### **Task 3.5.2.5: Double-Tap Prevention and State Management**
+
+**Problem solved:** Closure staleness and side-effects in setState updaters.
+
+**Solution:**
+- `tappedRef` (useRef) for immediate double-tap guard in `handleTap`
+- `tapped` (useState) for UI updates (disabling TouchableOpacity, stopping pulse)
+- `skyCollectedRef` (useRef) for animation decisions in `handleCoinCollected`
+- `setSkyCollected()` only receives final values — no side effects inside updater
+- `handleTap` uses `useCallback([])` with stable refs — no stale closures
+
+---
+
+## WORKSTREAM 3.5.3: MOBILE — COINS SCREEN INTEGRATION
+
+**Agent:** Mobile Agent
+**Output:** Button + modal wired into existing CoinsScreen
+
+---
+
+### **Task 3.5.3.1: Update CoinsScreen**
+
+**File:** `mobile/src/screens/coins/CoinsScreen.tsx`
+
+**Changes:**
+
+1. **Import** `EncouragementModal` and `AvatarCustomizations`
+
+2. **Extend** `ReceivedCoin` interface:
+```typescript
+interface ReceivedCoin {
+    // ... existing fields ...
+    fromActiveAvatar?: {
+        id: string;
+        style: string;
+        customizations: AvatarCustomizations;
+    } | null;
+}
+```
+
+3. **Add state:** `const [showEncouragement, setShowEncouragement] = useState(false);`
+
+4. **Bump limit** from 10 to 30: `api.getReceivedCoins(30)`
+
+5. **Add gradient button** inside `receivedSection`, after `sectionHeader`, before coin list:
+```
+[ heart icon ] View Encouragement [ sparkles icon ]
+```
+- Pink-to-purple gradient: `['#F91880', '#EC4899', '#A855F7']`
+- Only visible when `receivedCoins.length > 0`
+
+6. **Render modal** at bottom of ScrollView:
+```tsx
+<EncouragementModal
+    visible={showEncouragement}
+    coins={receivedCoins}
+    onClose={() => setShowEncouragement(false)}
+/>
+```
+
+---
+
+## PHASE 3.5 COMPLETION CRITERIA
+
+### **Backend:**
+- [x] `GET /api/coins/received` returns `fromActiveAvatar` for each sender
+- [x] Avatar batch-fetch is efficient (single query, not N+1)
+- [x] No changes to `CoinsService` (enrichment is controller-only)
+
+### **Encouragement Modal:**
+- [x] Full-screen dark gradient modal opens from Coins tab
+- [x] Floating hearts and coins animate continuously in background
+- [x] Header with "You Are Loved" title animates in with spring
+- [x] Card layout: compact sender row at top, large heart center, message box at bottom
+- [x] Heart has subtle pulse animation when untapped
+- [x] Tapping heart triggers 1 of 5 random animations
+- [x] After animation, heart transforms into Sky Coin
+- [x] Sky Coins collected counter appears on first collect and bounces on each subsequent collect
+- [x] Tutorial arrows show on first 2 cards, auto-dismiss after 2 seconds
+- [x] Tutorial also dismisses on first coin tap
+- [x] Modal state fully resets on each re-open (session key remount)
+- [x] Close via X button and Android back button
+
+### **Coins Screen:**
+- [x] "View Encouragement" gradient button appears when received coins exist
+- [x] Button hidden when no coins received
+- [x] Limit bumped to 30 for richer modal content
+- [x] `ReceivedCoin` interface includes `fromActiveAvatar`
+
+### **Animation Quality:**
+- [x] All animations use `useNativeDriver: true` (60fps)
+- [x] No double-tap issues (ref-based guard)
+- [x] No side effects in setState updaters
+- [x] Effect particles pre-allocated (no runtime allocation during animation)
+- [x] Staggered card entrance (120ms delay per card)
+
+---
+
 # PHASE 4: POST-MVP IMPROVEMENTS
 
 **Duration:** 6 weeks (Weeks 22-27)

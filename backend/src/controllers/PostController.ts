@@ -46,24 +46,6 @@ export class PostController {
         return;
       }
 
-      // Check coin balance before proceeding
-      const COINS_REQUIRED = 3;
-      try {
-        const userCoins = await CoinsService.getUserCoins(userId);
-        if (userCoins.totalCoins < COINS_REQUIRED) {
-          res.status(402).json({
-            error: 'Insufficient coins',
-            required: COINS_REQUIRED,
-            balance: userCoins.totalCoins
-          });
-          return;
-        }
-      } catch (error) {
-        logger.error('Failed to check coin balance', { error, userId });
-        res.status(500).json({ error: 'Failed to verify coin balance' });
-        return;
-      }
-
       // Handle both single and dual image uploads
       const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
       const singleFile = req.file;
@@ -149,19 +131,6 @@ export class PostController {
         logger.info('Post associated with topics', { postId: post.id, topicIds: parsedTopicIds });
       }
 
-      // Deduct coins for posting
-      let coinsDeducted = 0;
-      try {
-        coinsDeducted = await CoinsService.deductCoinsForPost(userId, post.id);
-        logger.info('Coins deducted for post', { userId, postId: post.id, coinsDeducted });
-      } catch (error) {
-        logger.error('Failed to deduct coins for post', { error, userId, postId: post.id });
-        // If coin deduction fails, delete the post and return error
-        await post.destroy();
-        res.status(402).json({ error: 'Failed to deduct coins for post' });
-        return;
-      }
-
       // Check if post is "meaningful" (has caption with >20 chars) and award coins back
       let coinsEarned = 0;
       if (caption && caption.trim().length >= 20) {
@@ -222,7 +191,7 @@ export class PostController {
           message: 'Post created, processing avatar...',
           estimatedTime: 10, // seconds
           coinsEarned,
-          coinsDeducted
+          coinsDeducted: 0
         });
 
       } catch (error) {

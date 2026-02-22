@@ -69,6 +69,7 @@ export class CoinsService {
    */
   static async getUserCoins(userId: string): Promise<{
     totalCoins: number;
+    skyCoins: number;
     lifetimeEarned: number;
     lifetimeGiven: number;
     cooldownCoinsAvailable: number;
@@ -76,6 +77,7 @@ export class CoinsService {
     minutesUntilNextCooldown: number | null;
     secondsUntilNextCooldown: number | null;
     rank: string;
+    uncollectedCount: number;
   }> {
     let coins = await PositivityCoins.findByPk(userId);
 
@@ -96,6 +98,15 @@ export class CoinsService {
     const user = await User.findByPk(userId, { attributes: ['positivityRank'] });
     const rank = user?.positivityRank || 'beginner';
 
+    // Count uncollected received coins
+    const uncollectedCount = await CoinTransaction.count({
+      where: {
+        toUserId: userId,
+        transactionType: 'received_from_user',
+        collected: false
+      }
+    });
+
     const minutesUntilNext = coins.nextCooldownAvailableAt
       ? Math.max(0, Math.ceil((coins.nextCooldownAvailableAt.getTime() - Date.now()) / (60 * 1000)))
       : null;
@@ -106,13 +117,15 @@ export class CoinsService {
 
     return {
       totalCoins: coins.totalCoins,
+      skyCoins: coins.skyCoins,
       lifetimeEarned: coins.lifetimeEarned,
       lifetimeGiven: coins.lifetimeGiven,
       cooldownCoinsAvailable: coins.cooldownCoinsAvailable,
       nextCooldownAt: coins.nextCooldownAvailableAt,
       minutesUntilNextCooldown: minutesUntilNext,
       secondsUntilNextCooldown: secondsUntilNext,
-      rank
+      rank,
+      uncollectedCount
     };
   }
 
@@ -225,7 +238,7 @@ export class CoinsService {
    * Award coins for meaningful post
    */
   static async awardCoinsForPost(userId: string, postId: string): Promise<number> {
-    const COINS_PER_POST = 2;
+    const COINS_PER_POST = 4;
 
     // Auto-initialize coins if needed (outside transaction)
     let coins = await PositivityCoins.findByPk(userId);
@@ -276,7 +289,7 @@ export class CoinsService {
   }
 
   /**
-   * Deduct coins for creating a post (investment cost)
+   * Deduct Sky Coins for creating a post (investment cost)
    */
   static async deductCoinsForPost(userId: string, postId: string): Promise<number> {
     // Auto-initialize coins if needed (outside transaction)
@@ -285,9 +298,9 @@ export class CoinsService {
       coins = await this.initializeUserCoins(userId);
     }
 
-    // Check balance before starting transaction
-    if (coins.totalCoins < COINS_PER_POST_COST) {
-      throw new Error(`Insufficient coins. You have ${coins.totalCoins}, need ${COINS_PER_POST_COST}`);
+    // Check Sky Coins balance before starting transaction
+    if (coins.skyCoins < COINS_PER_POST_COST) {
+      throw new Error(`Insufficient Sky Coins. You have ${coins.skyCoins}, need ${COINS_PER_POST_COST}`);
     }
 
     const transaction = await sequelize.transaction();
@@ -300,15 +313,15 @@ export class CoinsService {
         throw new Error('Coins not initialized');
       }
 
-      // Re-check balance within transaction
-      if (coinsInTx.totalCoins < COINS_PER_POST_COST) {
+      // Re-check Sky Coins balance within transaction
+      if (coinsInTx.skyCoins < COINS_PER_POST_COST) {
         await transaction.rollback();
-        throw new Error(`Insufficient coins. You have ${coinsInTx.totalCoins}, need ${COINS_PER_POST_COST}`);
+        throw new Error(`Insufficient Sky Coins. You have ${coinsInTx.skyCoins}, need ${COINS_PER_POST_COST}`);
       }
 
       await coinsInTx.update(
         {
-          totalCoins: coinsInTx.totalCoins - COINS_PER_POST_COST
+          skyCoins: coinsInTx.skyCoins - COINS_PER_POST_COST
         },
         { transaction }
       );
@@ -326,12 +339,12 @@ export class CoinsService {
 
       await transaction.commit();
 
-      logger.info('Coins deducted for post', { userId, postId, coins: COINS_PER_POST_COST });
+      logger.info('Sky Coins deducted for post', { userId, postId, skyCoins: COINS_PER_POST_COST });
 
       return COINS_PER_POST_COST;
     } catch (error) {
       await transaction.rollback();
-      logger.error('Error deducting coins for post', { error, userId, postId });
+      logger.error('Error deducting Sky Coins for post', { error, userId, postId });
       throw error;
     }
   }
@@ -340,7 +353,7 @@ export class CoinsService {
    * Award coins for positive comment
    */
   static async awardCoinsForComment(userId: string, commentId: string): Promise<number> {
-    const COINS_PER_COMMENT = 1;
+    const COINS_PER_COMMENT = 2;
 
     // Auto-initialize coins if needed (outside transaction)
     let coins = await PositivityCoins.findByPk(userId);
@@ -512,15 +525,9 @@ export class CoinsService {
         { transaction }
       );
 
-      // Update receiver (add coins, increment lifetime earned)
-      await receiverCoinsInTx.update(
-        {
-          totalCoins: receiverCoinsInTx.totalCoins + amount,
-          lifetimeEarned: receiverCoinsInTx.lifetimeEarned + amount,
-          coinsFromOther: receiverCoinsInTx.coinsFromOther + amount
-        },
-        { transaction }
-      );
+      // NOTE: Receiver's skyCoins are NOT credited here.
+      // Coins stay as uncollected (collected=false) until the receiver
+      // taps the heart in the Encouragement modal, which calls collectReceivedCoins().
 
       // Record transaction for sender
       await CoinTransaction.create(
@@ -585,11 +592,10 @@ export class CoinsService {
         amount
       });
 
-      // The .update() modifies the instance in place, so read the new values directly
       return {
         success: true,
         newBalance: senderCoinsInTx.totalCoins,
-        receiverNewBalance: receiverCoinsInTx.totalCoins
+        receiverNewBalance: receiverCoinsInTx.skyCoins
       };
     } catch (error) {
       await transaction.rollback();
@@ -709,13 +715,15 @@ export class CoinsService {
   static async getReceivedCoins(
     userId: string,
     limit: number = 20,
-    since?: string
+    since?: string,
+    collectedFilter?: boolean
   ): Promise<Array<{
     id: string;
     fromUserId: string;
     fromUsername: string;
     amount: number;
     message: string | null;
+    collected: boolean;
     createdAt: Date;
   }>> {
     try {
@@ -729,6 +737,11 @@ export class CoinsService {
         whereClause.createdAt = {
           [Op.gt]: new Date(since)
         };
+      }
+
+      // Optional: filter by collected status
+      if (collectedFilter !== undefined) {
+        whereClause.collected = collectedFilter;
       }
 
       const transactions = await CoinTransaction.findAll({
@@ -752,11 +765,92 @@ export class CoinsService {
           fromUsername: fromUser?.username || 'Unknown',
           amount: tx.amount,
           message: tx.message,
+          collected: tx.collected,
           createdAt: tx.createdAt
         };
       });
     } catch (error) {
       logger.error('Error getting received coins', { error, userId });
+      throw error;
+    }
+  }
+
+  /**
+   * Collect received coins — marks them as collected and credits skyCoins
+   */
+  static async collectReceivedCoins(
+    userId: string,
+    transactionIds: string[]
+  ): Promise<{
+    collectedCount: number;
+    totalAmount: number;
+    newSkyCoinsBalance: number;
+  }> {
+    if (!transactionIds.length) {
+      throw new Error('No transaction IDs provided');
+    }
+
+    const transaction = await sequelize.transaction();
+
+    try {
+      // Find uncollected transactions that belong to this user
+      const transactions = await CoinTransaction.findAll({
+        where: {
+          id: { [Op.in]: transactionIds },
+          toUserId: userId,
+          transactionType: 'received_from_user',
+          collected: false
+        },
+        transaction
+      });
+
+      if (transactions.length === 0) {
+        await transaction.rollback();
+        return { collectedCount: 0, totalAmount: 0, newSkyCoinsBalance: 0 };
+      }
+
+      const totalAmount = transactions.reduce((sum, tx) => sum + tx.amount, 0);
+
+      // Mark as collected
+      await CoinTransaction.update(
+        { collected: true },
+        {
+          where: {
+            id: { [Op.in]: transactions.map(tx => tx.id) }
+          },
+          transaction
+        }
+      );
+
+      // Credit skyCoins to receiver
+      const coins = await PositivityCoins.findByPk(userId, { transaction });
+      if (!coins) {
+        await transaction.rollback();
+        throw new Error('Coins not initialized');
+      }
+
+      await coins.update(
+        {
+          skyCoins: coins.skyCoins + totalAmount,
+          lifetimeSkyCoinsEarned: coins.lifetimeSkyCoinsEarned + totalAmount,
+          lifetimeEarned: coins.lifetimeEarned + totalAmount,
+          coinsFromOther: coins.coinsFromOther + totalAmount
+        },
+        { transaction }
+      );
+
+      await transaction.commit();
+
+      logger.info('Coins collected', { userId, count: transactions.length, totalAmount });
+
+      return {
+        collectedCount: transactions.length,
+        totalAmount,
+        newSkyCoinsBalance: coins.skyCoins + totalAmount
+      };
+    } catch (error) {
+      await transaction.rollback();
+      logger.error('Error collecting received coins', { error, userId });
       throw error;
     }
   }
