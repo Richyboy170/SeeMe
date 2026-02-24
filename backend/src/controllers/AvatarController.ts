@@ -5,6 +5,38 @@ import { User } from '../models/User';
 import { logger } from '../utils/logger';
 
 /**
+ * Serialize avatar to response format
+ */
+function serializeAvatar(avatar: AvatarConfigSQL) {
+  return {
+    id: avatar.id,
+    name: avatar.name,
+    style: avatar.style,
+    customizations: {
+      skinTone: avatar.skinTone,
+      eyeColor: avatar.eyeColor,
+      eyeSize: avatar.eyeSize,
+      hairColor: avatar.hairColor,
+      hairStyle: avatar.hairStyle,
+      gender: avatar.gender || null,
+      faceShape: avatar.faceShape || null,
+      facialHair: avatar.facialHair || null,
+      eyebrowStyle: avatar.eyebrowStyle || null,
+      mouthStyle: avatar.mouthStyle || null,
+      noseStyle: avatar.noseStyle || null,
+      accessories: {
+        glasses: avatar.glasses,
+        hat: avatar.hat,
+        earrings: avatar.earrings,
+      },
+    },
+    isActive: avatar.isActive,
+    createdAt: avatar.createdAt,
+    updatedAt: avatar.updatedAt,
+  };
+}
+
+/**
  * Avatar Controller
  * Handles avatar configuration CRUD operations using PostgreSQL
  */
@@ -23,26 +55,7 @@ export class AvatarController {
       });
 
       res.json({
-        avatars: avatars.map(avatar => ({
-          id: avatar.id,
-          name: avatar.name,
-          style: avatar.style,
-          customizations: {
-            skinTone: avatar.skinTone,
-            eyeColor: avatar.eyeColor,
-            eyeSize: avatar.eyeSize,
-            hairColor: avatar.hairColor,
-            hairStyle: avatar.hairStyle,
-            accessories: {
-              glasses: avatar.glasses,
-              hat: avatar.hat,
-              earrings: avatar.earrings,
-            },
-          },
-          isActive: avatar.isActive,
-          createdAt: avatar.createdAt,
-          updatedAt: avatar.updatedAt,
-        })),
+        avatars: avatars.map(serializeAvatar),
       });
     } catch (error: any) {
       logger.error('Error getting user avatars', { message: error?.message, userId: req.user?.id });
@@ -66,26 +79,7 @@ export class AvatarController {
       }
 
       res.json({
-        avatar: {
-          id: avatar.id,
-          name: avatar.name,
-          style: avatar.style,
-          customizations: {
-            skinTone: avatar.skinTone,
-            eyeColor: avatar.eyeColor,
-            eyeSize: avatar.eyeSize,
-            hairColor: avatar.hairColor,
-            hairStyle: avatar.hairStyle,
-            accessories: {
-              glasses: avatar.glasses,
-              hat: avatar.hat,
-              earrings: avatar.earrings,
-            },
-          },
-          isActive: avatar.isActive,
-          createdAt: avatar.createdAt,
-          updatedAt: avatar.updatedAt,
-        },
+        avatar: serializeAvatar(avatar),
       });
     } catch (error: any) {
       logger.error('Error getting avatar', { message: error?.message, avatarId: req.params.avatarId });
@@ -135,6 +129,12 @@ export class AvatarController {
         glasses: customizations?.accessories?.glasses || null,
         hat: customizations?.accessories?.hat || null,
         earrings: customizations?.accessories?.earrings || null,
+        gender: customizations?.gender || null,
+        faceShape: customizations?.faceShape || null,
+        facialHair: customizations?.facialHair || null,
+        eyebrowStyle: customizations?.eyebrowStyle || null,
+        mouthStyle: customizations?.mouthStyle || null,
+        noseStyle: customizations?.noseStyle || null,
         isActive: isFirstAvatar,
       });
 
@@ -149,26 +149,7 @@ export class AvatarController {
       logger.info('Avatar created', { userId, avatarId: avatar.id });
 
       res.status(201).json({
-        avatar: {
-          id: avatar.id,
-          name: avatar.name,
-          style: avatar.style,
-          customizations: {
-            skinTone: avatar.skinTone,
-            eyeColor: avatar.eyeColor,
-            eyeSize: avatar.eyeSize,
-            hairColor: avatar.hairColor,
-            hairStyle: avatar.hairStyle,
-            accessories: {
-              glasses: avatar.glasses,
-              hat: avatar.hat,
-              earrings: avatar.earrings,
-            },
-          },
-          isActive: avatar.isActive,
-          createdAt: avatar.createdAt,
-          updatedAt: avatar.updatedAt,
-        },
+        avatar: serializeAvatar(avatar),
       });
     } catch (error: any) {
       logger.error('Error creating avatar', {
@@ -218,6 +199,12 @@ export class AvatarController {
         if (customizations.eyeSize !== undefined) avatar.eyeSize = customizations.eyeSize;
         if (customizations.hairColor !== undefined) avatar.hairColor = customizations.hairColor;
         if (customizations.hairStyle !== undefined) avatar.hairStyle = customizations.hairStyle;
+        if (customizations.gender !== undefined) avatar.gender = customizations.gender;
+        if (customizations.faceShape !== undefined) avatar.faceShape = customizations.faceShape;
+        if (customizations.facialHair !== undefined) avatar.facialHair = customizations.facialHair;
+        if (customizations.eyebrowStyle !== undefined) avatar.eyebrowStyle = customizations.eyebrowStyle;
+        if (customizations.mouthStyle !== undefined) avatar.mouthStyle = customizations.mouthStyle;
+        if (customizations.noseStyle !== undefined) avatar.noseStyle = customizations.noseStyle;
         if (customizations.accessories) {
           if (customizations.accessories.glasses !== undefined) avatar.glasses = customizations.accessories.glasses;
           if (customizations.accessories.hat !== undefined) avatar.hat = customizations.accessories.hat;
@@ -230,26 +217,7 @@ export class AvatarController {
       logger.info('Avatar updated', { userId, avatarId });
 
       res.json({
-        avatar: {
-          id: avatar.id,
-          name: avatar.name,
-          style: avatar.style,
-          customizations: {
-            skinTone: avatar.skinTone,
-            eyeColor: avatar.eyeColor,
-            eyeSize: avatar.eyeSize,
-            hairColor: avatar.hairColor,
-            hairStyle: avatar.hairStyle,
-            accessories: {
-              glasses: avatar.glasses,
-              hat: avatar.hat,
-              earrings: avatar.earrings,
-            },
-          },
-          isActive: avatar.isActive,
-          createdAt: avatar.createdAt,
-          updatedAt: avatar.updatedAt,
-        },
+        avatar: serializeAvatar(avatar),
       });
     } catch (error: any) {
       logger.error('Error updating avatar', { message: error?.message, userId: req.user?.id, avatarId: req.params.avatarId });
@@ -348,26 +316,7 @@ export class AvatarController {
 
       res.json({
         success: true,
-        avatar: {
-          id: avatar.id,
-          name: avatar.name,
-          style: avatar.style,
-          customizations: {
-            skinTone: avatar.skinTone,
-            eyeColor: avatar.eyeColor,
-            eyeSize: avatar.eyeSize,
-            hairColor: avatar.hairColor,
-            hairStyle: avatar.hairStyle,
-            accessories: {
-              glasses: avatar.glasses,
-              hat: avatar.hat,
-              earrings: avatar.earrings,
-            },
-          },
-          isActive: avatar.isActive,
-          createdAt: avatar.createdAt,
-          updatedAt: avatar.updatedAt,
-        },
+        avatar: serializeAvatar(avatar),
       });
     } catch (error: any) {
       logger.error('Error activating avatar', { message: error?.message, userId: req.user?.id, avatarId: req.params.avatarId });

@@ -200,7 +200,7 @@ router.get(
     }
 
     const user = await User.findByPk(req.user.id, {
-      attributes: ['id', 'username', 'email', 'ageVerified', 'activeAvatarId', 'createdAt', 'updatedAt']
+      attributes: ['id', 'username', 'email', 'ageVerified', 'avatarUrl', 'activeAvatarId', 'createdAt', 'updatedAt']
     });
 
     if (!user) {

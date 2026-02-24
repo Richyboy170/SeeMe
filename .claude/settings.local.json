@@ -149,7 +149,8 @@
       "Bash(__NEW_LINE_9cc8ce9ae20cc0e2__ curl -s \"http://localhost:3000/api/feed?limit=3\" -H \"Authorization: Bearer $TOKEN\" -o /tmp/feed_response.json)",
       "Bash(__NEW_LINE_bced46e5f55633e2__ curl -s \"http://localhost:3000/api/feed?limit=3\" -H \"Authorization: Bearer $TOKEN\" -o C:/Users/HP/Desktop/feed_response.json)",
       "Bash(head:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(cd:*)"
     ]
   }
 }

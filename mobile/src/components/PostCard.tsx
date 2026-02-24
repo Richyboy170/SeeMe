@@ -35,6 +35,7 @@ interface ActiveAvatar {
 interface RepostedByUser {
   id: string;
   username: string;
+  avatarUrl?: string | null;
   activeAvatar?: ActiveAvatar | null;
 }
 
@@ -45,6 +46,7 @@ interface PostCardProps {
     user: {
       id: string;
       username: string;
+      avatarUrl?: string | null;
       activeAvatarId?: string;
       activeAvatar?: ActiveAvatar | null;
     };
@@ -61,6 +63,9 @@ interface PostCardProps {
     repostedByMe?: boolean;
     myRepostType?: 'repost' | 'quote' | null;
     createdAt: string;
+    // Location & photo time
+    locationName?: string | null;
+    photoTakenAt?: string | null;
     // Decoration data
     decoration?: ResolvedDecoration | null;
     // Repost-specific fields
@@ -101,6 +106,7 @@ export default function PostCard({
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [showHeartOverlay, setShowHeartOverlay] = useState(false);
   const [repostExpanded, setRepostExpanded] = useState(false);
+  const [metaExpanded, setMetaExpanded] = useState(false);
 
   const lastTapRef = useRef<number>(0);
   const heartScale = useRef(new Animated.Value(0)).current;
@@ -347,6 +353,7 @@ export default function PostCard({
           <View style={styles.compactRepostHeader}>
             <Avatar
               size={20}
+              avatarUrl={!post.user.activeAvatar ? post.user.avatarUrl : undefined}
               username={post.user.username}
               customizations={post.user.activeAvatar?.customizations}
               avatarStyle={post.user.activeAvatar?.style}
@@ -431,6 +438,37 @@ export default function PostCard({
     </View>
   );
 
+  // Helper to wrap content in background decoration (used for both reposts and regular posts)
+  const wrapWithBackground = (content: React.ReactNode) => {
+    if (bgDecoration?.type === 'gradient' && bgDecoration.colors) {
+      return (
+        <LinearGradient
+          colors={bgDecoration.colors as [string, string, ...string[]]}
+          locations={bgDecoration.locations as [number, number, ...number[]] | undefined}
+          start={bgDecoration.start || { x: 0, y: 0 }}
+          end={bgDecoration.end || { x: 1, y: 1 }}
+          style={styles.container}
+        >
+          {bgCornerConfig && <CornerDecorations config={bgCornerConfig} />}
+          {content}
+        </LinearGradient>
+      );
+    }
+    if (bgDecoration?.type === 'solid' && bgDecoration.color) {
+      return (
+        <View style={[styles.container, { backgroundColor: bgDecoration.color }]}>
+          {bgCornerConfig && <CornerDecorations config={bgCornerConfig} />}
+          {content}
+        </View>
+      );
+    }
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        {content}
+      </View>
+    );
+  };
+
   // Tablet Layout: Side-by-side with prominent text
   // For reposts on tablet: show reposter as main focus with compact original post
   if (isTablet && post.isRepost && post.repostedBy) {
@@ -443,6 +481,7 @@ export default function PostCard({
         >
           <Avatar
             size={48}
+            avatarUrl={!post.repostedBy.activeAvatar ? post.repostedBy.avatarUrl : undefined}
             username={post.repostedBy.username}
             style={styles.userAvatar}
             customizations={post.repostedBy.activeAvatar?.customizations}
@@ -474,6 +513,7 @@ export default function PostCard({
             <View style={styles.compactRepostHeader}>
               <Avatar
                 size={24}
+                avatarUrl={!post.user.activeAvatar ? post.user.avatarUrl : undefined}
                 username={post.user.username}
                 customizations={post.user.activeAvatar?.customizations}
                 avatarStyle={post.user.activeAvatar?.style}
@@ -540,6 +580,7 @@ export default function PostCard({
             <TouchableOpacity style={styles.tabletHeader} onPress={handleUserPress}>
               <Avatar
                 size={48}
+                avatarUrl={!post.user.activeAvatar ? post.user.avatarUrl : undefined}
                 username={post.user.username}
                 style={styles.userAvatar}
                 customizations={post.user.activeAvatar?.customizations}
@@ -592,8 +633,8 @@ export default function PostCard({
   // Phone Layout: Text above image
   // For reposts: show reposter as main focus with compact original post preview
   if (post.isRepost && post.repostedBy) {
-    return (
-      <View style={styles.container}>
+    const repostContent = (
+      <>
         {/* Reposter Header - Main focus */}
         <TouchableOpacity
           style={styles.header}
@@ -601,13 +642,14 @@ export default function PostCard({
         >
           <Avatar
             size={40}
+            avatarUrl={!post.repostedBy.activeAvatar ? post.repostedBy.avatarUrl : undefined}
             username={post.repostedBy.username}
             style={styles.userAvatar}
             customizations={post.repostedBy.activeAvatar?.customizations}
             avatarStyle={post.repostedBy.activeAvatar?.style}
           />
           <View style={styles.userInfo}>
-            <Text style={styles.username}>@{post.repostedBy.username}</Text>
+            <Text style={[styles.username, { color: decorTextColor }]}>@{post.repostedBy.username}</Text>
             <View style={styles.repostIndicator}>
               <Ionicons name="repeat" size={12} color="#10B981" />
               <Text style={styles.repostIndicatorText}>reposted</Text>
@@ -618,7 +660,7 @@ export default function PostCard({
         {/* Quote Comment - For quote reposts */}
         {post.repostType === 'quote' && post.repostComment && (
           <View style={styles.quoteCommentContainer}>
-            <Text style={styles.quoteComment}>"{post.repostComment}"</Text>
+            <Text style={[styles.quoteComment, { color: decorTextColor }]}>"{post.repostComment}"</Text>
           </View>
         )}
 
@@ -651,40 +693,10 @@ export default function PostCard({
         />
 
         {renderImageViewer()}
-      </View>
+      </>
     );
+    return wrapWithBackground(repostContent);
   }
-
-  // Helper to wrap content in background decoration
-  const wrapWithBackground = (content: React.ReactNode) => {
-    if (bgDecoration?.type === 'gradient' && bgDecoration.colors) {
-      return (
-        <LinearGradient
-          colors={bgDecoration.colors as [string, string, ...string[]]}
-          locations={bgDecoration.locations as [number, number, ...number[]] | undefined}
-          start={bgDecoration.start || { x: 0, y: 0 }}
-          end={bgDecoration.end || { x: 1, y: 1 }}
-          style={styles.container}
-        >
-          {bgCornerConfig && <CornerDecorations config={bgCornerConfig} />}
-          {content}
-        </LinearGradient>
-      );
-    }
-    if (bgDecoration?.type === 'solid' && bgDecoration.color) {
-      return (
-        <View style={[styles.container, { backgroundColor: bgDecoration.color }]}>
-          {bgCornerConfig && <CornerDecorations config={bgCornerConfig} />}
-          {content}
-        </View>
-      );
-    }
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        {content}
-      </View>
-    );
-  };
 
   // Regular post layout (non-repost)
   const postContent = (
@@ -693,6 +705,7 @@ export default function PostCard({
       <TouchableOpacity style={styles.header} onPress={handleUserPress}>
         <Avatar
           size={40}
+          avatarUrl={!post.user.activeAvatar ? post.user.avatarUrl : undefined}
           username={post.user.username}
           style={styles.userAvatar}
           customizations={post.user.activeAvatar?.customizations}
@@ -716,6 +729,38 @@ export default function PostCard({
         {renderImage()}
         {frameCornerConfig && <CornerDecorations config={frameCornerConfig} />}
       </View>
+
+      {/* Location & photo time — half-half below image, tap to expand */}
+      {(post.locationName || post.photoTakenAt) && (
+        <TouchableOpacity
+          style={styles.postMetaRow}
+          activeOpacity={0.7}
+          onPress={() => setMetaExpanded(!metaExpanded)}
+        >
+          {post.locationName && (
+            <View style={[styles.postMetaHalf, !post.photoTakenAt && styles.postMetaFull]}>
+              <Ionicons name="location-outline" size={13} color={decorCaptionColor} />
+              <Text
+                style={[styles.postMetaText, { color: decorCaptionColor }]}
+                numberOfLines={metaExpanded ? undefined : 1}
+              >
+                {post.locationName}
+              </Text>
+            </View>
+          )}
+          {post.photoTakenAt && (
+            <View style={[styles.postMetaHalf, !post.locationName && styles.postMetaFull, { justifyContent: post.locationName ? 'flex-end' : 'flex-start' }]}>
+              <Ionicons name="camera-outline" size={13} color={decorCaptionColor} />
+              <Text
+                style={[styles.postMetaText, { color: decorCaptionColor }]}
+                numberOfLines={metaExpanded ? undefined : 1}
+              >
+                {new Date(post.photoTakenAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      )}
 
       {/* Actions */}
       {renderActions()}
@@ -895,6 +940,25 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     padding: 4,
+  },
+  postMetaRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingTop: 6,
+    gap: 8,
+  },
+  postMetaHalf: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  postMetaFull: {
+    flex: 0,
+  },
+  postMetaText: {
+    fontSize: 12,
+    flexShrink: 1,
   },
   captionContainer: {
     paddingHorizontal: 12,

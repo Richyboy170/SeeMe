@@ -8,6 +8,9 @@ import { AuthRequest } from '../middleware/auth';
 import { logger } from '../utils/logger';
 import { PushNotificationService } from '../services/PushNotificationService';
 import { sequelize } from '../config/database';
+import { S3Service } from '../services/S3Service';
+import { ImageProcessor } from '../utils/imageProcessing';
+import { v4 as uuidv4 } from 'uuid';
 
 // Helper to format avatar data for API response
 function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
@@ -49,6 +52,7 @@ export class UserController {
           'username',
           'email',
           'ageVerified',
+          'avatarUrl',
           'activeAvatarId',
           'positivityGiveCounter',
           'positivityRank',
@@ -68,8 +72,11 @@ export class UserController {
         activeAvatar = formatAvatarForResponse(avatar);
       }
 
-      // Fetch coins received from other users
-      const positivityCoins = await PositivityCoins.findByPk(userId);
+      // Fetch coins received from other users and following count
+      const [positivityCoins, followingCount] = await Promise.all([
+        PositivityCoins.findByPk(userId),
+        Follow.count({ where: { followerId: userId } })
+      ]);
       const positivityReceiveCounter = positivityCoins?.coinsFromOther || 0;
 
       res.json({
@@ -78,11 +85,13 @@ export class UserController {
           username: user.username,
           email: user.email,
           ageVerified: user.ageVerified,
+          avatarUrl: user.avatarUrl,
           activeAvatarId: user.activeAvatarId,
           activeAvatar,
           positivityGiveCounter: user.positivityGiveCounter,
           positivityReceiveCounter,
           positivityRank: user.positivityRank,
+          followingCount,
           createdAt: user.createdAt
         }
       });
@@ -110,6 +119,7 @@ export class UserController {
           attributes: [
             'id',
             'username',
+            'avatarUrl',
             'activeAvatarId',
             'positivityGiveCounter',
             'positivityRank',
@@ -123,6 +133,7 @@ export class UserController {
           attributes: [
             'id',
             'username',
+            'avatarUrl',
             'activeAvatarId',
             'positivityGiveCounter',
             'positivityRank',
@@ -151,6 +162,7 @@ export class UserController {
         user: {
           id: user.id,
           username: user.username,
+          avatarUrl: user.avatarUrl,
           activeAvatarId: user.activeAvatarId,
           activeAvatar,
           positivityGiveCounter: user.positivityGiveCounter,
@@ -173,7 +185,7 @@ export class UserController {
   static async updateCurrentUser(req: AuthRequest, res: Response): Promise<void> {
     try {
       const userId = req.user!.id;
-      const { username, activeAvatarId, isPrivate } = req.body;
+      const { username, activeAvatarId, isPrivate, clearActiveAvatar } = req.body;
 
       const user = await User.findByPk(userId);
 
@@ -197,7 +209,15 @@ export class UserController {
         user.username = username;
       }
 
-      if (activeAvatarId !== undefined) {
+      if (clearActiveAvatar) {
+        // Deactivate custom avatar to show profile photo instead
+        const { AvatarConfigSQL } = await import('../models/AvatarConfigSQL');
+        await AvatarConfigSQL.update(
+          { isActive: false },
+          { where: { userId, isActive: true } }
+        );
+        user.activeAvatarId = null;
+      } else if (activeAvatarId !== undefined) {
         user.activeAvatarId = activeAvatarId;
       }
 
@@ -215,6 +235,7 @@ export class UserController {
           id: user.id,
           username: user.username,
           email: user.email,
+          avatarUrl: user.avatarUrl,
           activeAvatarId: user.activeAvatarId,
           positivityGiveCounter: user.positivityGiveCounter,
           positivityRank: user.positivityRank,
@@ -423,6 +444,7 @@ export class UserController {
         attributes: [
           'id',
           'username',
+          'avatarUrl',
           'activeAvatarId',
           'positivityGiveCounter',
           'positivityRank',
@@ -456,6 +478,7 @@ export class UserController {
       const usersWithFollowStatus = users.map(user => ({
         id: user.id,
         username: user.username,
+        avatarUrl: user.avatarUrl,
         activeAvatarId: user.activeAvatarId,
         activeAvatar: avatarsByUserId.get(user.id) || null,
         positivityGiveCounter: user.positivityGiveCounter,
@@ -475,6 +498,77 @@ export class UserController {
     } catch (error) {
       logger.error('Error searching users', { error, userId: req.user?.id });
       res.status(500).json({ error: 'Failed to search users' });
+    }
+  }
+
+  /**
+   * Upload profile image
+   * @route POST /api/users/me/avatar
+   */
+  static async uploadProfileImage(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.id;
+      const file = req.file;
+
+      if (!file) {
+        res.status(400).json({ error: 'No image file provided' });
+        return;
+      }
+
+      const user = await User.findByPk(userId);
+      if (!user) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
+
+      // Validate image
+      const validation = await ImageProcessor.validateImage(file.buffer);
+      if (!validation.valid) {
+        res.status(400).json({ error: validation.error });
+        return;
+      }
+
+      // Optimize image
+      const optimizedBuffer = await ImageProcessor.optimizeImage(file.buffer);
+
+      // Upload to storage
+      const key = `avatars/${userId}/${uuidv4()}.jpg`;
+      const avatarUrl = await S3Service.uploadImage(optimizedBuffer, key, 'image/jpeg');
+
+      // Delete old avatar image if it exists
+      if (user.avatarUrl) {
+        try {
+          await S3Service.deleteImage(user.avatarUrl);
+        } catch (err) {
+          logger.warn('Failed to delete old avatar image', { err });
+        }
+      }
+
+      // Deactivate custom avatar so the uploaded photo is shown
+      if (user.activeAvatarId) {
+        const { AvatarConfigSQL } = await import('../models/AvatarConfigSQL');
+        await AvatarConfigSQL.update(
+          { isActive: false },
+          { where: { userId, isActive: true } }
+        );
+        user.activeAvatarId = null;
+      }
+
+      // Update user record
+      user.avatarUrl = avatarUrl;
+      await user.save();
+
+      logger.info('Profile image uploaded', { userId });
+
+      res.json({
+        success: true,
+        avatarUrl: user.avatarUrl,
+        activeAvatarCleared: true
+      });
+
+    } catch (error) {
+      logger.error('Error uploading profile image', { error, userId: req.user?.id });
+      res.status(500).json({ error: 'Failed to upload profile image' });
     }
   }
 }

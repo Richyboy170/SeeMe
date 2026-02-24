@@ -1236,6 +1236,7 @@ const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(({ visible, onClos
                 <View style={styles.headerUserInfo}>
                   <Avatar
                     size={36}
+                    avatarUrl={!selectedConversation.otherUser.activeAvatar ? selectedConversation.otherUser.avatarUrl : undefined}
                     username={selectedConversation.otherUser.username}
                     customizations={selectedConversation.otherUser.activeAvatar?.customizations}
                     avatarStyle={selectedConversation.otherUser.activeAvatar?.style}
@@ -1543,6 +1544,7 @@ const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(({ visible, onClos
                 <View style={styles.headerUserInfo}>
                   <Avatar
                     size={36}
+                    avatarUrl={!selectedConversation.otherUser.activeAvatar ? selectedConversation.otherUser.avatarUrl : undefined}
                     username={selectedConversation.otherUser.username}
                     customizations={selectedConversation.otherUser.activeAvatar?.customizations}
                     avatarStyle={selectedConversation.otherUser.activeAvatar?.style}

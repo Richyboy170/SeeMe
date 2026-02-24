@@ -8,12 +8,12 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
-  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../../theme';
-import { api, getImageUrl } from '../../services/api';
+import { api } from '../../services/api';
+import CapsuleCommunityCard from '../../components/CapsuleCommunityCard';
 
 interface PreviewPost {
   id: string;
@@ -36,9 +36,6 @@ interface Topic {
   isFollowing: boolean;
   previewPosts?: PreviewPost[];
 }
-
-// Detect if an icon value is an Ionicons name (lowercase ASCII + hyphens)
-const isIoniconName = (value: string): boolean => /^[a-z][a-z0-9-]*$/.test(value);
 
 interface Category {
   id: string;
@@ -127,118 +124,49 @@ export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesT
   };
 
   const renderCategoriesHeader = () => (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={styles.categoriesList}
-      contentContainerStyle={styles.categoriesContent}
-    >
-      {categories.map((category) => (
-        <TouchableOpacity
-          key={category.id}
-          style={[
-            styles.categoryChip,
-            { backgroundColor: colors.background, borderColor: colors.border },
-            selectedCategory === category.id && styles.categoryChipActive,
-          ]}
-          onPress={() =>
-            handleCategorySelect(
-              selectedCategory === category.id ? null : category.id
-            )
-          }
-        >
-          <Text style={styles.categoryEmoji}>{category.icon}</Text>
-          <Text
+    <View style={styles.headerContainer}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.categoriesList}
+        contentContainerStyle={styles.categoriesContent}
+      >
+        {categories.map((category) => (
+          <TouchableOpacity
+            key={category.id}
             style={[
-              styles.categoryText,
-              { color: colors.text.secondary },
-              selectedCategory === category.id && styles.categoryTextActive,
+              styles.categoryChip,
+              { backgroundColor: colors.background, borderColor: colors.border },
+              selectedCategory === category.id && styles.categoryChipActive,
             ]}
+            onPress={() =>
+              handleCategorySelect(
+                selectedCategory === category.id ? null : category.id
+              )
+            }
           >
-            {category.name}
-          </Text>
-        </TouchableOpacity>
-      ))}
-    </ScrollView>
+            <Text style={styles.categoryEmoji}>{category.icon}</Text>
+            <Text
+              style={[
+                styles.categoryText,
+                { color: colors.text.secondary },
+                selectedCategory === category.id && styles.categoryTextActive,
+              ]}
+            >
+              {category.name}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
   );
 
   const renderTopic = ({ item }: { item: Topic }) => (
-    <TouchableOpacity
-      style={[styles.topicCard, { backgroundColor: colors.card, shadowColor: '#000' }]}
+    <CapsuleCommunityCard
+      topic={item}
       onPress={() => navigation.navigate('TopicPage', { topicSlug: item.slug })}
-    >
-      <View style={styles.topicHeader}>
-        {item.iconImageUrl ? (
-          <Image source={{ uri: getImageUrl(item.iconImageUrl) || item.iconImageUrl }} style={styles.topicIconImage} />
-        ) : item.iconEmoji && isIoniconName(item.iconEmoji) ? (
-          <View style={styles.topicIconWrap}>
-            <Ionicons name={`${item.iconEmoji}-outline` as any} size={24} color="#7C3AED" />
-          </View>
-        ) : (
-          <Text style={styles.topicEmoji}>{item.iconEmoji || '🏷️'}</Text>
-        )}
-        <View style={styles.topicInfo}>
-          <Text style={[styles.topicName, { color: colors.text.primary }]}>{item.name}</Text>
-          <Text style={[styles.topicStats, { color: colors.text.secondary }]}>
-            {item.followerCount} members · {item.weeklyPostCount} posts/week
-          </Text>
-        </View>
-        <TouchableOpacity
-          style={[
-            styles.followButton,
-            item.isFollowing && [styles.followingButton, { backgroundColor: colors.border }],
-          ]}
-          onPress={(e) => {
-            e.stopPropagation();
-            handleFollowTopic(item.id, item.isFollowing);
-          }}
-        >
-          <Text
-            style={[
-              styles.followButtonText,
-              item.isFollowing && styles.followingButtonText,
-            ]}
-          >
-            {item.isFollowing ? 'Joined' : 'Join'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-      {item.description && (
-        <Text style={[styles.topicDescription, { color: colors.text.secondary }]} numberOfLines={2}>
-          {item.description}
-        </Text>
-      )}
-      {/* Preview Posts Row - 5 most attractive posts */}
-      {item.previewPosts && item.previewPosts.length > 0 && (
-        <View style={styles.previewPostsContainer}>
-          {item.previewPosts.slice(0, 5).map((post, index) => (
-            <View key={post.id} style={styles.previewPostWrapper}>
-              <Image
-                source={{ uri: getImageUrl(post.processedImageUrl) || getImageUrl(post.originalImageUrl) || '' }}
-                style={[styles.previewPostImage, { backgroundColor: colors.surface }]}
-              />
-              {post.coinsReceived > 0 && (
-                <View style={styles.previewPostBadge}>
-                  <Text style={styles.previewPostBadgeText}>{post.coinsReceived}</Text>
-                </View>
-              )}
-            </View>
-          ))}
-          {/* Fill empty slots with placeholders */}
-          {Array.from({ length: Math.max(0, 5 - (item.previewPosts?.length || 0)) }).map((_, index) => (
-            <View key={`empty-${index}`} style={[styles.previewPostWrapper, styles.previewPostEmpty, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Ionicons name="image-outline" size={20} color={colors.text.tertiary} />
-            </View>
-          ))}
-        </View>
-      )}
-      {/* Show empty state if no posts */}
-      {(!item.previewPosts || item.previewPosts.length === 0) && (
-        <View style={[styles.noPreviewContainer, { backgroundColor: colors.surface }]}>
-          <Text style={[styles.noPreviewText, { color: colors.text.secondary }]}>No posts yet - be the first to share!</Text>
-        </View>
-      )}
-    </TouchableOpacity>
+      onToggleFollow={handleFollowTopic}
+    />
   );
 
   if (loading) {
@@ -255,6 +183,8 @@ export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesT
       data={topics}
       renderItem={renderTopic}
       keyExtractor={item => item.id}
+      numColumns={2}
+      columnWrapperStyle={styles.columnWrapper}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
       }
@@ -289,6 +219,9 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 16,
   },
+  headerContainer: {
+    marginBottom: 8,
+  },
   categoriesList: {
     maxHeight: 50,
     marginTop: 8,
@@ -322,72 +255,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   topicsList: {
-    padding: 16,
-    paddingTop: 8,
-  },
-  topicCard: {
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  topicHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  topicEmoji: {
-    fontSize: 36,
-    marginRight: 12,
-  },
-  topicIconImage: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    marginRight: 12,
-  },
-  topicIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#F3E8FF',
-    justifyContent: 'center' as const,
-    alignItems: 'center' as const,
-    marginRight: 12,
-  },
-  topicInfo: {
-    flex: 1,
-  },
-  topicName: {
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  topicStats: {
-    fontSize: 13,
-    marginTop: 2,
-  },
-  followButton: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#7C3AED',
-    borderRadius: 20,
+    paddingTop: 8,
+    paddingBottom: 16,
   },
-  followingButton: {
-  },
-  followButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  followingButtonText: {
-    color: '#4B5563',
-  },
-  topicDescription: {
-    fontSize: 14,
-    marginTop: 8,
-    lineHeight: 20,
+  columnWrapper: {
+    justifyContent: 'space-between',
+    marginBottom: 16,
   },
   emptyState: {
     alignItems: 'center',
@@ -401,54 +275,5 @@ const styles = StyleSheet.create({
   emptySubtitle: {
     fontSize: 14,
     marginTop: 4,
-  },
-  // Preview posts styles
-  previewPostsContainer: {
-    flexDirection: 'row',
-    marginTop: 12,
-    gap: 6,
-  },
-  previewPostWrapper: {
-    flex: 1,
-    aspectRatio: 1,
-    borderRadius: 8,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  previewPostImage: {
-    width: '100%',
-    height: '100%',
-  },
-  previewPostEmpty: {
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  previewPostBadge: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    backgroundColor: 'rgba(245, 158, 11, 0.9)',
-    borderRadius: 8,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    minWidth: 16,
-    alignItems: 'center',
-  },
-  previewPostBadgeText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  noPreviewContainer: {
-    marginTop: 12,
-    paddingVertical: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  noPreviewText: {
-    fontSize: 13,
-    fontStyle: 'italic',
   },
 });

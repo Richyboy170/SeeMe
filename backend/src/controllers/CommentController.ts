@@ -137,7 +137,7 @@ export class CommentController {
         include: [{
           model: User,
           as: 'user',
-          attributes: ['id', 'username', 'activeAvatarId']
+          attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
         }]
       });
 
@@ -216,7 +216,7 @@ export class CommentController {
           {
             model: User,
             as: 'user',
-            attributes: ['id', 'username', 'activeAvatarId']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
           },
           {
             model: Comment,
@@ -224,7 +224,7 @@ export class CommentController {
             include: [{
               model: User,
               as: 'user',
-              attributes: ['id', 'username', 'activeAvatarId']
+              attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
             }],
             limit: 3, // Show first 3 replies
             order: [['createdAt', 'ASC']],
@@ -279,7 +279,7 @@ export class CommentController {
         include: [{
           model: User,
           as: 'user',
-          attributes: ['id', 'username', 'activeAvatarId']
+          attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
         }],
         order: [['createdAt', 'ASC']], // Replies in chronological order
         limit,

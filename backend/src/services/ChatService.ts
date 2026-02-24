@@ -58,12 +58,12 @@ export class ChatService {
           {
             model: User,
             as: 'user1',
-            attributes: ['id', 'username', 'activeAvatarId']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
           },
           {
             model: User,
             as: 'user2',
-            attributes: ['id', 'username', 'activeAvatarId']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
           },
           {
             model: Message,
@@ -138,12 +138,12 @@ export class ChatService {
           {
             model: User,
             as: 'user1',
-            attributes: ['id', 'username', 'activeAvatarId']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
           },
           {
             model: User,
             as: 'user2',
-            attributes: ['id', 'username', 'activeAvatarId']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
           }
         ]
       });
@@ -161,12 +161,12 @@ export class ChatService {
             {
               model: User,
               as: 'user1',
-              attributes: ['id', 'username', 'activeAvatarId']
+              attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
             },
             {
               model: User,
               as: 'user2',
-              attributes: ['id', 'username', 'activeAvatarId']
+              attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
             }
           ]
         });
@@ -231,7 +231,7 @@ export class ChatService {
           {
             model: User,
             as: 'sender',
-            attributes: ['id', 'username', 'activeAvatarId']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
           },
           {
             model: MessageReaction,
@@ -313,7 +313,7 @@ export class ChatService {
           {
             model: User,
             as: 'sender',
-            attributes: ['id', 'username', 'activeAvatarId']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
           }
         ]
       });
@@ -412,7 +412,7 @@ export class ChatService {
           {
             model: User,
             as: 'sender',
-            attributes: ['id', 'username', 'activeAvatarId']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
           },
           {
             model: Conversation,
@@ -422,12 +422,12 @@ export class ChatService {
               {
                 model: User,
                 as: 'user1',
-                attributes: ['id', 'username', 'activeAvatarId']
+                attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
               },
               {
                 model: User,
                 as: 'user2',
-                attributes: ['id', 'username', 'activeAvatarId']
+                attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
               }
             ]
           }
@@ -509,7 +509,7 @@ export class ChatService {
           {
             model: User,
             as: 'blocked',
-            attributes: ['id', 'username', 'activeAvatarId']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
           }
         ],
         order: [['createdAt', 'DESC']]
@@ -601,7 +601,7 @@ export class ChatService {
           {
             model: User,
             as: 'sender',
-            attributes: ['id', 'username', 'activeAvatarId']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
           }
         ]
       });

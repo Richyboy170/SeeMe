@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { RootNavigator } from './src/navigation';
 import { ThemeProvider, useTheme } from './src/theme';
 import { CoinCelebrationProvider } from './src/contexts/CoinCelebrationContext';
+import { WelcomeMottoProvider } from './src/contexts/WelcomeMottoContext';
 
 function AppContent() {
   const { isDark } = useTheme();
@@ -21,7 +22,9 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
         <CoinCelebrationProvider>
-          <AppContent />
+          <WelcomeMottoProvider>
+            <AppContent />
+          </WelcomeMottoProvider>
         </CoinCelebrationProvider>
       </ThemeProvider>
     </GestureHandlerRootView>

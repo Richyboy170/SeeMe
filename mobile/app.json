@@ -18,7 +18,8 @@
       "bundleIdentifier": "com.richy.seeme",
       "infoPlist": {
         "NSCameraUsageDescription": "SeeMe needs camera access to take photos for avatar processing",
-        "NSPhotoLibraryUsageDescription": "SeeMe needs photo library access to select photos for avatar processing"
+        "NSPhotoLibraryUsageDescription": "SeeMe needs photo library access to select photos for avatar processing",
+        "NSLocationWhenInUseUsageDescription": "SeeMe can add your current location to posts when you choose to share it"
       }
     },
     "android": {
@@ -30,7 +31,9 @@
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "WRITE_EXTERNAL_STORAGE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
       ],
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false

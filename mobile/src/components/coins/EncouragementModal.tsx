@@ -404,6 +404,7 @@ function EncouragementCard({
       <View style={styles.senderRow}>
         <Avatar
           size={28}
+          avatarUrl={!item.fromActiveAvatar ? (item as any).fromAvatarUrl : undefined}
           username={item.fromUsername}
           customizations={item.fromActiveAvatar?.customizations || null}
           avatarStyle={item.fromActiveAvatar?.style as any}

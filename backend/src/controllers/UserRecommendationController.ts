@@ -86,6 +86,7 @@ export class UserRecommendationController {
         attributes: [
           'id',
           'username',
+          'avatarUrl',
           'activeAvatarId',
           'positivityGiveCounter',
           'positivityRank',
@@ -112,6 +113,7 @@ export class UserRecommendationController {
         attributes: [
           'id',
           'username',
+          'avatarUrl',
           'activeAvatarId',
           'positivityGiveCounter',
           'positivityRank',
@@ -138,6 +140,7 @@ export class UserRecommendationController {
         attributes: [
           'id',
           'username',
+          'avatarUrl',
           'activeAvatarId',
           'positivityGiveCounter',
           'positivityRank',
@@ -180,6 +183,7 @@ export class UserRecommendationController {
           return {
             id: userData.id,
             username: userData.username,
+            avatarUrl: userData.avatarUrl,
             activeAvatarId: userData.activeAvatarId,
             activeAvatar: avatarsByUserId.get(userData.id) || null,
             positivityGiveCounter: userData.positivityGiveCounter,

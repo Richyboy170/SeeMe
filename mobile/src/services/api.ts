@@ -225,7 +225,11 @@ class ApiClient {
     caption: string,
     visibility: 'friends_only' | 'topics_only' | 'topics_and_friends' = 'friends_only',
     topicIds: string[] = [],
-    originalImageUri?: string
+    originalImageUri?: string,
+    locationName?: string,
+    locationLat?: number,
+    locationLng?: number,
+    photoTakenAt?: string
   ) {
     try {
       const formData = new FormData();
@@ -273,6 +277,19 @@ class ApiClient {
       formData.append('visibility', visibility);
       if (topicIds.length > 0) {
         formData.append('topicIds', JSON.stringify(topicIds));
+      }
+
+      if (locationName) {
+        formData.append('locationName', locationName);
+      }
+      if (locationLat !== undefined) {
+        formData.append('locationLat', locationLat.toString());
+      }
+      if (locationLng !== undefined) {
+        formData.append('locationLng', locationLng.toString());
+      }
+      if (photoTakenAt) {
+        formData.append('photoTakenAt', photoTakenAt);
       }
 
       console.log('Creating post with image:', filename, 'caption:', caption, 'visibility:', visibility, 'topics:', topicIds);
@@ -331,6 +348,24 @@ class ApiClient {
 
   async updateProfile(data: { username?: string; bio?: string; avatarUrl?: string }) {
     const response = await this.client.patch('/users/me', data);
+    return response.data;
+  }
+
+  async uploadProfileImage(imageUri: string) {
+    const formData = new FormData();
+    const filename = imageUri.split('/').pop() || 'avatar.jpg';
+    const ext = filename.split('.').pop()?.toLowerCase();
+    const type = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+
+    formData.append('image', {
+      uri: imageUri,
+      name: filename,
+      type,
+    } as any);
+
+    const response = await this.client.post('/users/me/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
     return response.data;
   }
 
@@ -615,6 +650,12 @@ class ApiClient {
       eyeSize?: number;
       hairColor?: string;
       hairStyle?: string;
+      gender?: 'male' | 'female' | null;
+      faceShape?: string | null;
+      facialHair?: string | null;
+      eyebrowStyle?: string | null;
+      mouthStyle?: string | null;
+      noseStyle?: string | null;
       accessories?: {
         glasses?: string | null;
         hat?: string | null;
@@ -635,6 +676,12 @@ class ApiClient {
       eyeSize?: number;
       hairColor?: string;
       hairStyle?: string;
+      gender?: 'male' | 'female' | null;
+      faceShape?: string | null;
+      facialHair?: string | null;
+      eyebrowStyle?: string | null;
+      mouthStyle?: string | null;
+      noseStyle?: string | null;
       accessories?: {
         glasses?: string | null;
         hat?: string | null;

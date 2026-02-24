@@ -43,6 +43,10 @@ export interface PostAttributes {
   imageWidth: number | null;
   imageHeight: number | null;
   facesDetected: number | null;
+  locationName: string | null;
+  locationLat: number | null;
+  locationLng: number | null;
+  photoTakenAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -70,6 +74,10 @@ interface PostCreationAttributes extends Optional<
   | 'imageWidth'
   | 'imageHeight'
   | 'facesDetected'
+  | 'locationName'
+  | 'locationLat'
+  | 'locationLng'
+  | 'photoTakenAt'
   | 'createdAt'
   | 'updatedAt'
 > {}
@@ -98,6 +106,10 @@ export class Post extends Model<PostAttributes, PostCreationAttributes> implemen
   public imageWidth!: number | null;
   public imageHeight!: number | null;
   public facesDetected!: number | null;
+  public locationName!: string | null;
+  public locationLat!: number | null;
+  public locationLng!: number | null;
+  public photoTakenAt!: Date | null;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 }
@@ -227,6 +239,26 @@ Post.init(
       type: DataTypes.INTEGER,
       allowNull: true,
       comment: 'Number of faces detected in the image'
+    },
+    locationName: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: 'Human-readable location name (e.g. "Brooklyn, NY")'
+    },
+    locationLat: {
+      type: DataTypes.FLOAT,
+      allowNull: true,
+      comment: 'GPS latitude'
+    },
+    locationLng: {
+      type: DataTypes.FLOAT,
+      allowNull: true,
+      comment: 'GPS longitude'
+    },
+    photoTakenAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'When the photo was taken (from EXIF or capture time)'
     },
     createdAt: {
       type: DataTypes.DATE,

@@ -107,6 +107,7 @@ export class FollowController {
 
       // Invalidate feed cache
       await FeedController.invalidateFeedCache(followerId);
+      await FeedController.invalidateAlgorithmicFeedCache(followerId);
 
       logger.info('User followed', { followerId, followingId: userToFollow.id });
 
@@ -160,6 +161,7 @@ export class FollowController {
 
       // Invalidate feed cache
       await FeedController.invalidateFeedCache(followerId);
+      await FeedController.invalidateAlgorithmicFeedCache(followerId);
 
       logger.info('User unfollowed/request cancelled', { followerId, targetId: userToUnfollow.id });
 
@@ -196,7 +198,7 @@ export class FollowController {
         include: [{
           model: User,
           as: 'follower',
-          attributes: ['id', 'username', 'activeAvatarId']
+          attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
         }],
         limit,
         offset,
@@ -263,7 +265,7 @@ export class FollowController {
         include: [{
           model: User,
           as: 'followingUser',
-          attributes: ['id', 'username', 'activeAvatarId']
+          attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
         }],
         limit,
         offset,
@@ -405,7 +407,7 @@ export class FollowController {
       const requesterIds = requests.map(r => r.requesterId);
       const requesters = await User.findAll({
         where: { id: { [Op.in]: requesterIds } },
-        attributes: ['id', 'username', 'activeAvatarId', 'positivityRank']
+        attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId', 'positivityRank']
       });
 
       // Fetch active avatars
@@ -481,6 +483,7 @@ export class FollowController {
 
       // Invalidate feed cache for the requester
       await FeedController.invalidateFeedCache(request.requesterId);
+      await FeedController.invalidateAlgorithmicFeedCache(request.requesterId);
 
       logger.info('Follow request accepted', { requestId, userId, requesterId: request.requesterId });
 

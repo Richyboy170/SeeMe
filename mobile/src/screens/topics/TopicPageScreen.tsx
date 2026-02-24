@@ -545,8 +545,10 @@ export default function TopicPageScreen({ route, navigation }: any) {
                         <View style={styles.postUserBadge}>
                             <Avatar
                                 size={24}
-                                avatarUrl={item.user.activeAvatarId}
+                                avatarUrl={!item.user.activeAvatar ? item.user.avatarUrl : undefined}
                                 username={item.user.username}
+                                customizations={item.user.activeAvatar?.customizations}
+                                avatarStyle={item.user.activeAvatar?.style}
                             />
                         </View>
                     )}

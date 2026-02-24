@@ -35,15 +35,26 @@ const SKIN_TONES = [
   { color: '#5C3A21', name: 'Deep' },
 ];
 
-const HAIR_COLORS = [
+const NATURAL_HAIR_COLORS = [
   { color: '#000000', name: 'Black' },
   { color: '#4A3728', name: 'Brown' },
   { color: '#D4A574', name: 'Blonde' },
   { color: '#8B4513', name: 'Auburn' },
   { color: '#808080', name: 'Gray' },
   { color: '#FF6B6B', name: 'Red' },
+  { color: '#FFFFFF', name: 'White' },
+  { color: '#C45C34', name: 'Ginger' },
+  { color: '#6B3A2A', name: 'Chestnut' },
+];
+
+const FANTASY_HAIR_COLORS = [
   { color: '#9B59B6', name: 'Purple' },
   { color: '#3498DB', name: 'Blue' },
+  { color: '#FF69B4', name: 'Pink' },
+  { color: '#20B2AA', name: 'Teal' },
+  { color: '#2ECC71', name: 'Green' },
+  { color: '#FF8C00', name: 'Orange' },
+  { color: '#B39DDB', name: 'Lavender' },
 ];
 
 const EYE_COLORS = [
@@ -55,15 +66,69 @@ const EYE_COLORS = [
   { color: '#000000', name: 'Black' },
 ];
 
-const HAIR_STYLES = [
-  { id: 'short', name: 'Short' },
+const ALL_HAIR_STYLES = [
+  { id: 'short', name: 'Short', affinity: 'neutral' },
+  { id: 'medium', name: 'Medium', affinity: 'neutral' },
+  { id: 'long', name: 'Long', affinity: 'neutral' },
+  { id: 'curly', name: 'Curly', affinity: 'neutral' },
+  { id: 'wavy', name: 'Wavy', affinity: 'neutral' },
+  { id: 'bald', name: 'Bald', affinity: 'neutral' },
+  { id: 'ponytail', name: 'Ponytail', affinity: 'neutral' },
+  { id: 'bun', name: 'Bun', affinity: 'neutral' },
+  // Male-oriented
+  { id: 'buzz', name: 'Buzz', affinity: 'male' },
+  { id: 'fade', name: 'Fade', affinity: 'male' },
+  { id: 'spiky', name: 'Spiky', affinity: 'male' },
+  { id: 'mohawk', name: 'Mohawk', affinity: 'male' },
+  { id: 'crew-cut', name: 'Crew Cut', affinity: 'male' },
+  // Female-oriented
+  { id: 'pixie', name: 'Pixie', affinity: 'female' },
+  { id: 'bob', name: 'Bob', affinity: 'female' },
+  { id: 'braids', name: 'Braids', affinity: 'female' },
+  { id: 'side-swept', name: 'Side Swept', affinity: 'female' },
+  { id: 'twin-tails', name: 'Twin Tails', affinity: 'female' },
+  { id: 'afro', name: 'Afro', affinity: 'neutral' },
+];
+
+const FACE_SHAPES = [
+  { id: null, name: 'Default' },
+  { id: 'oval', name: 'Oval' },
+  { id: 'round', name: 'Round' },
+  { id: 'square', name: 'Square' },
+  { id: 'heart', name: 'Heart' },
+];
+
+const EYEBROW_STYLES = [
+  { id: null, name: 'Default' },
+  { id: 'thin', name: 'Thin' },
+  { id: 'thick', name: 'Thick' },
+  { id: 'arched', name: 'Arched' },
+  { id: 'flat', name: 'Flat' },
+  { id: 'bushy', name: 'Bushy' },
+];
+
+const NOSE_STYLES = [
+  { id: null, name: 'Default' },
+  { id: 'small', name: 'Small' },
   { id: 'medium', name: 'Medium' },
-  { id: 'long', name: 'Long' },
-  { id: 'curly', name: 'Curly' },
-  { id: 'wavy', name: 'Wavy' },
-  { id: 'bald', name: 'Bald' },
-  { id: 'ponytail', name: 'Ponytail' },
-  { id: 'bun', name: 'Bun' },
+  { id: 'pointed', name: 'Pointed' },
+  { id: 'button', name: 'Button' },
+];
+
+const MOUTH_STYLES = [
+  { id: null, name: 'Default' },
+  { id: 'smile', name: 'Smile' },
+  { id: 'neutral', name: 'Neutral' },
+  { id: 'smirk', name: 'Smirk' },
+  { id: 'open', name: 'Open' },
+];
+
+const FACIAL_HAIR_OPTIONS = [
+  { id: null, name: 'None' },
+  { id: 'stubble', name: 'Stubble' },
+  { id: 'mustache', name: 'Mustache' },
+  { id: 'full-beard', name: 'Full Beard' },
+  { id: 'goatee', name: 'Goatee' },
 ];
 
 const GLASSES_OPTIONS = [
@@ -110,6 +175,12 @@ export default function AvatarCustomizationScreen() {
       hat: null,
       earrings: null,
     },
+    gender: null,
+    faceShape: null,
+    facialHair: null,
+    eyebrowStyle: null,
+    mouthStyle: null,
+    noseStyle: null,
   });
 
   useEffect(() => {
@@ -125,7 +196,20 @@ export default function AvatarCustomizationScreen() {
       const avatar = response.avatar;
       setName(avatar.name);
       setStyle(avatar.style);
-      setCustomizations(avatar.customizations);
+      setCustomizations({
+        skinTone: avatar.customizations.skinTone,
+        eyeColor: avatar.customizations.eyeColor,
+        eyeSize: avatar.customizations.eyeSize,
+        hairColor: avatar.customizations.hairColor,
+        hairStyle: avatar.customizations.hairStyle,
+        accessories: avatar.customizations.accessories,
+        gender: avatar.customizations.gender || null,
+        faceShape: avatar.customizations.faceShape || null,
+        facialHair: avatar.customizations.facialHair || null,
+        eyebrowStyle: avatar.customizations.eyebrowStyle || null,
+        mouthStyle: avatar.customizations.mouthStyle || null,
+        noseStyle: avatar.customizations.noseStyle || null,
+      });
     } catch (error) {
       Alert.alert('Error', 'Failed to load avatar');
       navigation.goBack();
@@ -187,24 +271,37 @@ export default function AvatarCustomizationScreen() {
     }));
   };
 
+  // Get sorted hairstyles based on gender selection
+  const getSortedHairStyles = () => {
+    const gender = customizations.gender;
+    if (!gender) return ALL_HAIR_STYLES;
+
+    // Show gender-relevant styles first, then neutral, then the other gender
+    const relevant = ALL_HAIR_STYLES.filter(s => s.affinity === gender);
+    const neutral = ALL_HAIR_STYLES.filter(s => s.affinity === 'neutral');
+    const other = ALL_HAIR_STYLES.filter(s => s.affinity !== gender && s.affinity !== 'neutral');
+    return [...relevant, ...neutral, ...other];
+  };
+
   const renderColorPicker = (
-    colors: { color: string; name: string }[],
+    colorList: { color: string; name: string }[],
     selected: string,
     onSelect: (color: string) => void
   ) => (
     <View style={styles.colorRow}>
-      {colors.map((item) => (
+      {colorList.map((item) => (
         <TouchableOpacity
           key={item.color}
           style={[
             styles.colorCircle,
             { backgroundColor: item.color },
+            item.color === '#FFFFFF' && { borderColor: '#D1D5DB', borderWidth: 2 },
             selected === item.color && styles.colorCircleSelected,
           ]}
           onPress={() => onSelect(item.color)}
         >
           {selected === item.color && (
-            <Ionicons name="checkmark" size={16} color={item.color === '#000000' ? '#FFF' : '#000'} />
+            <Ionicons name="checkmark" size={16} color={item.color === '#000000' ? '#FFF' : item.color === '#FFFFFF' ? '#000' : '#000'} />
           )}
         </TouchableOpacity>
       ))}
@@ -213,7 +310,7 @@ export default function AvatarCustomizationScreen() {
 
   const renderOptionPicker = (
     options: { id: string | null; name: string }[],
-    selected: string | null,
+    selected: string | null | undefined,
     onSelect: (id: string | null) => void
   ) => (
     <View style={styles.optionRow}>
@@ -273,7 +370,7 @@ export default function AvatarCustomizationScreen() {
         <View style={[styles.previewSection, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
           <View style={styles.previewContainer}>
             <AvatarRenderer
-              size={150}
+              size={200}
               customizations={customizations}
               style={style}
             />
@@ -316,6 +413,86 @@ export default function AvatarCustomizationScreen() {
           </View>
         </View>
 
+        {/* Body Type / Gender */}
+        <View style={[styles.section, { borderBottomColor: colors.border }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Body Type</Text>
+          <View style={styles.genderRow}>
+            <TouchableOpacity
+              style={[
+                styles.genderButton,
+                { backgroundColor: colors.inputBackground },
+                customizations.gender === null && styles.genderButtonSelected,
+              ]}
+              onPress={() => {
+                updateCustomization('gender', null);
+                updateCustomization('facialHair', null);
+              }}
+            >
+              <Ionicons
+                name="person-outline"
+                size={28}
+                color={customizations.gender === null ? '#FFF' : colors.text.secondary}
+              />
+              <Text style={[
+                styles.genderText,
+                { color: colors.text.secondary },
+                customizations.gender === null && styles.genderTextSelected,
+              ]}>Unisex</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.genderButton,
+                { backgroundColor: colors.inputBackground },
+                customizations.gender === 'male' && styles.genderButtonSelected,
+              ]}
+              onPress={() => updateCustomization('gender', 'male')}
+            >
+              <Ionicons
+                name="male-outline"
+                size={28}
+                color={customizations.gender === 'male' ? '#FFF' : colors.text.secondary}
+              />
+              <Text style={[
+                styles.genderText,
+                { color: colors.text.secondary },
+                customizations.gender === 'male' && styles.genderTextSelected,
+              ]}>Male</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.genderButton,
+                { backgroundColor: colors.inputBackground },
+                customizations.gender === 'female' && styles.genderButtonSelected,
+              ]}
+              onPress={() => {
+                updateCustomization('gender', 'female');
+                updateCustomization('facialHair', null);
+              }}
+            >
+              <Ionicons
+                name="female-outline"
+                size={28}
+                color={customizations.gender === 'female' ? '#FFF' : colors.text.secondary}
+              />
+              <Text style={[
+                styles.genderText,
+                { color: colors.text.secondary },
+                customizations.gender === 'female' && styles.genderTextSelected,
+              ]}>Female</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Face Shape */}
+        <View style={[styles.section, { borderBottomColor: colors.border }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Face Shape</Text>
+          {renderOptionPicker(
+            FACE_SHAPES,
+            customizations.faceShape,
+            (id) => updateCustomization('faceShape', id)
+          )}
+        </View>
+
         {/* Skin Tone */}
         <View style={[styles.section, { borderBottomColor: colors.border }]}>
           <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Skin Tone</Text>
@@ -323,6 +500,16 @@ export default function AvatarCustomizationScreen() {
             SKIN_TONES,
             customizations.skinTone,
             (color) => updateCustomization('skinTone', color)
+          )}
+        </View>
+
+        {/* Eyebrow Style */}
+        <View style={[styles.section, { borderBottomColor: colors.border }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Eyebrow Style</Text>
+          {renderOptionPicker(
+            EYEBROW_STYLES,
+            customizations.eyebrowStyle,
+            (id) => updateCustomization('eyebrowStyle', id)
           )}
         </View>
 
@@ -353,18 +540,58 @@ export default function AvatarCustomizationScreen() {
           </View>
         </View>
 
+        {/* Nose Style */}
+        <View style={[styles.section, { borderBottomColor: colors.border }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Nose Style</Text>
+          {renderOptionPicker(
+            NOSE_STYLES,
+            customizations.noseStyle,
+            (id) => updateCustomization('noseStyle', id)
+          )}
+        </View>
+
+        {/* Mouth Style */}
+        <View style={[styles.section, { borderBottomColor: colors.border }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Mouth Style</Text>
+          {renderOptionPicker(
+            MOUTH_STYLES,
+            customizations.mouthStyle,
+            (id) => updateCustomization('mouthStyle', id)
+          )}
+        </View>
+
+        {/* Facial Hair (male only) */}
+        {customizations.gender === 'male' && (
+          <View style={[styles.section, { borderBottomColor: colors.border }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Facial Hair</Text>
+            {renderOptionPicker(
+              FACIAL_HAIR_OPTIONS,
+              customizations.facialHair,
+              (id) => updateCustomization('facialHair', id)
+            )}
+          </View>
+        )}
+
         {/* Hair */}
         <View style={[styles.section, { borderBottomColor: colors.border }]}>
           <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Hair Color</Text>
+          <Text style={[styles.subsectionTitle, { color: colors.text.tertiary, marginTop: 0 }]}>Natural</Text>
           {renderColorPicker(
-            HAIR_COLORS,
+            NATURAL_HAIR_COLORS,
+            customizations.hairColor,
+            (color) => updateCustomization('hairColor', color)
+          )}
+
+          <Text style={[styles.subsectionTitle, { color: colors.text.tertiary }]}>Fantasy</Text>
+          {renderColorPicker(
+            FANTASY_HAIR_COLORS,
             customizations.hairColor,
             (color) => updateCustomization('hairColor', color)
           )}
 
           <Text style={[styles.subsectionTitle, { color: colors.text.tertiary }]}>Hair Style</Text>
           {renderOptionPicker(
-            HAIR_STYLES,
+            getSortedHairStyles(),
             customizations.hairStyle,
             (id) => updateCustomization('hairStyle', id || 'short')
           )}
@@ -503,6 +730,30 @@ const styles = StyleSheet.create({
     color: '#374151',
   },
   styleButtonTextSelected: {
+    color: '#FFF',
+  },
+  genderRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  genderButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  genderButtonSelected: {
+    backgroundColor: '#FBBF24',
+  },
+  genderText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  genderTextSelected: {
     color: '#FFF',
   },
   colorRow: {

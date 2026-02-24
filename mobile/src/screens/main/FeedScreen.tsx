@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState, useMemo } from 'react';
+import React, { useCallback, useRef, useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -22,7 +22,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect, useNavigation, CommonActions } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -44,11 +44,14 @@ import { FeedStackParamList, useUnreadCount } from '../../navigation/types';
 import { AvatarCustomizations } from '../../components/AvatarRenderer';
 import { navigateToUserProfile } from '../../utils/feedNavigation';
 import { useTheme } from '../../theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type FeedScreenNavigationProp = StackNavigationProp<FeedStackParamList, 'FeedHome'>;
 
 const TABLET_BREAKPOINT = 600;
 const MAX_CONTENT_WIDTH = 600;
+const SEEN_POSTS_STORAGE_KEY = '@seeme_seen_post_ids';
+const SEEN_POSTS_MAX_STORED = 500;
 
 /**
  * Blend a hex color toward a base color.
@@ -122,6 +125,7 @@ interface Comment {
 interface RepostedByUser {
   id: string;
   username: string;
+  avatarUrl?: string | null;
   activeAvatar?: ActiveAvatar | null;
 }
 
@@ -131,6 +135,7 @@ interface Post {
   user: {
     id: string;
     username: string;
+    avatarUrl?: string | null;
     activeAvatarId?: string;
     activeAvatar?: ActiveAvatar | null;
   };
@@ -144,6 +149,8 @@ interface Post {
   likedByMe?: boolean;
   repostedByMe?: boolean;
   createdAt: string;
+  locationName?: string | null;
+  photoTakenAt?: string | null;
   recentComments?: Comment[];
   // Decoration data from backend
   decoration?: ResolvedDecoration | null;
@@ -155,6 +162,65 @@ interface Post {
   repostCreatedAt?: string;
   // Topic data from backend
   topics?: Array<{ id: string; name: string; slug: string; iconEmoji: string | null }>;
+}
+
+// --- Seen-post / "Caught Up" types ---
+type CaughtUpItem = { _type: 'caught_up'; id: string };
+type FeedItem = Post | CaughtUpItem;
+
+function isCaughtUpItem(item: FeedItem): item is CaughtUpItem {
+  return '_type' in item && (item as CaughtUpItem)._type === 'caught_up';
+}
+
+const caughtUpStyles = StyleSheet.create({
+  container: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+  },
+  iconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  divider: {
+    width: '60%',
+    height: 1,
+  },
+});
+
+function CaughtUpCard({ colors, filtered }: { colors: FeedColors; filtered?: boolean }) {
+  return (
+    <View style={caughtUpStyles.container}>
+      <View style={[caughtUpStyles.iconCircle, { backgroundColor: colors.emptyIconBg }]}>
+        <Ionicons name="checkmark-circle" size={36} color={colors.accent} />
+      </View>
+      <Text style={[caughtUpStyles.title, { color: colors.text }]}>
+        {filtered ? 'You have seen all the posts in the filter' : "You're all caught up"}
+      </Text>
+      <Text style={[caughtUpStyles.subtitle, { color: colors.textSecondary }]}>
+        {filtered
+          ? 'All posts from your selected friends and communities have been seen'
+          : "You've seen all new posts from your friends and communities"}
+      </Text>
+      <View style={[caughtUpStyles.divider, { backgroundColor: colors.separator }]} />
+    </View>
+  );
 }
 
 // Twitter-style Tweet Card Component
@@ -199,6 +265,7 @@ function TweetCard({
   const [repostCount, setRepostCount] = React.useState(post.repostCount || 0);
   const [showHeartOverlay, setShowHeartOverlay] = React.useState(false);
   const [repostExpanded, setRepostExpanded] = React.useState(false);
+  const [metaExpanded, setMetaExpanded] = React.useState(false);
 
   // ── Decoration resolution ──────────────────────────────────────────
   const decoration = post.decoration;
@@ -469,6 +536,55 @@ function TweetCard({
   const feedWidth = width >= TABLET_BREAKPOINT ? width - SIDEBAR_WIDTH : width;
   const imageWidth = Math.min(feedWidth - 82, 700);
 
+  // Muted decoration background (used for both reposts and regular posts)
+  const mutedBg = (() => {
+    if (!bgDecoration) return colors.cardBackground;
+    const primary = bgDecoration.type === 'gradient' && bgDecoration.colors
+      ? bgDecoration.colors[0]
+      : bgDecoration.color || colors.cardBackground;
+    return blendHex(primary, isDark ? '#161B22' : '#F8F9FA', 0.88);
+  })();
+
+  // Accent strip / binder icon renderer
+  const renderAccentStrip = () => {
+    if (!bgDecoration) return null;
+    const binder = bgDecoration.binderIcon;
+    if (binder) {
+      const BinderIcon = binder.iconFamily === 'Ionicons' ? Ionicons : MaterialCommunityIcons;
+      const gradientColors = bgDecoration.type === 'gradient' && bgDecoration.colors
+        ? bgDecoration.colors as [string, string, ...string[]]
+        : [bgDecoration.color || '#888', bgDecoration.color || '#888'] as [string, string];
+      return (
+        <LinearGradient
+          colors={gradientColors}
+          locations={bgDecoration.locations as [number, number, ...number[]] | undefined}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={styles.decorIconBinder}
+        >
+          <BinderIcon name={binder.iconName as any} size={10} color={binder.color} style={{ opacity: 0.7 }} />
+          <BinderIcon name={binder.iconName as any} size={10} color={binder.color} style={{ opacity: 0.5 }} />
+          <BinderIcon name={binder.iconName as any} size={10} color={binder.color} style={{ opacity: 0.7 }} />
+        </LinearGradient>
+      );
+    }
+    if (bgDecoration.type === 'gradient' && bgDecoration.colors) {
+      return (
+        <LinearGradient
+          colors={bgDecoration.colors as [string, string, ...string[]]}
+          locations={bgDecoration.locations as [number, number, ...number[]] | undefined}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={styles.decorAccentStrip}
+        />
+      );
+    }
+    if (bgDecoration.type === 'solid' && bgDecoration.color) {
+      return <View style={[styles.decorAccentStrip, { backgroundColor: bgDecoration.color }]} />;
+    }
+    return null;
+  };
+
   // Compact repost layout - reposter is the focus, original post is small preview
   if (post.isRepost && post.repostedBy) {
     const maxCaptionLength = 60;
@@ -477,7 +593,9 @@ function TweetCard({
       : post.caption;
 
     return (
-      <View style={[styles.tweetContainer, { backgroundColor: colors.cardBackground }]}>
+      <View style={[styles.tweetContainer, { backgroundColor: mutedBg }]}>
+        {bgCornerConfig && <CornerDecorations config={bgCornerConfig} muted />}
+        {renderAccentStrip()}
         {/* Reposter Header - Main focus */}
         <View style={styles.tweetMainContent}>
           <TouchableOpacity
@@ -486,6 +604,7 @@ function TweetCard({
           >
             <Avatar
               size={40}
+              avatarUrl={!post.repostedBy.activeAvatar ? post.repostedBy.avatarUrl : undefined}
               username={post.repostedBy.username}
               customizations={post.repostedBy.activeAvatar?.customizations}
               avatarStyle={post.repostedBy.activeAvatar?.style}
@@ -553,6 +672,7 @@ function TweetCard({
                   <View style={styles.compactPostHeader}>
                     <Avatar
                       size={16}
+                      avatarUrl={!post.user.activeAvatar ? post.user.avatarUrl : undefined}
                       username={post.user.username}
                       customizations={post.user.activeAvatar?.customizations}
                       avatarStyle={post.user.activeAvatar?.style}
@@ -593,6 +713,7 @@ function TweetCard({
                 <View style={styles.expandedPostHeader}>
                   <Avatar
                     size={24}
+                    avatarUrl={!post.user.activeAvatar ? post.user.avatarUrl : undefined}
                     username={post.user.username}
                     customizations={post.user.activeAvatar?.customizations}
                     avatarStyle={post.user.activeAvatar?.style}
@@ -622,21 +743,21 @@ function TweetCard({
             {/* Action Buttons */}
             <View style={styles.actionsRow}>
               <TouchableOpacity style={styles.actionButton} onPress={() => onComment(post.id)}>
-                <Ionicons name="chatbubble-outline" size={18} color={colors.iconDefault} />
+                <Ionicons name="chatbubble-outline" size={18} color={dCommentColor} />
                 <Text style={[styles.actionCount, { color: colors.textSecondary }]}>
                   {formatCount(post.commentsCount)}
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.actionButton} onPress={handleRepost}>
-                <Ionicons name="repeat-outline" size={20} color={reposted ? '#00BA7C' : colors.iconDefault} />
+                <Ionicons name="repeat-outline" size={20} color={dRepostColor(reposted)} />
                 <Text style={[styles.actionCount, { color: reposted ? '#00BA7C' : colors.textSecondary }]}>
                   {formatCount(repostCount)}
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
-                <Ionicons name={liked ? 'heart' : 'heart-outline'} size={18} color={liked ? colors.like : colors.iconDefault} />
+                <Ionicons name={liked ? 'heart' : 'heart-outline'} size={18} color={dLikeColor(liked)} />
                 <Text style={[styles.actionCount, { color: liked ? colors.like : colors.textSecondary }]}>
                   {formatCount(likesCount)}
                 </Text>
@@ -655,7 +776,7 @@ function TweetCard({
                     onPress={() => onGiveCoins(post)}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="gift" size={width >= TABLET_BREAKPOINT ? 20 : 18} color={colors.gift} />
+                    <Ionicons name="gift" size={width >= TABLET_BREAKPOINT ? 20 : 18} color={dGiftColor} />
                     {width >= TABLET_BREAKPOINT && (
                       <Text style={[styles.giftButtonText, { color: colors.gift }]}>Send</Text>
                     )}
@@ -708,7 +829,7 @@ function TweetCard({
               )}
 
               <TouchableOpacity style={styles.actionButton} onPress={() => onShare(post)}>
-                <Ionicons name="share-outline" size={18} color={colors.iconDefault} />
+                <Ionicons name="share-outline" size={18} color={dShareColor} />
               </TouchableOpacity>
             </View>
 
@@ -728,56 +849,10 @@ function TweetCard({
   }
 
   // Regular post layout (non-repost)
-  // Muted decoration: subtle tint instead of full color, plus accent strip
-  const mutedBg = (() => {
-    if (!bgDecoration) return colors.cardBackground;
-    const primary = bgDecoration.type === 'gradient' && bgDecoration.colors
-      ? bgDecoration.colors[0]
-      : bgDecoration.color || colors.cardBackground;
-    return blendHex(primary, isDark ? '#161B22' : '#F8F9FA', 0.88);
-  })();
-
   const cardContent = (
     <View style={[styles.tweetContainer, { backgroundColor: mutedBg }]}>
       {bgCornerConfig && <CornerDecorations config={bgCornerConfig} muted />}
-      {/* Decoration accent strip / icon binder – left-edge indicator */}
-      {bgDecoration && (() => {
-        const binder = bgDecoration.binderIcon;
-        if (binder) {
-          const BinderIcon = binder.iconFamily === 'Ionicons' ? Ionicons : MaterialCommunityIcons;
-          const gradientColors = bgDecoration.type === 'gradient' && bgDecoration.colors
-            ? bgDecoration.colors as [string, string, ...string[]]
-            : [bgDecoration.color || '#888', bgDecoration.color || '#888'] as [string, string];
-          return (
-            <LinearGradient
-              colors={gradientColors}
-              locations={bgDecoration.locations as [number, number, ...number[]] | undefined}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-              style={styles.decorIconBinder}
-            >
-              <BinderIcon name={binder.iconName as any} size={10} color={binder.color} style={{ opacity: 0.7 }} />
-              <BinderIcon name={binder.iconName as any} size={10} color={binder.color} style={{ opacity: 0.5 }} />
-              <BinderIcon name={binder.iconName as any} size={10} color={binder.color} style={{ opacity: 0.7 }} />
-            </LinearGradient>
-          );
-        }
-        if (bgDecoration.type === 'gradient' && bgDecoration.colors) {
-          return (
-            <LinearGradient
-              colors={bgDecoration.colors as [string, string, ...string[]]}
-              locations={bgDecoration.locations as [number, number, ...number[]] | undefined}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-              style={styles.decorAccentStrip}
-            />
-          );
-        }
-        if (bgDecoration.type === 'solid' && bgDecoration.color) {
-          return <View style={[styles.decorAccentStrip, { backgroundColor: bgDecoration.color }]} />;
-        }
-        return null;
-      })()}
+      {renderAccentStrip()}
       {/* Main Tweet Content */}
       <View style={styles.tweetMainContent}>
         {/* Avatar Column */}
@@ -787,6 +862,7 @@ function TweetCard({
         >
           <Avatar
             size={40}
+            avatarUrl={!post.user.activeAvatar ? post.user.avatarUrl : undefined}
             username={post.user.username}
             customizations={post.user.activeAvatar?.customizations}
             avatarStyle={post.user.activeAvatar?.style}
@@ -873,6 +949,38 @@ function TweetCard({
                 </Animated.View>
               )}
             </Pressable>
+          )}
+
+          {/* Location & photo time — half-half below image, tap to expand */}
+          {(post.locationName || post.photoTakenAt) && (
+            <TouchableOpacity
+              style={styles.postMetaRow}
+              activeOpacity={0.7}
+              onPress={() => setMetaExpanded(!metaExpanded)}
+            >
+              {post.locationName && (
+                <View style={[styles.postMetaHalf, !post.photoTakenAt && styles.postMetaFull]}>
+                  <Ionicons name="location-outline" size={12} color={dSecondaryColor} />
+                  <Text
+                    style={[styles.postMetaText, { color: dSecondaryColor }]}
+                    numberOfLines={metaExpanded ? undefined : 1}
+                  >
+                    {post.locationName}
+                  </Text>
+                </View>
+              )}
+              {post.photoTakenAt && (
+                <View style={[styles.postMetaHalf, !post.locationName && styles.postMetaFull, { justifyContent: post.locationName ? 'flex-end' : 'flex-start' }]}>
+                  <Ionicons name="camera-outline" size={12} color={dSecondaryColor} />
+                  <Text
+                    style={[styles.postMetaText, { color: dSecondaryColor }]}
+                    numberOfLines={metaExpanded ? undefined : 1}
+                  >
+                    {new Date(post.photoTakenAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
           )}
 
           {/* Action Buttons */}
@@ -1031,7 +1139,7 @@ function TweetCard({
   return cardContent;
 }
 
-// Twitter-style Image Viewer Modal
+// Full-screen single-post Image Viewer
 function ImageViewerModal({
   visible,
   post,
@@ -1041,6 +1149,7 @@ function ImageViewerModal({
   onUserPress,
   onRepost,
   onShare,
+  onGiveCoins,
 }: {
   visible: boolean;
   post: Post | null;
@@ -1050,48 +1159,65 @@ function ImageViewerModal({
   onUserPress: (userId: string) => void;
   onRepost: (post: Post) => void;
   onShare: (post: Post) => void;
+  onGiveCoins: (post: Post) => void;
 }) {
   const insets = useSafeAreaInsets();
-  const [liked, setLiked] = React.useState(post?.likedByMe || false);
-  const [likesCount, setLikesCount] = React.useState(post?.likesCount || 0);
-  const [reposted, setReposted] = React.useState(post?.repostedByMe || false);
-  const [repostCount, setRepostCount] = React.useState(post?.repostCount || 0);
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const lastTapRef = React.useRef(0);
+  const heartScale = React.useRef(new Animated.Value(0)).current;
+  const heartOpacity = React.useRef(new Animated.Value(0)).current;
+  const [showHeart, setShowHeart] = React.useState(false);
+  const [liked, setLiked] = React.useState(false);
+  const [likesCount, setLikesCount] = React.useState(0);
 
-  // Reset state when post changes
   React.useEffect(() => {
-    if (post) {
+    if (visible && post) {
       setLiked(post.likedByMe || false);
       setLikesCount(post.likesCount);
-      setReposted(post.repostedByMe || false);
-      setRepostCount(post.repostCount || 0);
     }
-  }, [post]);
+  }, [visible, post]);
 
-  if (!post) return null;
+  if (!visible || !post) return null;
 
   const fullImageUri = getImageUrl(post.originalImageUrl) || getImageUrl(post.imageUrl) || getImageUrl(post.thumbnailUrl);
 
-  const handleLike = () => {
+  const handleLikePress = () => {
     setLiked(!liked);
     setLikesCount(liked ? likesCount - 1 : likesCount + 1);
     onLike(post.id);
   };
 
-  const handleRepost = () => {
-    // Don't toggle state here - let the modal handle it
-    onRepost(post);
+  const animateHeart = () => {
+    setShowHeart(true);
+    heartScale.setValue(0);
+    heartOpacity.setValue(1);
+    Animated.sequence([
+      Animated.spring(heartScale, { toValue: 1.2, friction: 3, tension: 120, useNativeDriver: true }),
+      Animated.timing(heartScale, { toValue: 1, duration: 100, useNativeDriver: true }),
+      Animated.delay(300),
+      Animated.timing(heartOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+    ]).start(() => setShowHeart(false));
+  };
+
+  const handleDoubleTap = () => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 300) {
+      if (!liked) handleLikePress();
+      animateHeart();
+      lastTapRef.current = 0;
+    } else {
+      lastTapRef.current = now;
+    }
   };
 
   const formatTimeAgo = (dateString: string) => {
     const now = new Date();
     const postDate = new Date(dateString);
     const diffInSeconds = Math.floor((now.getTime() - postDate.getTime()) / 1000);
-
-    if (diffInSeconds < 60) return 'now';
-    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m`;
-    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h`;
-    if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d`;
-
+    if (diffInSeconds < 60) return 'Just now';
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+    if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
     const month = postDate.toLocaleString('en-US', { month: 'short' });
     const day = postDate.getDate();
     return `${month} ${day}`;
@@ -1111,127 +1237,233 @@ function ImageViewerModal({
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      <StatusBar backgroundColor="rgba(0,0,0,0.95)" barStyle="light-content" />
-      <View style={styles.imageViewerContainer}>
-        {/* Header */}
-        <View style={[styles.imageViewerHeader, { paddingTop: insets.top + 8 }]}>
-          <TouchableOpacity
-            style={styles.imageViewerCloseButton}
-            onPress={onClose}
-          >
-            <Ionicons name="close" size={24} color="#FFF" />
-          </TouchableOpacity>
+      <StatusBar backgroundColor="#000" barStyle="light-content" />
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
+        {/* Full-screen image — double-tap to like */}
+        <Pressable
+          style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
+          onPress={handleDoubleTap}
+        >
+          {fullImageUri ? (
+            <Image
+              source={{ uri: fullImageUri }}
+              style={{ width: screenWidth, height: screenHeight }}
+              resizeMode="contain"
+            />
+          ) : (
+            <View style={{ width: screenWidth, height: screenWidth, justifyContent: 'center', alignItems: 'center', backgroundColor: '#111' }}>
+              <Ionicons name="image-outline" size={64} color="#333" />
+            </View>
+          )}
 
+          {/* Heart overlay on double-tap */}
+          {showHeart && (
+            <Animated.View
+              style={{
+                position: 'absolute',
+                opacity: heartOpacity,
+                transform: [{ scale: heartScale }],
+              }}
+            >
+              <Ionicons name="heart" size={100} color="#F91880" />
+            </Animated.View>
+          )}
+        </Pressable>
+
+        {/* Top gradient */}
+        <LinearGradient
+          colors={['rgba(0,0,0,0.6)', 'transparent']}
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top + 70 }}
+          pointerEvents="box-none"
+        />
+
+        {/* Header: back button */}
+        <View style={{
+          position: 'absolute',
+          top: insets.top + 8,
+          left: 16,
+          right: 16,
+          flexDirection: 'row',
+          alignItems: 'center',
+        }}>
           <TouchableOpacity
-            style={styles.imageViewerUserInfo}
-            onPress={() => {
-              onClose();
-              onUserPress(post.user.id);
+            onPress={onClose}
+            style={{
+              width: 36, height: 36, borderRadius: 18,
+              backgroundColor: 'rgba(255,255,255,0.15)',
+              justifyContent: 'center', alignItems: 'center',
             }}
           >
+            <Ionicons name="chevron-back" size={22} color="#FFF" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Right-side action pills */}
+        <View style={{
+          position: 'absolute',
+          right: 12,
+          bottom: insets.bottom + 100,
+          alignItems: 'center',
+          gap: 20,
+        }}>
+          {/* Like */}
+          <TouchableOpacity onPress={handleLikePress} style={{ alignItems: 'center' }}>
+            <View style={{
+              width: 46, height: 46, borderRadius: 23,
+              backgroundColor: 'rgba(0,0,0,0.35)',
+              justifyContent: 'center', alignItems: 'center',
+              borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+            }}>
+              <Ionicons
+                name={liked ? 'heart' : 'heart-outline'}
+                size={25}
+                color={liked ? '#F91880' : '#FFF'}
+              />
+            </View>
+            {likesCount > 0 && (
+              <Text style={{ fontSize: 11, fontWeight: '600', color: '#FFF', marginTop: 3 }}>
+                {formatCount(likesCount)}
+              </Text>
+            )}
+          </TouchableOpacity>
+
+          {/* Comment */}
+          <TouchableOpacity
+            onPress={() => { onComment(post.id); onClose(); }}
+            style={{ alignItems: 'center' }}
+          >
+            <View style={{
+              width: 46, height: 46, borderRadius: 23,
+              backgroundColor: 'rgba(0,0,0,0.35)',
+              justifyContent: 'center', alignItems: 'center',
+              borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+            }}>
+              <Ionicons name="chatbubble-outline" size={22} color="#FFF" />
+            </View>
+            {post.commentsCount > 0 && (
+              <Text style={{ fontSize: 11, fontWeight: '600', color: '#FFF', marginTop: 3 }}>
+                {formatCount(post.commentsCount)}
+              </Text>
+            )}
+          </TouchableOpacity>
+
+          {/* Repost */}
+          <TouchableOpacity
+            onPress={() => onRepost(post)}
+            style={{ alignItems: 'center' }}
+          >
+            <View style={{
+              width: 46, height: 46, borderRadius: 23,
+              backgroundColor: 'rgba(0,0,0,0.35)',
+              justifyContent: 'center', alignItems: 'center',
+              borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+            }}>
+              <Ionicons
+                name="repeat-outline"
+                size={24}
+                color={post.repostedByMe ? '#00BA7C' : '#FFF'}
+              />
+            </View>
+          </TouchableOpacity>
+
+          {/* Give Coins */}
+          <TouchableOpacity
+            onPress={() => onGiveCoins(post)}
+            style={{ alignItems: 'center' }}
+          >
+            <View style={{
+              width: 46, height: 46, borderRadius: 23,
+              backgroundColor: 'rgba(0,0,0,0.35)',
+              justifyContent: 'center', alignItems: 'center',
+              borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+            }}>
+              <Ionicons name="gift" size={22} color="#FBBF24" />
+            </View>
+          </TouchableOpacity>
+
+          {/* Share */}
+          <TouchableOpacity
+            onPress={() => onShare(post)}
+            style={{ alignItems: 'center' }}
+          >
+            <View style={{
+              width: 46, height: 46, borderRadius: 23,
+              backgroundColor: 'rgba(0,0,0,0.35)',
+              justifyContent: 'center', alignItems: 'center',
+              borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+            }}>
+              <Ionicons name="paper-plane-outline" size={21} color="#FFF" />
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* Bottom-left: user info + caption */}
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.75)']}
+          style={{
+            position: 'absolute',
+            bottom: 0, left: 0, right: 70,
+            paddingBottom: insets.bottom + 16,
+            paddingTop: 50,
+            paddingHorizontal: 16,
+          }}
+          pointerEvents="box-none"
+        >
+          {/* User row */}
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}
+            onPress={() => { onUserPress(post.user.id); onClose(); }}
+          >
             <Avatar
-              size={32}
+              size={36}
+              avatarUrl={!post.user.activeAvatar ? post.user.avatarUrl : undefined}
               username={post.user.username}
               customizations={post.user.activeAvatar?.customizations}
               avatarStyle={post.user.activeAvatar?.style}
             />
-            <View style={styles.imageViewerUserText}>
-              <Text style={styles.imageViewerDisplayName}>{post.user.username}</Text>
-              <Text style={styles.imageViewerUsername}>@{post.user.username}</Text>
+            <View style={{ marginLeft: 10 }}>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: '#FFF' }}>
+                {post.user.username}
+              </Text>
+              <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>
+                {formatTimeAgo(post.createdAt)}
+              </Text>
             </View>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.imageViewerMoreButton}>
-            <Ionicons name="ellipsis-horizontal" size={20} color="#FFF" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Image */}
-        <Pressable
-          style={styles.imageViewerContent}
-          onPress={onClose}
-        >
-          {fullImageUri && (
-            <Image
-              source={{ uri: fullImageUri }}
-              style={styles.fullImage}
-              resizeMode="contain"
-            />
-          )}
-        </Pressable>
-
-        {/* Bottom Section with Text and Actions */}
-        <View style={[styles.imageViewerBottom, { paddingBottom: insets.bottom + 8 }]}>
           {/* Caption */}
           {post.caption && (
-            <ScrollView
-              style={styles.imageViewerCaptionScroll}
-              showsVerticalScrollIndicator={false}
+            <Text
+              style={{ fontSize: 14, color: '#FFF', lineHeight: 20, marginBottom: 6 }}
+              numberOfLines={3}
             >
-              <Text style={styles.imageViewerCaption}>{post.caption}</Text>
-            </ScrollView>
+              {post.caption}
+            </Text>
           )}
 
-          {/* Timestamp */}
-          <Text style={styles.imageViewerTimestamp}>
-            {formatTimeAgo(post.createdAt)}
-          </Text>
-
-          {/* Actions Row */}
-          <View style={styles.imageViewerActions}>
-            {/* Comment */}
-            <TouchableOpacity
-              style={styles.imageViewerActionButton}
-              onPress={() => {
-                onClose();
-                onComment(post.id);
-              }}
-            >
-              <Ionicons name="chatbubble-outline" size={22} color="#FFF" />
-              <Text style={styles.imageViewerActionCount}>
-                {formatCount(post.commentsCount)}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Repost */}
-            <TouchableOpacity
-              style={styles.imageViewerActionButton}
-              onPress={handleRepost}
-            >
-              <Ionicons
-                name="repeat-outline"
-                size={24}
-                color={reposted ? '#00BA7C' : '#FFF'}
-              />
-              <Text style={[styles.imageViewerActionCount, reposted && { color: '#00BA7C' }]}>
-                {formatCount(repostCount)}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Like */}
-            <TouchableOpacity
-              style={styles.imageViewerActionButton}
-              onPress={handleLike}
-            >
-              <Ionicons
-                name={liked ? 'heart' : 'heart-outline'}
-                size={22}
-                color={liked ? '#F91880' : '#FFF'}
-              />
-              <Text style={[styles.imageViewerActionCount, liked && { color: '#F91880' }]}>
-                {formatCount(likesCount)}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Share */}
-            <TouchableOpacity
-              style={styles.imageViewerActionButton}
-              onPress={() => onShare(post)}
-            >
-              <Ionicons name="share-outline" size={22} color="#FFF" />
-            </TouchableOpacity>
-          </View>
-        </View>
+          {/* Location & Topics */}
+          {(post.locationName || (post.topics && post.topics.length > 0)) && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 2 }}>
+              {post.locationName && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <Ionicons name="location-outline" size={12} color="rgba(255,255,255,0.5)" />
+                  <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>{post.locationName}</Text>
+                </View>
+              )}
+              {post.topics && post.topics.map(t => (
+                <View key={t.id} style={{
+                  backgroundColor: 'rgba(255,255,255,0.1)',
+                  borderRadius: 10,
+                  paddingHorizontal: 8, paddingVertical: 2,
+                }}>
+                  <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>
+                    {t.iconEmoji ? `${t.iconEmoji} ` : '#'}{t.name}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </LinearGradient>
       </View>
     </Modal>
   );
@@ -1246,6 +1478,7 @@ const SIDEBAR_WIDTH = 260;
 interface FriendEntry {
   userId: string;
   username: string;
+  avatarUrl?: string | null;
   avatar?: ActiveAvatar | null;
   totalPosts: number;
   seenPosts: number;
@@ -1264,94 +1497,21 @@ interface CommunityEntry {
 }
 
 function FeedSidebar({
-  posts,
-  viewedPostIds,
+  friends,
+  communities,
+  totalFriendUnseen,
+  totalCommunityUnseen,
   onPostPress,
   colors,
 }: {
-  posts: Post[];
-  viewedPostIds: Set<string>;
+  friends: FriendEntry[];
+  communities: CommunityEntry[];
+  totalFriendUnseen: number;
+  totalCommunityUnseen: number;
   onPostPress: (postId: string, userId: string, username: string) => void;
   colors: ThemeColors;
 }) {
   const { colors: themeColors } = useTheme();
-
-  // Friends section: group ALL posts by author with seen/unseen ratio
-  const friends = useMemo(() => {
-    const map = new Map<string, FriendEntry>();
-    for (const post of posts) {
-      const postKey = post.feedItemId || post.id;
-      const userId = post.isRepost && post.repostedBy ? post.repostedBy.id : post.user.id;
-      const username = post.isRepost && post.repostedBy ? post.repostedBy.username : post.user.username;
-      const avatar = post.isRepost && post.repostedBy ? post.repostedBy.activeAvatar : post.user.activeAvatar;
-      const isSeen = viewedPostIds.has(postKey);
-
-      if (map.has(userId)) {
-        const entry = map.get(userId)!;
-        entry.totalPosts++;
-        if (isSeen) entry.seenPosts++;
-        if (!isSeen && !entry.firstUnseenPostId) entry.firstUnseenPostId = postKey;
-      } else {
-        map.set(userId, {
-          userId,
-          username,
-          avatar,
-          totalPosts: 1,
-          seenPosts: isSeen ? 1 : 0,
-          firstUnseenPostId: isSeen ? null : postKey,
-          firstPostId: postKey,
-        });
-      }
-    }
-    // Sort: users with unseen posts first, then by most unseen
-    return Array.from(map.values()).sort((a, b) => {
-      const aUnseen = a.totalPosts - a.seenPosts;
-      const bUnseen = b.totalPosts - b.seenPosts;
-      if (aUnseen > 0 && bUnseen === 0) return -1;
-      if (bUnseen > 0 && aUnseen === 0) return 1;
-      return bUnseen - aUnseen;
-    });
-  }, [posts, viewedPostIds]);
-
-  // Communities section: group ALL posts by topic with seen/unseen ratio
-  const communities = useMemo(() => {
-    const map = new Map<string, CommunityEntry>();
-    for (const post of posts) {
-      if (!post.topics || post.topics.length === 0) continue;
-      const postKey = post.feedItemId || post.id;
-      const isSeen = viewedPostIds.has(postKey);
-
-      for (const topic of post.topics) {
-        if (map.has(topic.id)) {
-          const entry = map.get(topic.id)!;
-          entry.totalPosts++;
-          if (isSeen) entry.seenPosts++;
-          if (!isSeen && !entry.firstUnseenPostId) entry.firstUnseenPostId = postKey;
-        } else {
-          map.set(topic.id, {
-            topicId: topic.id,
-            name: topic.name,
-            iconEmoji: topic.iconEmoji,
-            totalPosts: 1,
-            seenPosts: isSeen ? 1 : 0,
-            firstUnseenPostId: isSeen ? null : postKey,
-            firstPostId: postKey,
-          });
-        }
-      }
-    }
-    // Sort: topics with unseen posts first, then by most unseen
-    return Array.from(map.values()).sort((a, b) => {
-      const aUnseen = a.totalPosts - a.seenPosts;
-      const bUnseen = b.totalPosts - b.seenPosts;
-      if (aUnseen > 0 && bUnseen === 0) return -1;
-      if (bUnseen > 0 && aUnseen === 0) return 1;
-      return bUnseen - aUnseen;
-    });
-  }, [posts, viewedPostIds]);
-
-  const totalFriendUnseen = friends.reduce((sum, f) => sum + (f.totalPosts - f.seenPosts), 0);
-  const totalCommunityUnseen = communities.reduce((sum, c) => sum + (c.totalPosts - c.seenPosts), 0);
   const allCaughtUp = totalFriendUnseen === 0 && totalCommunityUnseen === 0;
 
   // No posts loaded at all
@@ -1414,6 +1574,7 @@ function FeedSidebar({
                 >
                   <Avatar
                     size={32}
+                    avatarUrl={!entry.avatar ? entry.avatarUrl : undefined}
                     username={entry.username}
                     customizations={entry.avatar?.customizations}
                     avatarStyle={entry.avatar?.style}
@@ -1622,6 +1783,508 @@ const sidebarStyles = StyleSheet.create({
   },
 });
 
+// --- Feed Filter Floating Bar (compact filter for non-tablet screens) ---
+function FeedFloatingBar({
+  visible,
+  onClose,
+  friends,
+  communities,
+  selectedFriendIds,
+  selectedCommunityIds,
+  onToggleFriend,
+  onToggleCommunity,
+  onClearFilters,
+  colors,
+  bottomInset,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  friends: FriendEntry[];
+  communities: CommunityEntry[];
+  selectedFriendIds: Set<string>;
+  selectedCommunityIds: Set<string>;
+  onToggleFriend: (userId: string) => void;
+  onToggleCommunity: (topicId: string) => void;
+  onClearFilters: () => void;
+  colors: ThemeColors;
+  bottomInset: number;
+}) {
+  const { colors: themeColors } = useTheme();
+  const [activeTab, setActiveTab] = useState<'friends' | 'communities'>('friends');
+  const [collapsed, setCollapsed] = useState(false);
+  const [showComponent, setShowComponent] = useState(false);
+  const translateY = useRef(new Animated.Value(300)).current;
+  // 0 = expanded card, 1 = collapsed circle
+  const collapseAnim = useRef(new Animated.Value(0)).current;
+  const totalFilters = selectedFriendIds.size + selectedCommunityIds.size;
+
+  useEffect(() => {
+    if (visible) {
+      setShowComponent(true);
+      setCollapsed(false);
+      collapseAnim.setValue(0);
+      Animated.spring(translateY, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 65,
+        friction: 11,
+      }).start();
+    } else {
+      Animated.timing(translateY, {
+        toValue: 300,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(() => setShowComponent(false));
+    }
+  }, [visible]);
+
+  const handleCollapse = useCallback(() => {
+    setCollapsed(true);
+    Animated.spring(collapseAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      tension: 80,
+      friction: 10,
+    }).start();
+  }, []);
+
+  const handleExpand = useCallback(() => {
+    setCollapsed(false);
+    Animated.spring(collapseAnim, {
+      toValue: 0,
+      useNativeDriver: true,
+      tension: 80,
+      friction: 10,
+    }).start();
+  }, []);
+
+  if (!showComponent) return null;
+
+  const entries = activeTab === 'friends' ? friends : communities;
+
+  // Animated values derived from collapseAnim (0 = expanded, 1 = collapsed)
+  const cardOpacity = collapseAnim.interpolate({
+    inputRange: [0, 0.4],
+    outputRange: [1, 0],
+    extrapolate: 'clamp',
+  });
+  const cardScale = collapseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0.1],
+    extrapolate: 'clamp',
+  });
+  const fabOpacity = collapseAnim.interpolate({
+    inputRange: [0.6, 1],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+  const fabScale = collapseAnim.interpolate({
+    inputRange: [0.5, 1],
+    outputRange: [0.3, 1],
+    extrapolate: 'clamp',
+  });
+
+  return (
+    <View style={floatingBarStyles.wrapper} pointerEvents="box-none">
+      {/* Expanded card */}
+      <Animated.View
+        pointerEvents={collapsed ? 'none' : 'auto'}
+        style={[
+          floatingBarStyles.card,
+          {
+            backgroundColor: colors.cardBackground,
+            bottom: bottomInset + 4,
+            transform: [{ translateY }, { scale: cardScale }],
+            opacity: cardOpacity,
+          },
+        ]}
+      >
+        {/* Handle row: collapse button + handle bar + clear */}
+        <View style={floatingBarStyles.handleRow}>
+          <TouchableOpacity
+            onPress={handleCollapse}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
+          <View style={[floatingBarStyles.handleBar, { backgroundColor: colors.textSecondary + '55', flex: 1 }]} />
+          {totalFilters > 0 ? (
+            <TouchableOpacity onPress={onClearFilters} activeOpacity={0.7}>
+              <Text style={[floatingBarStyles.clearBtnText, { color: themeColors.text.link }]}>Clear all</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={{ width: 50 }} />
+          )}
+        </View>
+
+        {/* Tab row */}
+        <View style={[floatingBarStyles.tabRow, { backgroundColor: colors.separator + '44' }]}>
+          <Pressable
+            style={[
+              floatingBarStyles.tab,
+              activeTab === 'friends' && { backgroundColor: themeColors.text.link },
+            ]}
+            onPress={() => setActiveTab('friends')}
+          >
+            <Ionicons
+              name="people-outline"
+              size={14}
+              color={activeTab === 'friends' ? '#FFF' : colors.textSecondary}
+            />
+            <Text
+              style={[
+                floatingBarStyles.tabLabel,
+                { color: activeTab === 'friends' ? '#FFF' : colors.textSecondary },
+              ]}
+            >
+              Friends
+            </Text>
+            {selectedFriendIds.size > 0 && (
+              <View
+                style={[
+                  floatingBarStyles.tabBadge,
+                  {
+                    backgroundColor: activeTab === 'friends' ? 'rgba(255,255,255,0.3)' : themeColors.text.link,
+                  },
+                ]}
+              >
+                <Text style={floatingBarStyles.tabBadgeText}>
+                  {selectedFriendIds.size}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+          <Pressable
+            style={[
+              floatingBarStyles.tab,
+              activeTab === 'communities' && { backgroundColor: themeColors.text.link },
+            ]}
+            onPress={() => setActiveTab('communities')}
+          >
+            <Ionicons
+              name="grid-outline"
+              size={14}
+              color={activeTab === 'communities' ? '#FFF' : colors.textSecondary}
+            />
+            <Text
+              style={[
+                floatingBarStyles.tabLabel,
+                { color: activeTab === 'communities' ? '#FFF' : colors.textSecondary },
+              ]}
+            >
+              Communities
+            </Text>
+            {selectedCommunityIds.size > 0 && (
+              <View
+                style={[
+                  floatingBarStyles.tabBadge,
+                  {
+                    backgroundColor: activeTab === 'communities' ? 'rgba(255,255,255,0.3)' : themeColors.text.link,
+                  },
+                ]}
+              >
+                <Text style={floatingBarStyles.tabBadgeText}>
+                  {selectedCommunityIds.size}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+        </View>
+
+        {/* Scrollable entry list */}
+        <ScrollView
+          style={floatingBarStyles.scroll}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
+          {activeTab === 'friends' && friends.map((entry) => {
+            const isSelected = selectedFriendIds.has(entry.userId);
+            return (
+              <TouchableOpacity
+                key={entry.userId}
+                style={[floatingBarStyles.row, isSelected && { backgroundColor: themeColors.text.link + '14' }]}
+                onPress={() => onToggleFriend(entry.userId)}
+                activeOpacity={0.7}
+              >
+                <View style={[
+                  floatingBarStyles.checkbox,
+                  isSelected
+                    ? { backgroundColor: themeColors.text.link, borderColor: themeColors.text.link }
+                    : { borderColor: colors.textSecondary + '66' },
+                ]}>
+                  {isSelected && <Ionicons name="checkmark" size={13} color="#FFF" />}
+                </View>
+                <Avatar
+                  size={32}
+                  avatarUrl={!entry.avatar ? entry.avatarUrl : undefined}
+                  username={entry.username}
+                  customizations={entry.avatar?.customizations}
+                  avatarStyle={entry.avatar?.style}
+                />
+                <Text
+                  style={[floatingBarStyles.rowLabel, { color: colors.text }]}
+                  numberOfLines={1}
+                >
+                  {entry.username}
+                </Text>
+                <View style={[
+                  floatingBarStyles.ratioBadge,
+                  { backgroundColor: themeColors.text.link + '22' },
+                ]}>
+                  <Text style={[floatingBarStyles.ratioText, { color: themeColors.text.link }]}>
+                    {entry.totalPosts}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+
+          {activeTab === 'communities' && communities.map((entry) => {
+            const isSelected = selectedCommunityIds.has(entry.topicId);
+            return (
+              <TouchableOpacity
+                key={entry.topicId}
+                style={[floatingBarStyles.row, isSelected && { backgroundColor: themeColors.text.link + '14' }]}
+                onPress={() => onToggleCommunity(entry.topicId)}
+                activeOpacity={0.7}
+              >
+                <View style={[
+                  floatingBarStyles.checkbox,
+                  isSelected
+                    ? { backgroundColor: themeColors.text.link, borderColor: themeColors.text.link }
+                    : { borderColor: colors.textSecondary + '66' },
+                ]}>
+                  {isSelected && <Ionicons name="checkmark" size={13} color="#FFF" />}
+                </View>
+                <View style={floatingBarStyles.emojiContainer}>
+                  <Text style={floatingBarStyles.emojiText}>{entry.iconEmoji || '#'}</Text>
+                </View>
+                <Text
+                  style={[floatingBarStyles.rowLabel, { color: colors.text }]}
+                  numberOfLines={1}
+                >
+                  {entry.name}
+                </Text>
+                <View style={[
+                  floatingBarStyles.ratioBadge,
+                  { backgroundColor: themeColors.text.link + '22' },
+                ]}>
+                  <Text style={[floatingBarStyles.ratioText, { color: themeColors.text.link }]}>
+                    {entry.totalPosts}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+
+          {/* Empty state */}
+          {entries.length === 0 && (
+            <View style={floatingBarStyles.emptyContainer}>
+              <Ionicons name="sparkles-outline" size={24} color={colors.textSecondary} />
+              <Text style={[floatingBarStyles.emptyText, { color: colors.textSecondary }]}>
+                {activeTab === 'friends' ? 'No friend posts yet' : 'No community posts yet'}
+              </Text>
+            </View>
+          )}
+        </ScrollView>
+      </Animated.View>
+
+      {/* Collapsed FAB circle — bottom right */}
+      <Animated.View
+        pointerEvents={collapsed ? 'auto' : 'none'}
+        style={[
+          floatingBarStyles.fab,
+          {
+            backgroundColor: themeColors.text.link,
+            bottom: bottomInset + 4,
+            transform: [{ translateY }, { scale: fabScale }],
+            opacity: fabOpacity,
+          },
+        ]}
+      >
+        <TouchableOpacity
+          style={floatingBarStyles.fabTouchable}
+          onPress={onClose}
+          onLongPress={handleExpand}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="funnel" size={20} color="#FFF" />
+          {totalFilters > 0 && (
+            <View style={floatingBarStyles.fabBadge}>
+              <Text style={floatingBarStyles.fabBadgeText}>{totalFilters}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </Animated.View>
+    </View>
+  );
+}
+
+const floatingBarStyles = StyleSheet.create({
+  wrapper: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+  },
+  card: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    borderRadius: 20,
+    elevation: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    overflow: 'hidden',
+  },
+  handleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 10,
+    paddingBottom: 4,
+    paddingHorizontal: 12,
+  },
+  handleBar: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+  },
+  clearBtn: {
+    width: 50,
+    alignItems: 'flex-end',
+  },
+  clearBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  fab: {
+    position: 'absolute',
+    right: 16,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+  },
+  fabTouchable: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fabBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: '#EF4444',
+    borderRadius: 9,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  fabBadgeText: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tabRow: {
+    flexDirection: 'row',
+    marginHorizontal: 12,
+    marginBottom: 8,
+    borderRadius: 12,
+    padding: 3,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  tabLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  tabBadge: {
+    borderRadius: 8,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  tabBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFF',
+  },
+  scroll: {
+    height: 162,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginHorizontal: 6,
+    marginVertical: 1,
+    borderRadius: 10,
+    gap: 10,
+  },
+  rowLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+  },
+  ratioBadge: {
+    borderRadius: 7,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  ratioText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  emojiContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(128,128,128,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emojiText: {
+    fontSize: 15,
+  },
+  emptyContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    gap: 8,
+  },
+  emptyText: {
+    fontSize: 13,
+    textAlign: 'center',
+  },
+});
+
 export default function FeedScreen() {
   const navigation = useNavigation<FeedScreenNavigationProp>();
   const { width } = useWindowDimensions();
@@ -1657,6 +2320,7 @@ export default function FeedScreen() {
   const [repostModalPost, setRepostModalPost] = React.useState<Post | null>(null);
   const [chatDrawerVisible, setChatDrawerVisible] = React.useState(false);
   const [currentUserId, setCurrentUserId] = React.useState<string>('');
+  const [followingCount, setFollowingCount] = React.useState<number>(0);
   const [postOptionsPost, setPostOptionsPost] = React.useState<Post | null>(null);
   const [postOptionsVisible, setPostOptionsVisible] = React.useState(false);
   const [editModalVisible, setEditModalVisible] = React.useState(false);
@@ -1665,37 +2329,257 @@ export default function FeedScreen() {
   const [editedImageUri, setEditedImageUri] = React.useState<string | null>(null);
   const [showImageEditor, setShowImageEditor] = React.useState(false);
 
+  // Pagination state for infinite scroll
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // User affinities from algorithm (for dropdown sorting)
+  const [userAffinities, setUserAffinities] = useState<Record<string, number>>({});
+
   // Track viewed posts for sidebar (large screens)
   const [viewedPostIds, setViewedPostIds] = React.useState<Set<string>>(new Set());
   const flatListRef = React.useRef<FlatList>(null);
+  const scrollOffsetRef = React.useRef(0);
+  const lastTabPressTimeRef = React.useRef(0);
+
+  // Seen-post tracking for "caught up" feature
+  const seenPostIdsRef = useRef<Set<string>>(new Set());
+  const seenPostIdsLoadedRef = useRef(false);
+  const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [feedSeenSnapshot, setFeedSeenSnapshot] = useState<Set<string>>(new Set());
+
+  // Load seen post IDs from AsyncStorage on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(SEEN_POSTS_STORAGE_KEY);
+        if (stored) {
+          const arr: string[] = JSON.parse(stored);
+          seenPostIdsRef.current = new Set(arr);
+        }
+      } catch (e) {
+        console.error('Error loading seen post IDs:', e);
+      } finally {
+        seenPostIdsLoadedRef.current = true;
+      }
+    })();
+    return () => {
+      if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
+    };
+  }, []);
+
+  // Debounced save helper — stored in a ref so the frozen onViewableItemsChanged can call it
+  const saveSeenPostIdsRef = useRef(() => {});
+  saveSeenPostIdsRef.current = () => {
+    if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
+    saveDebounceRef.current = setTimeout(() => {
+      const arr = Array.from(seenPostIdsRef.current).slice(-SEEN_POSTS_MAX_STORED);
+      AsyncStorage.setItem(SEEN_POSTS_STORAGE_KEY, JSON.stringify(arr)).catch(console.error);
+    }, 2000);
+  };
+
+  const handleScroll = useCallback((e: any) => {
+    scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+  }, []);
 
   const viewabilityConfig = React.useRef({
     itemVisiblePercentThreshold: 50,
     minimumViewTime: 800,
   }).current;
 
-  const onViewableItemsChanged = React.useRef(({ viewableItems }: { viewableItems: Array<{ item: Post }> }) => {
+  const onViewableItemsChanged = React.useRef(({ viewableItems }: { viewableItems: Array<{ item: FeedItem }> }) => {
+    let anyNewSeen = false;
     setViewedPostIds(prev => {
       const next = new Set(prev);
       let changed = false;
       for (const vi of viewableItems) {
-        const key = vi.item.feedItemId || vi.item.id;
+        // Skip the caught-up card
+        if ('_type' in vi.item) continue;
+        const post = vi.item as Post;
+        const key = post.feedItemId || post.id;
         if (!next.has(key)) {
           next.add(key);
           changed = true;
         }
+        // Also track in persistent seen set
+        if (!seenPostIdsRef.current.has(key)) {
+          seenPostIdsRef.current.add(key);
+          anyNewSeen = true;
+        }
       }
+      if (anyNewSeen) saveSeenPostIdsRef.current();
       return changed ? next : prev;
     });
   }).current;
 
+  // --- Sidebar / dropdown data (lifted from FeedSidebar for reuse) ---
+  const friends = useMemo(() => {
+    const map = new Map<string, FriendEntry>();
+    for (const post of posts) {
+      const postKey = post.feedItemId || post.id;
+      const userId = post.isRepost && post.repostedBy ? post.repostedBy.id : post.user.id;
+      const username = post.isRepost && post.repostedBy ? post.repostedBy.username : post.user.username;
+      const avatarUrl = post.isRepost && post.repostedBy ? post.repostedBy.avatarUrl : post.user.avatarUrl;
+      const avatar = post.isRepost && post.repostedBy ? post.repostedBy.activeAvatar : post.user.activeAvatar;
+      const isSeen = viewedPostIds.has(postKey);
+
+      if (map.has(userId)) {
+        const entry = map.get(userId)!;
+        entry.totalPosts++;
+        if (isSeen) entry.seenPosts++;
+        if (!isSeen && !entry.firstUnseenPostId) entry.firstUnseenPostId = postKey;
+      } else {
+        map.set(userId, {
+          userId,
+          username,
+          avatarUrl,
+          avatar,
+          totalPosts: 1,
+          seenPosts: isSeen ? 1 : 0,
+          firstUnseenPostId: isSeen ? null : postKey,
+          firstPostId: postKey,
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      const aUnseen = a.totalPosts - a.seenPosts;
+      const bUnseen = b.totalPosts - b.seenPosts;
+      // Both have unseen: sort by affinity (higher first), then unseen count
+      if (aUnseen > 0 && bUnseen > 0) {
+        const aAffinity = userAffinities[a.userId] || 0;
+        const bAffinity = userAffinities[b.userId] || 0;
+        if (bAffinity !== aAffinity) return bAffinity - aAffinity;
+        return bUnseen - aUnseen;
+      }
+      // One has unseen, other doesn't
+      if (aUnseen > 0) return -1;
+      if (bUnseen > 0) return 1;
+      // Both caught up: sort by affinity
+      return (userAffinities[b.userId] || 0) - (userAffinities[a.userId] || 0);
+    });
+  }, [posts, viewedPostIds, userAffinities]);
+
+  const communities = useMemo(() => {
+    const map = new Map<string, CommunityEntry>();
+    for (const post of posts) {
+      if (!post.topics || post.topics.length === 0) continue;
+      const postKey = post.feedItemId || post.id;
+      const isSeen = viewedPostIds.has(postKey);
+
+      for (const topic of post.topics) {
+        if (map.has(topic.id)) {
+          const entry = map.get(topic.id)!;
+          entry.totalPosts++;
+          if (isSeen) entry.seenPosts++;
+          if (!isSeen && !entry.firstUnseenPostId) entry.firstUnseenPostId = postKey;
+        } else {
+          map.set(topic.id, {
+            topicId: topic.id,
+            name: topic.name,
+            iconEmoji: topic.iconEmoji,
+            totalPosts: 1,
+            seenPosts: isSeen ? 1 : 0,
+            firstUnseenPostId: isSeen ? null : postKey,
+            firstPostId: postKey,
+          });
+        }
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      const aUnseen = a.totalPosts - a.seenPosts;
+      const bUnseen = b.totalPosts - b.seenPosts;
+      if (aUnseen > 0 && bUnseen === 0) return -1;
+      if (bUnseen > 0 && aUnseen === 0) return 1;
+      return bUnseen - aUnseen;
+    });
+  }, [posts, viewedPostIds]);
+
+  const totalFriendUnseen = friends.reduce((sum, f) => sum + (f.totalPosts - f.seenPosts), 0);
+  const totalCommunityUnseen = communities.reduce((sum, c) => sum + (c.totalPosts - c.seenPosts), 0);
+  const totalUnseen = totalFriendUnseen + totalCommunityUnseen;
+
+  const [filterDropdownVisible, setFilterDropdownVisible] = useState(false);
+
+  // Feed filter selections (empty = show all posts, non-empty = show only selected)
+  const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set());
+  const [selectedCommunityIds, setSelectedCommunityIds] = useState<Set<string>>(new Set());
+  const hasActiveFilters = selectedFriendIds.size > 0 || selectedCommunityIds.size > 0;
+  const totalActiveFilters = selectedFriendIds.size + selectedCommunityIds.size;
+
+  const handleToggleFriend = useCallback((userId: string) => {
+    setSelectedFriendIds(prev => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  }, []);
+
+  const handleToggleCommunity = useCallback((topicId: string) => {
+    setSelectedCommunityIds(prev => {
+      const next = new Set(prev);
+      if (next.has(topicId)) next.delete(topicId);
+      else next.add(topicId);
+      return next;
+    });
+  }, []);
+
+  const handleClearFilters = useCallback(() => {
+    setSelectedFriendIds(new Set());
+    setSelectedCommunityIds(new Set());
+  }, []);
+
+  // Apply user-selected filters to posts
+  // Filter only applies when the bar is open. Closing the bar returns to full feed.
+  // Selections stay cached so reopening the bar restores them.
+  const isFilterActive = filterDropdownVisible;
+  const filteredPosts = useMemo(() => {
+    if (!isFilterActive) return posts;
+    // Filter mode: only show posts from selected friends/communities
+    return posts.filter(p => {
+      // For reposts, match on the reposter (the person who shared it into the feed).
+      // For original posts, match on the author.
+      const feedUserId = p.isRepost && p.repostedBy ? p.repostedBy.id : p.user.id;
+      if (selectedFriendIds.has(feedUserId)) return true;
+      if (selectedCommunityIds.size > 0 && p.topics) {
+        for (const t of p.topics) {
+          if (selectedCommunityIds.has(t.id)) return true;
+        }
+      }
+      return false;
+    });
+  }, [posts, isFilterActive, selectedFriendIds, selectedCommunityIds]);
+
+  const feedItems: FeedItem[] = useMemo(() => {
+    if (filteredPosts.length === 0) return [];
+    const unseen: Post[] = [];
+    const seen: Post[] = [];
+    for (const p of filteredPosts) {
+      const key = p.feedItemId || p.id;
+      if (feedSeenSnapshot.has(key)) {
+        seen.push(p);
+      } else {
+        unseen.push(p);
+      }
+    }
+    // All unseen (new user / fresh feed) — no card needed
+    if (seen.length === 0) return filteredPosts;
+    // Mix or all-seen: insert caught-up card between unseen and seen
+    const caughtUpCard: CaughtUpItem = { _type: 'caught_up', id: '__caught_up__' };
+    return [...unseen, caughtUpCard, ...seen];
+  }, [filteredPosts, feedSeenSnapshot]);
+
   // Scroll to a specific post (used by sidebar)
   const scrollToPost = React.useCallback((postId: string) => {
-    const index = posts.findIndex(p => (p.feedItemId || p.id) === postId);
+    const index = feedItems.findIndex(item => {
+      if (isCaughtUpItem(item)) return false;
+      return (item.feedItemId || item.id) === postId;
+    });
     if (index >= 0 && flatListRef.current) {
       flatListRef.current.scrollToIndex({ index, animated: true, viewPosition: 0.1 });
     }
-  }, [posts]);
+  }, [feedItems]);
 
   // Animated value for page position (0 = Feed visible, 1 = Messages visible)
   const screenWidth = Dimensions.get('window').width;
@@ -1811,23 +2695,40 @@ export default function FeedScreen() {
     });
   }, [navigation]);
 
-  // Listen for tab press to trigger fast animation when Messages/Chatbox is open
+  // Listen for tab press: close chat drawer, scroll-to-top, or refresh
   React.useEffect(() => {
     const parent = navigation.getParent();
     if (!parent) return;
 
     const unsubscribe = parent.addListener('tabPress', (e) => {
-      // If Messages page is visible, trigger fast animation to go back to Home
+      // Only intercept when Feed tab is already focused
+      if (!navigation.isFocused()) return;
+
+      e.preventDefault();
+
+      // Priority 1: If Messages/Chat is open, close it
       if (chatDrawerVisible || currentPagePosition.current > 0.1) {
-        // Prevent default behavior (which would do nothing since we're already on this tab)
-        e.preventDefault();
-        // Trigger fast animated transition back to Home
         chatDrawerRef.current?.triggerGoHome();
+        return;
+      }
+
+      const now = Date.now();
+      const isAtTop = scrollOffsetRef.current <= 10;
+      const isDoubleTap = now - lastTabPressTimeRef.current < 300;
+      lastTabPressTimeRef.current = now;
+
+      if (isAtTop || isDoubleTap) {
+        // Already at top or double-tap: scroll to top + refresh
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+        onRefresh();
+      } else {
+        // Single tap while scrolled down: just scroll to top
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
       }
     });
 
     return unsubscribe;
-  }, [navigation, chatDrawerVisible]);
+  }, [navigation, chatDrawerVisible, onRefresh]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1841,6 +2742,7 @@ export default function FeedScreen() {
       const response = await api.getProfile();
       const user = response.user || response;
       setCurrentUserId(user.id);
+      setFollowingCount(user.followingCount || 0);
     } catch (error) {
       console.error('Error loading current user:', error);
     }
@@ -1850,11 +2752,22 @@ export default function FeedScreen() {
     try {
       const data = await api.getAlgorithmicFeed(1);
       setPosts(data.posts || []);
+      setCurrentPage(1);
+      setHasMore(data.pagination?.hasMore ?? true);
+      if (data.userAffinities) setUserAffinities(data.userAffinities);
+      if (seenPostIdsLoadedRef.current) {
+        setFeedSeenSnapshot(new Set(seenPostIdsRef.current));
+      }
     } catch (error) {
       console.error('Error fetching feed:', error);
       try {
         const data = await api.getFeed(1);
         setPosts(data.posts || []);
+        setCurrentPage(1);
+        setHasMore(data.pagination?.hasMore ?? true);
+        if (seenPostIdsLoadedRef.current) {
+          setFeedSeenSnapshot(new Set(seenPostIdsRef.current));
+        }
       } catch (fallbackError) {
         console.error('Error fetching fallback feed:', fallbackError);
       }
@@ -1863,18 +2776,53 @@ export default function FeedScreen() {
     }
   };
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     setViewedPostIds(new Set()); // Reset viewed tracking on refresh
     try {
       const data = await api.getAlgorithmicFeed(1);
       setPosts(data.posts || []);
+      setCurrentPage(1);
+      setHasMore(data.pagination?.hasMore ?? true);
+      if (data.userAffinities) setUserAffinities(data.userAffinities);
+      setFeedSeenSnapshot(new Set(seenPostIdsRef.current));
     } catch (error) {
       console.error('Error refreshing feed:', error);
     } finally {
       setRefreshing(false);
     }
-  };
+  }, []);
+
+  // Correct snapshot if AsyncStorage finishes loading after the initial feed fetch
+  useEffect(() => {
+    if (seenPostIdsLoadedRef.current && posts.length > 0 && feedSeenSnapshot.size === 0 && seenPostIdsRef.current.size > 0) {
+      setFeedSeenSnapshot(new Set(seenPostIdsRef.current));
+    }
+  }, [posts]);
+
+  // Infinite scroll: load next page
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = currentPage + 1;
+      const data = await api.getAlgorithmicFeed(nextPage);
+      const newPosts = data.posts || [];
+      if (newPosts.length > 0) {
+        setPosts(prev => {
+          const existingIds = new Set(prev.map((p: any) => p.feedItemId || p.id));
+          const unique = newPosts.filter((p: any) => !existingIds.has(p.feedItemId || p.id));
+          return [...prev, ...unique];
+        });
+        setCurrentPage(nextPage);
+      }
+      setHasMore(data.pagination?.hasMore ?? false);
+    } catch (error) {
+      console.error('Error loading more posts:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, currentPage]);
 
   const handleLike = async (postId: string) => {
     try {
@@ -2086,35 +3034,36 @@ export default function FeedScreen() {
   };
 
   const navigateToFindFriends = () => {
-    navigation.dispatch(
-      CommonActions.navigate({
-        name: 'Search',
-        params: {
-          screen: 'SearchUsers',
-        },
-      })
-    );
+    navigation.navigate('Discover' as any, {
+      screen: 'DiscoverHome',
+      params: { initialTab: 'people', _ts: Date.now() },
+    });
   };
 
-  const renderPost = ({ item }: { item: Post }) => (
-    <TweetCard
-      post={item}
-      onLike={handleLike}
-      onComment={handleComment}
-      onUserPress={handleUserPress}
-      onGiveCoins={handleGiveCoins}
-      onQuickGiveCoins={handleQuickGiveCoins}
-      onImagePress={handleImagePress}
-      onRepost={handleRepost}
-      onShare={handleShare}
-      onNavigateToProfile={handleNavigateToProfile}
-      onTopicPress={(slug: string) => navigation.navigate('TopicPage', { topicSlug: slug })}
-      onMorePress={handleMorePress}
-      onCoinPickerChange={(active: boolean) => { coinPickerActiveRef.current = active; }}
-      currentUserId={currentUserId}
-      colors={colors}
-    />
-  );
+  const renderFeedItem = ({ item }: { item: FeedItem }) => {
+    if (isCaughtUpItem(item)) {
+      return <CaughtUpCard colors={colors} filtered={isFilterActive} />;
+    }
+    return (
+      <TweetCard
+        post={item}
+        onLike={handleLike}
+        onComment={handleComment}
+        onUserPress={handleUserPress}
+        onGiveCoins={handleGiveCoins}
+        onQuickGiveCoins={handleQuickGiveCoins}
+        onImagePress={handleImagePress}
+        onRepost={handleRepost}
+        onShare={handleShare}
+        onNavigateToProfile={handleNavigateToProfile}
+        onTopicPress={(slug: string) => navigation.navigate('TopicPage', { topicSlug: slug })}
+        onMorePress={handleMorePress}
+        onCoinPickerChange={(active: boolean) => { coinPickerActiveRef.current = active; }}
+        currentUserId={currentUserId}
+        colors={colors}
+      />
+    );
+  };
 
   const renderSeparator = () => (
     <View style={[styles.separator, { backgroundColor: colors.separator }]} />
@@ -2157,7 +3106,36 @@ export default function FeedScreen() {
               },
             ]}
           >
-            <Text style={[styles.customHeaderTitle, { color: colors.text }]}>Home</Text>
+            <View style={styles.headerLeftGroup}>
+              {!isTablet && (
+                <TouchableOpacity
+                  style={styles.filterToggleButton}
+                  onPress={() => setFilterDropdownVisible(v => !v)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={hasActiveFilters ? 'funnel' : filterDropdownVisible ? 'funnel-outline' : 'people-outline'}
+                    size={22}
+                    color={hasActiveFilters || filterDropdownVisible ? colors.accent : colors.text}
+                  />
+                  {hasActiveFilters && !filterDropdownVisible && (
+                    <View style={[styles.filterBadge, { backgroundColor: colors.accent }]}>
+                      <Text style={styles.filterBadgeText}>
+                        {totalActiveFilters}
+                      </Text>
+                    </View>
+                  )}
+                  {!hasActiveFilters && totalUnseen > 0 && !filterDropdownVisible && (
+                    <View style={styles.filterBadge}>
+                      <Text style={styles.filterBadgeText}>
+                        {totalUnseen > 99 ? '99+' : totalUnseen}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              )}
+              <Text style={[styles.customHeaderTitle, { color: colors.text }]}>Home</Text>
+            </View>
             <TouchableOpacity
               style={styles.headerChatButton}
               onPress={() => setChatDrawerVisible(true)}
@@ -2173,13 +3151,17 @@ export default function FeedScreen() {
             </TouchableOpacity>
           </View>
 
+          {/* Floating bar rendered as overlay — see below feedPageLayout */}
+
           <FlatList
             ref={flatListRef}
-            data={posts}
-            keyExtractor={(item) => item.feedItemId || item.id}
-            renderItem={renderPost}
+            data={feedItems}
+            keyExtractor={(item) => isCaughtUpItem(item) ? item.id : (item.feedItemId || item.id)}
+            renderItem={renderFeedItem}
             ItemSeparatorComponent={renderSeparator}
             showsVerticalScrollIndicator={false}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}
             refreshControl={
@@ -2190,24 +3172,55 @@ export default function FeedScreen() {
                 colors={[colors.accent]}
               />
             }
-            ListEmptyComponent={
-              <View style={styles.empty}>
-                <View style={[styles.emptyIconContainer, { backgroundColor: colors.emptyIconBg }]}>
-                  <Ionicons name="newspaper-outline" size={48} color={colors.accent} />
-                </View>
-                <Text style={[styles.emptyTitle, { color: colors.text }]}>Welcome to your timeline!</Text>
-                <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
-                  When you follow people, their posts will show up here.
-                </Text>
+            ListHeaderComponent={
+              followingCount === 0 ? (
                 <TouchableOpacity
-                  style={[styles.findFriendsButton, { backgroundColor: colors.accent }]}
+                  style={[styles.findFriendsBanner, { backgroundColor: colors.cardBackground, borderBottomColor: colors.separator }]}
                   onPress={navigateToFindFriends}
+                  activeOpacity={0.7}
                 >
-                  <Text style={styles.findFriendsText}>Find people to follow</Text>
+                  <Ionicons name="people-outline" size={22} color={colors.accent} />
+                  <View style={styles.findFriendsBannerText}>
+                    <Text style={[styles.findFriendsBannerTitle, { color: colors.text }]}>
+                      Connect with friends
+                    </Text>
+                    <Text style={[styles.findFriendsBannerSubtitle, { color: colors.textSecondary }]}>
+                      Find people you know and grow your community
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
                 </TouchableOpacity>
+              ) : null
+            }
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={
+              loadingMore ? (
+                <View style={{ paddingVertical: 20 }}>
+                  <ActivityIndicator size="small" color={colors.accent} />
+                </View>
+              ) : null
+            }
+            ListEmptyComponent={
+              <View style={[styles.empty, isFilterActive && { paddingBottom: 300 }]}>
+                <View style={[styles.emptyIconContainer, { backgroundColor: isFilterActive ? themeColors.text.link + '15' : colors.emptyIconBg }]}>
+                  <Ionicons
+                    name={isFilterActive ? 'funnel-outline' : 'newspaper-outline'}
+                    size={48}
+                    color={isFilterActive ? themeColors.text.link : colors.accent}
+                  />
+                </View>
+                <Text style={[styles.emptyTitle, { color: colors.text }]}>
+                  {isFilterActive ? 'Select who to see' : 'Your feed is empty'}
+                </Text>
+                <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
+                  {isFilterActive
+                    ? 'Pick friends or communities from the filter below to show their posts'
+                    : 'Follow people to see their posts here. Start by finding friends!'}
+                </Text>
               </View>
             }
-            contentContainerStyle={posts.length === 0 ? { flex: 1 } : undefined}
+            contentContainerStyle={feedItems.length === 0 ? { flexGrow: 1 } : undefined}
           />
         </View>
 
@@ -2215,8 +3228,10 @@ export default function FeedScreen() {
         {isTablet && (
           <View style={{ paddingTop: insets.top, borderLeftWidth: 1, borderLeftColor: colors.separator }}>
             <FeedSidebar
-              posts={posts}
-              viewedPostIds={viewedPostIds}
+              friends={friends}
+              communities={communities}
+              totalFriendUnseen={totalFriendUnseen}
+              totalCommunityUnseen={totalCommunityUnseen}
               onPostPress={(postId, _userId, _username) => scrollToPost(postId)}
               colors={colors}
             />
@@ -2224,7 +3239,24 @@ export default function FeedScreen() {
         )}
       </View>
 
-      {/* Image Viewer Modal */}
+      {/* Floating filter bar for non-tablet screens */}
+      {!isTablet && (
+        <FeedFloatingBar
+          visible={filterDropdownVisible}
+          onClose={() => setFilterDropdownVisible(false)}
+          friends={friends}
+          communities={communities}
+          selectedFriendIds={selectedFriendIds}
+          selectedCommunityIds={selectedCommunityIds}
+          onToggleFriend={handleToggleFriend}
+          onToggleCommunity={handleToggleCommunity}
+          onClearFilters={handleClearFilters}
+          colors={colors}
+          bottomInset={insets.bottom}
+        />
+      )}
+
+      {/* Full-Screen Image Viewer */}
       <ImageViewerModal
         visible={imageViewerVisible}
         post={imageViewerPost}
@@ -2237,6 +3269,7 @@ export default function FeedScreen() {
         onUserPress={handleUserPress}
         onRepost={handleRepost}
         onShare={handleShare}
+        onGiveCoins={handleGiveCoins}
       />
 
       {/* Give Coins Modal */}
@@ -2471,6 +3504,32 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
   },
+  headerLeftGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  filterToggleButton: {
+    padding: 4,
+    position: 'relative',
+  },
+  filterBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -4,
+    backgroundColor: '#EF4444',
+    borderRadius: 9,
+    minWidth: 16,
+    height: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 3,
+  },
+  filterBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: 'bold',
+  },
   centered: {
     justifyContent: 'center',
     alignItems: 'center',
@@ -2652,6 +3711,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     marginTop: 4,
+  },
+  postMetaRow: {
+    flexDirection: 'row',
+    marginTop: 6,
+    marginBottom: 2,
+    gap: 8,
+  },
+  postMetaHalf: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  postMetaFull: {
+    flex: 0,
+  },
+  postMetaText: {
+    fontSize: 12,
+    flexShrink: 1,
   },
   mediaContainer: {
     marginTop: 12,
@@ -2896,108 +3974,28 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     lineHeight: 20,
   },
-  findFriendsButton: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 9999,
+  findFriendsBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
   },
-  findFriendsText: {
+  findFriendsBannerText: {
+    flex: 1,
+    marginLeft: 12,
+    marginRight: 8,
+  },
+  findFriendsBannerTitle: {
     fontSize: 15,
-    fontWeight: '700',
-    color: '#FFF',
+    fontWeight: '600',
+  },
+  findFriendsBannerSubtitle: {
+    fontSize: 13,
+    marginTop: 2,
   },
 
-  // Image Viewer Modal Styles
-  imageViewerContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.95)',
-  },
-  imageViewerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-  },
-  imageViewerCloseButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  imageViewerUserInfo: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 12,
-  },
-  imageViewerUserText: {
-    marginLeft: 8,
-  },
-  imageViewerDisplayName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#FFF',
-  },
-  imageViewerUsername: {
-    fontSize: 13,
-    color: '#71767B',
-  },
-  imageViewerMoreButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  imageViewerContent: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  fullImage: {
-    width: '100%',
-    height: '100%',
-  },
-  imageViewerBottom: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-  },
-  imageViewerCaptionScroll: {
-    maxHeight: 100,
-    marginBottom: 8,
-  },
-  imageViewerCaption: {
-    fontSize: 15,
-    color: '#FFF',
-    lineHeight: 20,
-  },
-  imageViewerTimestamp: {
-    fontSize: 13,
-    color: '#71767B',
-    marginBottom: 12,
-  },
-  imageViewerActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  imageViewerActionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  imageViewerActionCount: {
-    fontSize: 14,
-    color: '#FFF',
-  },
+  // (Image gallery styles are inline in the ImageViewerModal component)
 
   // Header Chat Button Styles
   headerChatButton: {

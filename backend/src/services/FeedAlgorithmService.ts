@@ -8,6 +8,8 @@ import { SavedPost } from '../models/SavedPost';
 import { UserInteraction, InteractionType } from '../models/UserInteraction';
 import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
 import { Topic } from '../models/Topic';
+import { TopicFollow } from '../models/TopicFollow';
+import { PostTopic } from '../models/PostTopic';
 import { Comment } from '../models/Comment';
 import { DecorationService } from './DecorationService';
 import { logger } from '../utils/logger';
@@ -18,10 +20,11 @@ import { logger } from '../utils/logger';
 async function batchFetchRecentComments(
   postIds: string[],
   limit: number = 3
-): Promise<Map<string, Array<{ id: string; content: string; user: { id: string; username: string }; createdAt: Date }>>> {
-  const map = new Map<string, Array<{ id: string; content: string; user: { id: string; username: string }; createdAt: Date }>>();
+): Promise<Map<string, any[]>> {
+  const map = new Map<string, any[]>();
   if (postIds.length === 0) return map;
 
+  // 1. Fetch top-level comments
   const comments = await Comment.findAll({
     where: {
       postId: postIds,
@@ -38,6 +41,7 @@ async function batchFetchRecentComments(
     attributes: ['id', 'postId', 'content', 'createdAt'],
   });
 
+  const keptCommentIds: string[] = [];
   for (const c of comments) {
     const postId = c.postId;
     if (!map.has(postId)) {
@@ -52,6 +56,40 @@ async function batchFetchRecentComments(
         user: userData ? { id: userData.id, username: userData.username } : { id: '', username: 'Unknown' },
         createdAt: c.createdAt,
       });
+      keptCommentIds.push(c.id);
+    }
+  }
+
+  // 2. Fetch latest reply for each kept comment
+  if (keptCommentIds.length > 0) {
+    const replies = await Comment.findAll({
+      where: { parentCommentId: keptCommentIds },
+      include: [{ model: User, as: 'user', attributes: ['id', 'username'] }],
+      order: [['createdAt', 'DESC']],
+      attributes: ['id', 'parentCommentId', 'content', 'createdAt'],
+    });
+
+    const latestReplyByParent = new Map<string, any>();
+    for (const r of replies) {
+      const pid = (r as any).parentCommentId;
+      if (!latestReplyByParent.has(pid)) {
+        const replyUser = (r as any).user;
+        latestReplyByParent.set(pid, {
+          id: r.id,
+          content: r.content,
+          user: replyUser ? { id: replyUser.id, username: replyUser.username } : { id: '', username: 'Unknown' },
+          createdAt: r.createdAt,
+        });
+      }
+    }
+
+    for (const arr of map.values()) {
+      for (const comment of arr) {
+        const reply = latestReplyByParent.get(comment.id);
+        if (reply) {
+          comment.replies = [reply];
+        }
+      }
     }
   }
 
@@ -81,6 +119,7 @@ interface FeedItem {
   repostedBy?: {
     id: string;
     username: string;
+    avatarUrl?: string | null;
     activeAvatar?: any;
   };
   repostComment?: string | null;
@@ -120,17 +159,27 @@ export class FeedAlgorithmService {
     userId: string,
     page: number = 1,
     limit: number = 20
-  ): Promise<{ posts: any[]; pagination: any }> {
+  ): Promise<{ posts: any[]; pagination: any; userAffinities?: Record<string, number> }> {
     try {
       const offset = (page - 1) * limit;
 
-      // Get list of users being followed
+      // Get list of users being followed (with follow date for new-follow boost)
       const following = await Follow.findAll({
         where: { followerId: userId },
-        attributes: ['followingId']
+        attributes: ['followingId', 'createdAt']
       });
 
       const followingIds = following.map(f => f.followingId);
+
+      // Build map of recently followed users (within the last 7 days)
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const recentFollowMap = new Map<string, Date>();
+      for (const f of following) {
+        if (new Date(f.createdAt) >= sevenDaysAgo) {
+          recentFollowMap.set(f.followingId, new Date(f.createdAt));
+        }
+      }
 
       // Get user affinity scores (who they engage with most)
       const userAffinities = await this.calculateUserAffinities(userId, followingIds);
@@ -155,7 +204,7 @@ export class FeedAlgorithmService {
           {
             model: User,
             as: 'user',
-            attributes: ['id', 'username', 'activeAvatarId']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
           },
           {
             model: Topic,
@@ -177,9 +226,66 @@ export class FeedAlgorithmService {
           'likesCount',
           'commentsCount',
           'repostCount',
+          'locationName',
+          'photoTakenAt',
           'createdAt'
         ]
       });
+
+      // Get posts from followed topics/communities (including from non-followed users)
+      const followedTopics = await TopicFollow.findAll({
+        where: { userId },
+        attributes: ['topicId']
+      });
+      const followedTopicIds = followedTopics.map(tf => tf.topicId);
+
+      if (followedTopicIds.length > 0) {
+        // Get post IDs already fetched from friends query to avoid duplicates
+        const existingPostIds = posts.map(p => p.id);
+
+        // Find posts linked to followed topics that aren't already in the feed
+        const topicPostLinks = await PostTopic.findAll({
+          where: { topicId: followedTopicIds },
+          attributes: ['postId'],
+        });
+        const candidatePostIds = [...new Set(
+          topicPostLinks.map(tp => tp.postId).filter(id => !existingPostIds.includes(id))
+        )];
+
+        if (candidatePostIds.length > 0) {
+          const topicPosts = await Post.findAll({
+            where: {
+              id: candidatePostIds,
+              status: PostStatus.COMPLETED,
+              isArchived: { [Op.ne]: true },
+              visibility: { [Op.in]: [PostVisibility.TOPICS_ONLY, PostVisibility.TOPICS_AND_FRIENDS] }
+            },
+            include: [
+              {
+                model: User,
+                as: 'user',
+                attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
+              },
+              {
+                model: Topic,
+                as: 'topics',
+                attributes: ['id', 'name', 'slug', 'iconEmoji'],
+                through: { attributes: [] }
+              }
+            ],
+            order: [['createdAt', 'DESC']],
+            limit: postsToFetch,
+            attributes: [
+              'id', 'userId', 'originalImageUrl', 'processedImageUrl', 'thumbnailUrl',
+              'caption', 'likesCount', 'commentsCount', 'repostCount',
+              'locationName', 'photoTakenAt', 'createdAt'
+            ]
+          });
+
+          // Add topic posts to the main posts array
+          posts.push(...topicPosts);
+        }
+      }
 
       // Get reposts from followed users (including the user's own reposts)
       const reposts = await Repost.findAll({
@@ -190,7 +296,7 @@ export class FeedAlgorithmService {
           {
             model: User,
             as: 'user',
-            attributes: ['id', 'username', 'activeAvatarId']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
           },
           {
             model: Post,
@@ -202,7 +308,7 @@ export class FeedAlgorithmService {
               {
                 model: User,
                 as: 'user',
-                attributes: ['id', 'username', 'activeAvatarId']
+                attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
               },
               {
                 model: Topic,
@@ -221,6 +327,8 @@ export class FeedAlgorithmService {
               'likesCount',
               'commentsCount',
               'repostCount',
+              'locationName',
+              'photoTakenAt',
               'createdAt'
             ]
           }
@@ -263,6 +371,7 @@ export class FeedAlgorithmService {
         const repostedByData = {
           id: repostUser.id,
           username: repostUser.username,
+          avatarUrl: repostUser.avatarUrl,
           activeAvatarId: repostUser.activeAvatarId,
         };
 
@@ -281,7 +390,7 @@ export class FeedAlgorithmService {
       }
 
       // Score and rank all feed items
-      const scoredItems = await this.scoreAndRankFeedItems(feedItems, userId, userAffinities);
+      const scoredItems = await this.scoreAndRankFeedItems(feedItems, userId, userAffinities, recentFollowMap);
 
       // Apply pagination
       const paginatedItems = scoredItems.slice(offset, offset + limit);
@@ -343,6 +452,7 @@ export class FeedAlgorithmService {
         const postUser = postUserRaw ? {
           id: postUserRaw.id,
           username: postUserRaw.username,
+          avatarUrl: postUserRaw.avatarUrl,
           activeAvatarId: postUserRaw.activeAvatarId,
         } : null;
         const postAvatar = avatarsByUserId.get(postUser?.id);
@@ -360,6 +470,8 @@ export class FeedAlgorithmService {
           likesCount: item.post.likesCount,
           commentsCount: item.post.commentsCount,
           repostCount: item.post.repostCount || 0,
+          locationName: item.post.locationName,
+          photoTakenAt: item.post.photoTakenAt,
           createdAt: item.post.createdAt,
           likedByMe: likedPostIds.has(item.post.id),
           savedByMe: savedPostIds.has(item.post.id),
@@ -378,11 +490,14 @@ export class FeedAlgorithmService {
           const repostedByAvatar = avatarsByUserId.get(item.repostedBy.id);
           return {
             ...basePost,
+            // Override decoration with the reposter's decoration (they are the main focus)
+            decoration: decorationsByUserId.get(item.repostedBy.id) || null,
             feedItemId: item.id, // Unique feed item ID
             isRepost: true,
             repostedBy: {
               id: item.repostedBy.id,
               username: item.repostedBy.username,
+              avatarUrl: item.repostedBy.avatarUrl,
               activeAvatar: formatAvatarForResponse(repostedByAvatar || null),
             },
             repostType: item.repostType,
@@ -406,7 +521,8 @@ export class FeedAlgorithmService {
           total: scoredItems.length,
           totalPages: Math.ceil(scoredItems.length / limit),
           hasMore: offset + limit < scoredItems.length
-        }
+        },
+        userAffinities: Object.fromEntries(userAffinities)
       };
     } catch (error) {
       logger.error('Error getting algorithmic feed', { error, userId });
@@ -424,7 +540,8 @@ export class FeedAlgorithmService {
   private static async scoreAndRankFeedItems(
     items: FeedItem[],
     _userId: string,
-    userAffinities: Map<string, number>
+    userAffinities: Map<string, number>,
+    recentFollowMap: Map<string, Date> = new Map()
   ): Promise<FeedItem[]> {
     for (const item of items) {
       let score = 0;
@@ -469,12 +586,23 @@ export class FeedAlgorithmService {
         reasons.push('quote_post');
       }
 
+      // 5. New Follow Boost (0-3 points, decaying linearly over 7 days)
+      const followDate = recentFollowMap.get(relevantUserId);
+      if (followDate) {
+        const daysSinceFollow = (Date.now() - followDate.getTime()) / (1000 * 60 * 60 * 24);
+        const newFollowBoost = Math.max(0, 3 * (1 - daysSinceFollow / 7));
+        score += newFollowBoost;
+        if (newFollowBoost > 1) {
+          reasons.push('new_follow');
+        }
+      }
+
       item.score = score;
       item.reasons = reasons;
     }
 
-    // Primary sort: chronological (newest first)
-    // Secondary sort: score as tiebreaker for items at the same time
+    // Primary sort: chronological by minute bucket (newest first)
+    // Secondary sort: score as tiebreaker within the same minute
     items.sort((a, b) => {
       const timeA = a.type === 'repost' && a.repostCreatedAt
         ? new Date(a.repostCreatedAt).getTime()
@@ -483,9 +611,11 @@ export class FeedAlgorithmService {
         ? new Date(b.repostCreatedAt).getTime()
         : new Date(b.post.createdAt).getTime();
 
-      // Primary: newest first
-      if (timeA !== timeB) return timeB - timeA;
-      // Secondary: higher score first
+      // Bucket to same minute for tiebreaking
+      const minuteA = Math.floor(timeA / 60000);
+      const minuteB = Math.floor(timeB / 60000);
+      if (minuteA !== minuteB) return minuteB - minuteA;
+      // Within the same minute, higher score first
       return b.score - a.score;
     });
 
@@ -733,7 +863,7 @@ export class FeedAlgorithmService {
       include: [{
         model: User,
         as: 'user',
-        attributes: ['id', 'username', 'activeAvatarId']
+        attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
       }],
       // Sort by a combination of engagement and recency
       order: [
@@ -805,7 +935,8 @@ export class FeedAlgorithmService {
       let targetPostId: string | null = null;
 
       if (interactionType === InteractionType.PROFILE_VIEW ||
-          interactionType === InteractionType.FOLLOW) {
+          interactionType === InteractionType.FOLLOW ||
+          interactionType === InteractionType.COIN_GIFT) {
         targetUserId = targetId;
       } else {
         // For post-related interactions, get the post owner

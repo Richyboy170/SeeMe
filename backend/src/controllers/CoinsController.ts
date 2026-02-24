@@ -5,6 +5,8 @@ import { CoinGivingActivity } from '../models/CoinGivingActivity';
 import { User } from '../models/User';
 import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
 import { logger } from '../utils/logger';
+import { FeedAlgorithmService } from '../services/FeedAlgorithmService';
+import { InteractionType } from '../models/UserInteraction';
 
 // Helper to format avatar data for API response
 function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
@@ -108,6 +110,12 @@ export class CoinsController {
         contextId
       });
 
+      // Track coin gift for feed algorithm (fire and forget)
+      FeedAlgorithmService.trackInteraction(
+        fromUserId, toUserId, InteractionType.COIN_GIFT,
+        { amount, contextType, contextId }
+      ).catch(err => logger.warn('Failed to track coin gift interaction', { err }));
+
       res.json({
         message: 'Coins given successfully!',
         ...result
@@ -175,12 +183,12 @@ export class CoinsController {
           {
             model: User,
             as: 'giver',
-            attributes: ['id', 'username', 'activeAvatarId', 'positivityRank']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId', 'positivityRank']
           },
           {
             model: User,
             as: 'receiver',
-            attributes: ['id', 'username', 'activeAvatarId', 'positivityRank']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId', 'positivityRank']
           }
         ],
         order: [['createdAt', 'DESC']],

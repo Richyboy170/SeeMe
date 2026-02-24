@@ -14,12 +14,18 @@ interface AvatarConfigAttributes {
   glasses: string | null;
   hat: string | null;
   earrings: string | null;
+  gender: string | null;
+  faceShape: string | null;
+  facialHair: string | null;
+  eyebrowStyle: string | null;
+  mouthStyle: string | null;
+  noseStyle: string | null;
   isActive: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
-interface AvatarConfigCreationAttributes extends Optional<AvatarConfigAttributes, 'id' | 'isActive' | 'glasses' | 'hat' | 'earrings'> {}
+interface AvatarConfigCreationAttributes extends Optional<AvatarConfigAttributes, 'id' | 'isActive' | 'glasses' | 'hat' | 'earrings' | 'gender' | 'faceShape' | 'facialHair' | 'eyebrowStyle' | 'mouthStyle' | 'noseStyle'> {}
 
 export class AvatarConfigSQL extends Model<AvatarConfigAttributes, AvatarConfigCreationAttributes> implements AvatarConfigAttributes {
   public id!: string;
@@ -34,6 +40,12 @@ export class AvatarConfigSQL extends Model<AvatarConfigAttributes, AvatarConfigC
   public glasses!: string | null;
   public hat!: string | null;
   public earrings!: string | null;
+  public gender!: string | null;
+  public faceShape!: string | null;
+  public facialHair!: string | null;
+  public eyebrowStyle!: string | null;
+  public mouthStyle!: string | null;
+  public noseStyle!: string | null;
   public isActive!: boolean;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
@@ -104,6 +116,41 @@ AvatarConfigSQL.init(
       type: DataTypes.STRING(50),
       allowNull: true,
       defaultValue: null,
+    },
+    gender: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      defaultValue: null,
+    },
+    faceShape: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      defaultValue: null,
+      field: 'face_shape',
+    },
+    facialHair: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      defaultValue: null,
+      field: 'facial_hair',
+    },
+    eyebrowStyle: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      defaultValue: null,
+      field: 'eyebrow_style',
+    },
+    mouthStyle: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      defaultValue: null,
+      field: 'mouth_style',
+    },
+    noseStyle: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      defaultValue: null,
+      field: 'nose_style',
     },
     isActive: {
       type: DataTypes.BOOLEAN,

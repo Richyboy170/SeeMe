@@ -17,7 +17,7 @@ export class FavoriteController {
                 include: [{
                     model: User,
                     as: 'favoriteUser',
-                    attributes: ['id', 'username', 'activeAvatarId']
+                    attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
                 }],
                 order: [['createdAt', 'DESC']]
             });

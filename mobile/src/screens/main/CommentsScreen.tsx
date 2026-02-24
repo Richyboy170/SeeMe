@@ -83,20 +83,33 @@ export default function CommentsScreen() {
 
       if (result.comment) {
         if (replyingTo) {
-          // Add reply to the parent comment
-          setComments(prevComments =>
-            prevComments.map(c => {
-              if (c.id === replyingTo.id) {
-                return {
-                  ...c,
-                  replies: [...(c.replies || []), result.comment]
-                };
-              }
-              return c;
-            })
-          );
-          // Expand replies for the parent comment
-          setExpandedReplies(prev => new Set(prev).add(replyingTo.id));
+          // Find the top-level parent: either replyingTo is top-level, or it's
+          // a nested reply inside a top-level comment's replies array.
+          const findTopLevelId = (list: Comment[]): string | null => {
+            if (list.find(c => c.id === replyingTo.id)) return replyingTo.id;
+            for (const c of list) {
+              if (c.replies?.some(r => r.id === replyingTo.id)) return c.id;
+            }
+            return null;
+          };
+
+          setComments(prev => {
+            const topId = findTopLevelId(prev);
+            if (!topId) return [result.comment, ...prev];
+            return prev.map(c =>
+              c.id === topId
+                ? { ...c, replies: [...(c.replies || []), result.comment] }
+                : c
+            );
+          });
+
+          // Expand the top-level parent's replies so the new reply is visible
+          setExpandedReplies(prev => {
+            const next = new Set(prev);
+            const topId = findTopLevelId(comments);
+            if (topId) next.add(topId);
+            return next;
+          });
         } else {
           // Add new top-level comment
           setComments(prevComments => [result.comment, ...prevComments]);
@@ -168,6 +181,7 @@ export default function CommentsScreen() {
     <View key={reply.id} style={styles.replyItem}>
       <Avatar
         size={28}
+        avatarUrl={!reply.user.activeAvatar ? reply.user.avatarUrl : undefined}
         username={reply.user.username}
         style={styles.replyAvatar}
         customizations={reply.user.activeAvatar?.customizations}
@@ -201,6 +215,7 @@ export default function CommentsScreen() {
         <View style={styles.commentItem}>
           <Avatar
             size={36}
+            avatarUrl={!item.user.activeAvatar ? item.user.avatarUrl : undefined}
             username={item.user.username}
             style={styles.avatar}
             customizations={item.user.activeAvatar?.customizations}

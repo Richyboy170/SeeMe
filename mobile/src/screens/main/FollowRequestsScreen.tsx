@@ -134,7 +134,7 @@ export default function FollowRequestsScreen() {
         >
           <Avatar
             size={50}
-            avatarUrl={item.requester.activeAvatar ? undefined : undefined}
+            avatarUrl={!item.requester.activeAvatar ? item.requester.avatarUrl : undefined}
             username={item.requester.username}
             customizations={item.requester.activeAvatar?.customizations}
             avatarStyle={item.requester.activeAvatar?.style}

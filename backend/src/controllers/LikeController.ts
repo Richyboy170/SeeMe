@@ -145,7 +145,7 @@ export class LikeController {
         include: [{
           model: User,
           as: 'user',
-          attributes: ['id', 'username', 'activeAvatarId']
+          attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
         }],
         order: [['createdAt', 'DESC']],
         limit,

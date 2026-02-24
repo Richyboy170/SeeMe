@@ -48,13 +48,106 @@ export class TopicController {
     }
 
     /**
-     * Score and sort topics for a user based on their posting activity.
-     * Returns topics sorted by personalized relevance score (descending).
+     * Fetch engagement stats for all active topics in one query.
+     * Returns weekly posts, weekly likes, and total posts per topic.
+     */
+    private static async getTopicEngagementStats(): Promise<Map<string, {
+        weeklyPostCount: number;
+        weeklyLikes: number;
+        totalPostCount: number;
+    }>> {
+        const sequelize = Topic.sequelize!;
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+
+        const [rows] = await sequelize.query(
+            `SELECT pt.topic_id AS "topicId",
+                    COUNT(*) AS "totalPostCount",
+                    COUNT(CASE WHEN p.created_at >= :weekAgo THEN 1 END) AS "weeklyPostCount",
+                    COALESCE(SUM(CASE WHEN p.created_at >= :weekAgo THEN p.likes_count ELSE 0 END), 0) AS "weeklyLikes"
+             FROM post_topics pt
+             JOIN posts p ON p.id = pt.post_id
+             WHERE p.status = 'completed'
+             GROUP BY pt.topic_id`,
+            { replacements: { weekAgo } }
+        ) as [Array<{ topicId: string; totalPostCount: string; weeklyPostCount: string; weeklyLikes: string }>, unknown];
+
+        const map = new Map<string, { weeklyPostCount: number; weeklyLikes: number; totalPostCount: number }>();
+        for (const row of rows) {
+            map.set(row.topicId, {
+                weeklyPostCount: parseInt(row.weeklyPostCount, 10),
+                weeklyLikes: parseInt(row.weeklyLikes, 10),
+                totalPostCount: parseInt(row.totalPostCount, 10),
+            });
+        }
+        return map;
+    }
+
+    /**
+     * Rank topics by community engagement.
+     * Score = weighted sum of recent posting activity, engagement (likes),
+     * member count, and growth momentum.
+     */
+    private static rankByEngagement(
+        topics: Topic[],
+        engagement: Map<string, { weeklyPostCount: number; weeklyLikes: number; totalPostCount: number }>
+    ): Topic[] {
+        // Find maxes for normalization
+        let maxFollowers = 1;
+        let maxWeeklyPosts = 1;
+        let maxWeeklyLikes = 1;
+        let maxTotalPosts = 1;
+
+        for (const topic of topics) {
+            if (topic.followerCount > maxFollowers) maxFollowers = topic.followerCount;
+            const stats = engagement.get(topic.id);
+            if (stats) {
+                if (stats.weeklyPostCount > maxWeeklyPosts) maxWeeklyPosts = stats.weeklyPostCount;
+                if (stats.weeklyLikes > maxWeeklyLikes) maxWeeklyLikes = stats.weeklyLikes;
+                if (stats.totalPostCount > maxTotalPosts) maxTotalPosts = stats.totalPostCount;
+            }
+        }
+
+        const scored = topics.map(topic => {
+            const stats = engagement.get(topic.id) || { weeklyPostCount: 0, weeklyLikes: 0, totalPostCount: 0 };
+
+            // 1. Recent posting activity (0-35) — heaviest weight, communities that post win
+            const recentPostScore = 35 * Math.min(1, stats.weeklyPostCount / maxWeeklyPosts);
+
+            // 2. Recent engagement / likes (0-25) — buzzing communities with reactions
+            const engagementScore = 25 * Math.min(1, stats.weeklyLikes / maxWeeklyLikes);
+
+            // 3. Community size (0-15) — larger communities get a boost
+            const sizeScore = 15 * Math.min(1, topic.followerCount / maxFollowers);
+
+            // 4. Content depth (0-10) — communities with history of content
+            const depthScore = 10 * Math.min(1, stats.totalPostCount / maxTotalPosts);
+
+            // 5. Activity-per-member ratio (0-15) — small but active > large but dead
+            const postsPerMember = topic.followerCount > 0
+                ? stats.weeklyPostCount / topic.followerCount
+                : 0;
+            const ratioScore = 15 * Math.min(1, postsPerMember / 0.5); // 0.5 posts/member/week = max
+
+            const totalScore = recentPostScore + engagementScore + sizeScore + depthScore + ratioScore;
+
+            return { topic, score: totalScore };
+        });
+
+        scored.sort((a, b) => b.score - a.score);
+
+        return scored.map(s => s.topic);
+    }
+
+    /**
+     * Score and sort topics for a user based on their posting activity
+     * AND community engagement. Returns topics sorted by combined score.
      */
     private static scoreTopicsForUser(
         topics: Topic[],
         userActivity: Map<string, number>,
-        followedTopicIds: string[]
+        followedTopicIds: string[],
+        engagement: Map<string, { weeklyPostCount: number; weeklyLikes: number; totalPostCount: number }>
     ): Topic[] {
         // Build category frequency map and keyword set from user's active topics
         const categoryPostCounts = new Map<string, number>();
@@ -68,13 +161,11 @@ export class TopicController {
             const topic = topicById.get(topicId);
             if (!topic) continue;
 
-            // Category frequency
             categoryPostCounts.set(
                 topic.category,
                 (categoryPostCounts.get(topic.category) || 0) + postCount
             );
 
-            // Keywords from user's active topics
             if (topic.searchKeywords) {
                 for (const kw of topic.searchKeywords.split(',')) {
                     const trimmed = kw.trim().toLowerCase();
@@ -83,30 +174,36 @@ export class TopicController {
             }
         }
 
-        // Find max follower count for popularity normalization
+        // Find maxes for normalization
         let maxFollowerCount = 1;
+        let maxWeeklyPosts = 1;
+        let maxWeeklyLikes = 1;
         for (const topic of topics) {
-            if (topic.followerCount > maxFollowerCount) {
-                maxFollowerCount = topic.followerCount;
+            if (topic.followerCount > maxFollowerCount) maxFollowerCount = topic.followerCount;
+            const stats = engagement.get(topic.id);
+            if (stats) {
+                if (stats.weeklyPostCount > maxWeeklyPosts) maxWeeklyPosts = stats.weeklyPostCount;
+                if (stats.weeklyLikes > maxWeeklyLikes) maxWeeklyLikes = stats.weeklyLikes;
             }
         }
 
         const followedSet = new Set(followedTopicIds);
 
-        // Score each topic
         const scored = topics.map(topic => {
             const userPostsInTopic = userActivity.get(topic.id) || 0;
+            const stats = engagement.get(topic.id) || { weeklyPostCount: 0, weeklyLikes: 0, totalPostCount: 0 };
 
-            // 1. Direct activity (0-50)
-            const directScore = 50 * Math.min(1, userPostsInTopic / 5);
+            // --- Personal relevance (0-45) ---
+            // 1. Direct activity (0-25)
+            const directScore = 25 * Math.min(1, userPostsInTopic / 5);
 
-            // 2. Category affinity (0-25)
+            // 2. Category affinity (0-12)
             const categoryPosts = categoryPostCounts.get(topic.category) || 0;
             const categoryScore = totalUserPosts > 0
-                ? 25 * (categoryPosts / totalUserPosts)
+                ? 12 * (categoryPosts / totalUserPosts)
                 : 0;
 
-            // 3. Keyword overlap (0-15)
+            // 3. Keyword overlap (0-8)
             let keywordScore = 0;
             if (topic.searchKeywords && userKeywords.size > 0) {
                 const topicKeywords = topic.searchKeywords
@@ -115,26 +212,37 @@ export class TopicController {
                     .filter(Boolean);
                 if (topicKeywords.length > 0) {
                     const overlap = topicKeywords.filter(kw => userKeywords.has(kw)).length;
-                    keywordScore = 15 * (overlap / topicKeywords.length);
+                    keywordScore = 8 * (overlap / topicKeywords.length);
                 }
             }
 
-            // 4. Popularity (0-10)
-            const popularityScore = 10 * Math.min(1, topic.followerCount / maxFollowerCount);
+            // --- Community engagement (0-55) ---
+            // 4. Recent posting activity (0-25)
+            const recentPostScore = 25 * Math.min(1, stats.weeklyPostCount / maxWeeklyPosts);
 
-            // 5. Follow demotion (-5 for followed topics with no direct activity)
+            // 5. Recent likes/engagement (0-15)
+            const engagementScore = 15 * Math.min(1, stats.weeklyLikes / maxWeeklyLikes);
+
+            // 6. Community size (0-8)
+            const popularityScore = 8 * Math.min(1, topic.followerCount / maxFollowerCount);
+
+            // 7. Activity-per-member ratio (0-7)
+            const postsPerMember = topic.followerCount > 0
+                ? stats.weeklyPostCount / topic.followerCount
+                : 0;
+            const ratioScore = 7 * Math.min(1, postsPerMember / 0.5);
+
+            // --- Adjustments ---
             const followDemotion = (followedSet.has(topic.id) && userPostsInTopic === 0) ? -5 : 0;
 
-            const totalScore = directScore + categoryScore + keywordScore + popularityScore + followDemotion;
+            const totalScore = directScore + categoryScore + keywordScore
+                + recentPostScore + engagementScore + popularityScore + ratioScore
+                + followDemotion;
 
             return { topic, score: totalScore };
         });
 
-        // Sort by score descending, then followerCount as tiebreaker
-        scored.sort((a, b) => {
-            if (b.score !== a.score) return b.score - a.score;
-            return b.topic.followerCount - a.topic.followerCount;
-        });
+        scored.sort((a, b) => b.score - a.score);
 
         return scored.map(s => s.topic);
     }
@@ -164,7 +272,7 @@ export class TopicController {
                         include: [{
                             model: User,
                             as: 'creator',
-                            attributes: ['id', 'username', 'activeAvatarId']
+                            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
                         }]
                     }]
                 });
@@ -190,21 +298,24 @@ export class TopicController {
                 where.category = category;
             }
 
-            let topics: Topic[];
-            let followedTopicIds: string[] = [];
-            let followsFetched = false;
-
-            if (search) {
-                // Fuzzy search with Fuse.js
-                const allTopics = await Topic.findAll({
+            // Fetch all topics and engagement stats up front so we can rank by engagement
+            const [allTopics, engagementStats] = await Promise.all([
+                Topic.findAll({
                     where,
                     include: [{
                         model: User,
                         as: 'creator',
-                        attributes: ['id', 'username', 'activeAvatarId']
+                        attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
                     }]
-                });
+                }),
+                TopicController.getTopicEngagementStats()
+            ]);
 
+            let topics: Topic[];
+            let followedTopicIds: string[] = [];
+
+            if (search) {
+                // Fuzzy search with Fuse.js, then re-rank by engagement
                 const fuse = new Fuse(allTopics.map(t => t.toJSON()), {
                     keys: [
                         { name: 'name', weight: 0.4 },
@@ -219,26 +330,21 @@ export class TopicController {
                 });
 
                 const fuseResults = fuse.search(search as string);
-                // Re-attach the Sequelize model instances for consistency
                 const idToModel = new Map(allTopics.map(t => [t.id, t]));
                 topics = fuseResults
                     .map(r => idToModel.get(r.item.id))
                     .filter((t): t is Topic => !!t);
+            } else if (sort === 'newest') {
+                // Newest sort — purely chronological
+                topics = [...allTopics].sort((a, b) =>
+                    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                );
             } else {
-                const shouldPersonalize = !!userId && (sort === 'popular' || sort === undefined);
+                // Default / popular / active — rank by engagement + personalization
+                const shouldPersonalize = !!userId;
 
                 if (shouldPersonalize) {
-                    // Personalized ranking: fetch all matching topics, score in-memory, paginate
-                    const [allTopics, userActivity, follows] = await Promise.all([
-                        Topic.findAll({
-                            where,
-                            order: [['followerCount', 'DESC']],
-                            include: [{
-                                model: User,
-                                as: 'creator',
-                                attributes: ['id', 'username', 'activeAvatarId']
-                            }]
-                        }),
+                    const [userActivity, follows] = await Promise.all([
                         TopicController.getUserTopicActivity(userId!),
                         TopicFollow.findAll({
                             where: { userId },
@@ -247,48 +353,21 @@ export class TopicController {
                     ]);
 
                     followedTopicIds = follows.map(f => f.topicId);
-                    followsFetched = true;
 
-                    if (userActivity.size === 0) {
-                        // No posting history — fallback to followerCount DESC with DB pagination
-                        topics = allTopics.slice(Number(offset), Number(offset) + Number(limit));
-                    } else {
-                        const sorted = TopicController.scoreTopicsForUser(allTopics, userActivity, followedTopicIds);
-                        topics = sorted.slice(Number(offset), Number(offset) + Number(limit));
-                    }
+                    topics = TopicController.scoreTopicsForUser(
+                        allTopics, userActivity, followedTopicIds, engagementStats
+                    );
                 } else {
-                    // Standard DB-level sort for newest/active or unauthenticated
-                    let order: any[] = [];
-                    switch (sort) {
-                        case 'popular':
-                            order = [['followerCount', 'DESC']];
-                            break;
-                        case 'newest':
-                            order = [['createdAt', 'DESC']];
-                            break;
-                        case 'active':
-                            order = [['weeklyPostCount', 'DESC']];
-                            break;
-                        default:
-                            order = [['followerCount', 'DESC']];
-                    }
-
-                    topics = await Topic.findAll({
-                        where,
-                        order,
-                        limit: Number(limit),
-                        offset: Number(offset),
-                        include: [{
-                            model: User,
-                            as: 'creator',
-                            attributes: ['id', 'username', 'activeAvatarId']
-                        }]
-                    });
+                    // Anonymous users — pure engagement ranking
+                    topics = TopicController.rankByEngagement(allTopics, engagementStats);
                 }
             }
 
-            // Fetch followed topic IDs if not already fetched by personalization
-            if (userId && !followsFetched) {
+            // Paginate
+            topics = topics.slice(Number(offset), Number(offset) + Number(limit));
+
+            // Fetch followed topic IDs if not already fetched
+            if (userId && followedTopicIds.length === 0) {
                 const follows = await TopicFollow.findAll({
                     where: { userId },
                     attributes: ['topicId']
@@ -335,11 +414,16 @@ export class TopicController {
                 }
             }
 
-            const topicsWithFollowStatus = topics.map(topic => ({
-                ...topic.toJSON(),
-                isFollowing: followedTopicIds.includes(topic.id),
-                previewPosts: previewPostsMap.get(topic.id) || []
-            }));
+            const topicsWithFollowStatus = topics.map(topic => {
+                const stats = engagementStats.get(topic.id) || { weeklyPostCount: 0, weeklyLikes: 0, totalPostCount: 0 };
+                return {
+                    ...topic.toJSON(),
+                    postCount: stats.totalPostCount,
+                    weeklyPostCount: stats.weeklyPostCount,
+                    isFollowing: followedTopicIds.includes(topic.id),
+                    previewPosts: previewPostsMap.get(topic.id) || []
+                };
+            });
 
             res.json({
                 success: true,
@@ -387,7 +471,7 @@ export class TopicController {
                 include: [{
                     model: User,
                     as: 'creator',
-                    attributes: ['id', 'username', 'activeAvatarId']
+                    attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
                 }]
             });
 
@@ -431,7 +515,7 @@ export class TopicController {
                 include: [{
                     model: User,
                     as: 'creator',
-                    attributes: ['id', 'username', 'activeAvatarId']
+                    attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
                 }]
             });
 
@@ -470,7 +554,7 @@ export class TopicController {
                 include: [{
                     model: User,
                     as: 'user',
-                    attributes: ['id', 'username', 'activeAvatarId']
+                    attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
                 }]
             });
 
@@ -482,7 +566,7 @@ export class TopicController {
                     include: [{
                         model: User,
                         as: 'user',
-                        attributes: ['id', 'username', 'activeAvatarId']
+                        attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
                     }]
                 });
             } catch {
@@ -622,7 +706,7 @@ export class TopicController {
                 include: [{
                     model: User,
                     as: 'creator',
-                    attributes: ['id', 'username', 'activeAvatarId']
+                    attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
                 }]
             });
 
@@ -744,7 +828,7 @@ export class TopicController {
                 include: [{
                     model: User,
                     as: 'user',
-                    attributes: ['id', 'username', 'activeAvatarId']
+                    attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
                 }]
             });
 
@@ -829,7 +913,7 @@ export class TopicController {
                 const userIds = results.map(r => r.fromUserId).filter(Boolean);
                 const users = await User.findAll({
                     where: { id: userIds },
-                    attributes: ['id', 'username', 'activeAvatarId']
+                    attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
                 });
 
                 const userMap = new Map(users.map(u => [u.id, u]));
@@ -874,7 +958,7 @@ export class TopicController {
                     include: [{
                         model: User,
                         as: 'user',
-                        attributes: ['id', 'username', 'activeAvatarId']
+                        attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
                     }]
                 }],
                 order: sort === 'recent'
@@ -956,7 +1040,7 @@ export class TopicController {
                 include: [{
                     model: User,
                     as: 'creator',
-                    attributes: ['id', 'username', 'activeAvatarId']
+                    attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
                 }]
             });
 
@@ -998,7 +1082,7 @@ export class TopicController {
                 include: [{
                     model: User,
                     as: 'user',
-                    attributes: ['id', 'username', 'activeAvatarId'],
+                    attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId'],
                     where: Object.keys(userWhere).length > 0 ? userWhere : undefined
                 }]
             });
@@ -1057,7 +1141,7 @@ export class TopicController {
                 include: [{
                     model: User,
                     as: 'user',
-                    attributes: ['id', 'username', 'activeAvatarId']
+                    attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
                 }],
                 order: [['createdAt', 'ASC']]
             });

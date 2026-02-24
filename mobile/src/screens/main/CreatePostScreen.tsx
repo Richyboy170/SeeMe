@@ -36,6 +36,7 @@ import {
 import { CameraView, CameraType, FlashMode, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as Location from 'expo-location';
 import * as MediaLibrary from 'expo-media-library';
 import { useNavigation, useRoute, CompositeNavigationProp, useFocusEffect } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
@@ -401,11 +402,23 @@ export default function CreatePostScreen() {
     caption: string;
     visibility: Visibility;
     selectedTopics: string[];
+    locationName?: string;
+    locationLat?: number;
+    locationLng?: number;
+    photoTakenAt?: string;
   } | null>(null);
 
   // Topic suggestions toggle (photo + caption)
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [imageSuggestedTopics, setImageSuggestedTopics] = useState<FullTopic[]>([]);
+
+  // Location & photo time state
+  const [locationEnabled, setLocationEnabled] = useState(false);
+  const [locationName, setLocationName] = useState<string | null>(null);
+  const [locationCoords, setLocationCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [loadingLocation, setLoadingLocation] = useState(false);
+  const [showPhotoTime, setShowPhotoTime] = useState(false);
+  const [photoTakenAt, setPhotoTakenAt] = useState<string | null>(null);
 
   // Draft state
   const [draftCount, setDraftCount] = useState(0);
@@ -507,6 +520,11 @@ export default function CreatePostScreen() {
     setSuggestedTopics([]);
     setImageSuggestedTopics([]);
     setShowSuggestions(true);
+    setLocationEnabled(false);
+    setLocationName(null);
+    setLocationCoords(null);
+    setShowPhotoTime(false);
+    setPhotoTakenAt(null);
     activeDraftIdRef.current = null;
   };
 
@@ -712,11 +730,39 @@ export default function CreatePostScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       quality: 0.8,
-      exif: false,
+      exif: true,
     });
 
     if (!result.canceled) {
-      const uri = result.assets[0].uri;
+      const asset = result.assets[0];
+      const uri = asset.uri;
+
+      // Extract EXIF data before any image manipulation (which strips EXIF)
+      const exifData = asset.exif;
+      if (exifData) {
+        // Extract timestamp
+        const dateOriginal = exifData.DateTimeOriginal || exifData.DateTimeDigitized;
+        if (dateOriginal) {
+          // EXIF date format: "YYYY:MM:DD HH:MM:SS" → convert to ISO
+          const isoDate = String(dateOriginal).replace(/^(\d{4}):(\d{2}):(\d{2})/, '$1-$2-$3');
+          const parsed = new Date(isoDate);
+          if (!isNaN(parsed.getTime())) {
+            setPhotoTakenAt(parsed.toISOString());
+            setShowPhotoTime(true);
+          }
+        }
+
+        // Extract GPS location from EXIF (where the photo was taken)
+        const lat = exifData.GPSLatitude;
+        const lng = exifData.GPSLongitude;
+        if (lat != null && lng != null && (lat !== 0 || lng !== 0)) {
+          const latitude = exifData.GPSLatitudeRef === 'S' ? -Math.abs(lat) : Math.abs(lat);
+          const longitude = exifData.GPSLongitudeRef === 'W' ? -Math.abs(lng) : Math.abs(lng);
+          setLocationCoords({ lat: latitude, lng: longitude });
+          reverseGeocodeAndSet(latitude, longitude);
+        }
+      }
+
       // Convert HEIC/HEIF to JPEG so the server can always process it
       if (uri.toLowerCase().endsWith('.heic') || uri.toLowerCase().endsWith('.heif')) {
         const converted = await ImageManipulator.manipulateAsync(
@@ -740,6 +786,12 @@ export default function CreatePostScreen() {
         quality: 0.8,
       });
       if (photo) {
+        // Set photo taken time to now for camera captures
+        setPhotoTakenAt(new Date().toISOString());
+
+        // Get current location (this IS where the photo was taken)
+        fetchCurrentLocationForPhoto();
+
         // Normalize EXIF orientation to fix landscape-when-portrait issue
         const normalized = await ImageManipulator.manipulateAsync(
           photo.uri,
@@ -801,6 +853,52 @@ export default function CreatePostScreen() {
     backToCamera();
   };
 
+  // Reverse geocode coordinates into a human-readable name
+  const reverseGeocodeAndSet = async (latitude: number, longitude: number) => {
+    try {
+      const [geocode] = await Location.reverseGeocodeAsync({ latitude, longitude });
+      if (geocode) {
+        const parts = [geocode.district || geocode.subregion, geocode.city || geocode.region].filter(Boolean);
+        setLocationName(parts.join(', ') || 'Unknown location');
+      } else {
+        setLocationName('Unknown location');
+      }
+      setLocationEnabled(true);
+    } catch (error) {
+      console.error('Reverse geocode error:', error);
+      setLocationName('Unknown location');
+      setLocationEnabled(true);
+    }
+  };
+
+  // Fetch current GPS for camera captures (photo taken right now = current location)
+  const fetchCurrentLocationForPhoto = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude } = position.coords;
+      setLocationCoords({ lat: latitude, lng: longitude });
+      reverseGeocodeAndSet(latitude, longitude);
+    } catch (error) {
+      console.error('Location fetch error:', error);
+    }
+  };
+
+  // Toggle location display on/off (data already extracted from image)
+  const toggleLocation = () => {
+    if (locationEnabled) {
+      setLocationEnabled(false);
+    } else if (locationCoords) {
+      // We already have coords from EXIF or camera capture — just re-enable
+      setLocationEnabled(true);
+    } else {
+      // No EXIF location available — nothing to show
+      Alert.alert('No location data', 'This photo does not contain location information.');
+    }
+  };
+
   const handlePost = async () => {
     if (!imageUri) {
       Alert.alert('Error', 'Please select an image');
@@ -828,6 +926,10 @@ export default function CreatePostScreen() {
       caption,
       visibility,
       selectedTopics: [...selectedTopics],
+      locationName: locationEnabled && locationName ? locationName : undefined,
+      locationLat: locationEnabled && locationCoords ? locationCoords.lat : undefined,
+      locationLng: locationEnabled && locationCoords ? locationCoords.lng : undefined,
+      photoTakenAt: showPhotoTime && photoTakenAt ? photoTakenAt : undefined,
     };
     submitPost();
   };
@@ -843,7 +945,11 @@ export default function CreatePostScreen() {
         postData.caption,
         postData.visibility,
         postData.selectedTopics,
-        postData.originalImageUri || undefined
+        postData.originalImageUri || undefined,
+        postData.locationName,
+        postData.locationLat,
+        postData.locationLng,
+        postData.photoTakenAt
       );
 
       // Refresh coin balance
@@ -1163,6 +1269,71 @@ export default function CreatePostScreen() {
                   +4 coins for a meaningful caption!
                 </Text>
               </View>
+            )}
+          </View>
+
+          {/* Location & Photo Time Toggles — only show if data exists from image */}
+          <View style={[styles.composeSection, { paddingTop: 12, paddingBottom: 4 }]}>
+            {/* Location toggle — only shown when EXIF GPS or camera location is available */}
+            {(locationCoords || loadingLocation) && (
+              <TouchableOpacity
+                style={[
+                  styles.metaToggleRow,
+                  { borderColor: locationEnabled ? Colors.brand.primary : colors.border },
+                  locationEnabled && { backgroundColor: isDark ? '#1A1A2E' : '#F5F3FF' },
+                ]}
+                onPress={toggleLocation}
+                disabled={loadingLocation}
+              >
+                <Ionicons
+                  name={locationEnabled ? 'location' : 'location-outline'}
+                  size={18}
+                  color={locationEnabled ? Colors.brand.primary : colors.text.secondary}
+                />
+                {loadingLocation ? (
+                  <ActivityIndicator size="small" color={Colors.brand.primary} style={{ marginLeft: 8 }} />
+                ) : (
+                  <Text style={[
+                    styles.metaToggleText,
+                    { color: locationEnabled ? Colors.brand.primary : colors.text.secondary },
+                  ]}>
+                    {locationName || 'Photo location'}
+                  </Text>
+                )}
+                {locationEnabled && (
+                  <Ionicons name="close-circle" size={16} color={colors.text.tertiary} style={{ marginLeft: 'auto' }} />
+                )}
+              </TouchableOpacity>
+            )}
+
+            {/* Photo time toggle — only show if we have a timestamp */}
+            {photoTakenAt && (
+              <TouchableOpacity
+                style={[
+                  styles.metaToggleRow,
+                  { borderColor: showPhotoTime ? Colors.brand.primary : colors.border, marginTop: 8 },
+                  showPhotoTime && { backgroundColor: isDark ? '#1A1A2E' : '#F5F3FF' },
+                ]}
+                onPress={() => setShowPhotoTime(!showPhotoTime)}
+              >
+                <Ionicons
+                  name={showPhotoTime ? 'camera' : 'camera-outline'}
+                  size={18}
+                  color={showPhotoTime ? Colors.brand.primary : colors.text.secondary}
+                />
+                <Text style={[
+                  styles.metaToggleText,
+                  { color: showPhotoTime ? Colors.brand.primary : colors.text.secondary },
+                ]}>
+                  {new Date(photoTakenAt).toLocaleString(undefined, {
+                    month: 'short', day: 'numeric', year: 'numeric',
+                    hour: 'numeric', minute: '2-digit',
+                  })}
+                </Text>
+                {showPhotoTime && (
+                  <Ionicons name="close-circle" size={16} color={colors.text.tertiary} style={{ marginLeft: 'auto' }} />
+                )}
+              </TouchableOpacity>
             )}
           </View>
 
@@ -1921,6 +2092,19 @@ const styles = StyleSheet.create({
   },
   topicName: {
     fontSize: 13,
+  },
+  metaToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 8,
+  },
+  metaToggleText: {
+    fontSize: 14,
+    flex: 1,
   },
   noTopicsContainer: {
     alignItems: 'center',

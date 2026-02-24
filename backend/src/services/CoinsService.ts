@@ -77,6 +77,10 @@ export class CoinsService {
     minutesUntilNextCooldown: number | null;
     secondsUntilNextCooldown: number | null;
     rank: string;
+    nextRank: string | null;
+    coinsToNextRank: number | null;
+    rankProgress: number;
+    rankPercentile: number;
     uncollectedCount: number;
   }> {
     let coins = await PositivityCoins.findByPk(userId);
@@ -115,6 +119,12 @@ export class CoinsService {
       ? Math.max(0, Math.ceil((coins.nextCooldownAvailableAt.getTime() - Date.now()) / 1000))
       : null;
 
+    // Calculate next rank info
+    const { nextRank, coinsToNextRank, rankProgress } = this.getNextRankInfo(coins.lifetimeGiven);
+
+    // Calculate rank percentile
+    const rankPercentile = await this.getRankPercentile(rank);
+
     return {
       totalCoins: coins.totalCoins,
       skyCoins: coins.skyCoins,
@@ -125,6 +135,10 @@ export class CoinsService {
       minutesUntilNextCooldown: minutesUntilNext,
       secondsUntilNextCooldown: secondsUntilNext,
       rank,
+      nextRank,
+      coinsToNextRank,
+      rankProgress,
+      rankPercentile,
       uncollectedCount
     };
   }
@@ -642,12 +656,12 @@ export class CoinsService {
           {
             model: User,
             as: 'fromUser',
-            attributes: ['id', 'username', 'activeAvatarId']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
           },
           {
             model: User,
             as: 'toUser',
-            attributes: ['id', 'username', 'activeAvatarId']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
           }
         ],
         order: [['createdAt', 'DESC']],
@@ -750,7 +764,7 @@ export class CoinsService {
           {
             model: User,
             as: 'fromUser',
-            attributes: ['id', 'username', 'activeAvatarId']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
           }
         ],
         order: [['createdAt', 'DESC']],
@@ -876,7 +890,7 @@ export class CoinsService {
           {
             model: User,
             as: 'user',
-            attributes: ['id', 'username', 'activeAvatarId', 'positivityRank']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId', 'positivityRank']
           }
         ],
         order: [['lifetimeGiven', 'DESC']],
@@ -891,6 +905,65 @@ export class CoinsService {
     } catch (error) {
       logger.error('Error getting leaderboard', { error });
       throw error;
+    }
+  }
+
+  /**
+   * Get next rank info: name, coins needed, and progress percentage
+   */
+  private static getNextRankInfo(lifetimeGiven: number): {
+    nextRank: string | null;
+    coinsToNextRank: number | null;
+    rankProgress: number;
+  } {
+    const ranks = Object.entries(RANK_THRESHOLDS) as [string, number][];
+    // ranks is already ordered: beginner(0), kind(10), generous(50), inspirational(200), legend(500)
+
+    // Find current rank index
+    let currentRankIndex = 0;
+    for (let i = ranks.length - 1; i >= 0; i--) {
+      if (lifetimeGiven >= ranks[i][1]) {
+        currentRankIndex = i;
+        break;
+      }
+    }
+
+    // If already at max rank (legend)
+    if (currentRankIndex >= ranks.length - 1) {
+      return { nextRank: null, coinsToNextRank: null, rankProgress: 100 };
+    }
+
+    const currentThreshold = ranks[currentRankIndex][1];
+    const nextRankEntry = ranks[currentRankIndex + 1];
+    const nextThreshold = nextRankEntry[1];
+    const coinsToNextRank = nextThreshold - lifetimeGiven;
+    const rangeSize = nextThreshold - currentThreshold;
+    const progressInRange = lifetimeGiven - currentThreshold;
+    const rankProgress = Math.round((progressInRange / rangeSize) * 100);
+
+    return {
+      nextRank: nextRankEntry[0],
+      coinsToNextRank,
+      rankProgress
+    };
+  }
+
+  /**
+   * Calculate what percentage of users share this rank
+   */
+  private static async getRankPercentile(rank: string): Promise<number> {
+    try {
+      const totalUsers = await User.count();
+      if (totalUsers === 0) return 100;
+
+      const usersWithRank = await User.count({
+        where: { positivityRank: rank }
+      });
+
+      return Math.round((usersWithRank / totalUsers) * 100);
+    } catch (error) {
+      logger.error('Error calculating rank percentile', { error });
+      return 0;
     }
   }
 

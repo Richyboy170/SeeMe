@@ -1,17 +1,25 @@
-import React, { useState, useLayoutEffect } from 'react';
+import React, { useState, useLayoutEffect, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
+  Animated,
+  PanResponder,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute, useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../../theme';
 import PeopleTab from './PeopleTab';
 import CommunitiesTab from './CommunitiesTab';
 
 type TabType = 'communities' | 'people';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
+const VELOCITY_THRESHOLD = 0.5;
 
 interface DiscoverScreenProps {
   navigation: any;
@@ -19,8 +27,108 @@ interface DiscoverScreenProps {
 
 export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
   const { colors, isDark } = useTheme();
+  const route = useRoute();
   const [activeTab, setActiveTab] = useState<TabType>('communities');
   const [searchQuery, setSearchQuery] = useState('');
+  const wasOnChildScreen = useRef(false);
+
+  // Animation: 0 = people (left), 1 = communities (right)
+  const slideAnim = useRef(new Animated.Value(1)).current;
+  const currentIndexRef = useRef(1);
+  const activeTabRef = useRef<TabType>('communities');
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  // Track when we navigate to a child screen (e.g. UserProfile) vs switching tabs
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('blur', () => {
+      const state = navigation.getState();
+      wasOnChildScreen.current = state.routes.length > 1;
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  // On focus: use initialTab param if provided, reset to communities on tab switch,
+  // but preserve the current tab when returning from a child screen (swipe back)
+  useFocusEffect(
+    useCallback(() => {
+      const params = route.params as any;
+      if (params?.initialTab) {
+        setActiveTab(params.initialTab);
+        navigation.setParams({ initialTab: undefined, _ts: undefined });
+      } else if (!wasOnChildScreen.current) {
+        setActiveTab('communities');
+      }
+      wasOnChildScreen.current = false;
+    }, [route.params])
+  );
+
+  // Sync animation when activeTab changes from external sources (button press, focus effects)
+  useEffect(() => {
+    const targetIndex = activeTab === 'people' ? 0 : 1;
+    if (currentIndexRef.current !== targetIndex) {
+      currentIndexRef.current = targetIndex;
+      Animated.spring(slideAnim, {
+        toValue: targetIndex,
+        useNativeDriver: true,
+        tension: 100,
+        friction: 15,
+      }).start();
+    }
+  }, [activeTab]);
+
+  // Swipe gesture handler
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, { dx, dy }) =>
+        Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10,
+      onPanResponderMove: (_, { dx }) => {
+        const normalized = currentIndexRef.current - dx / SCREEN_WIDTH;
+        slideAnim.setValue(Math.max(0, Math.min(1, normalized)));
+      },
+      onPanResponderRelease: (_, { dx, vx }) => {
+        let targetIndex = currentIndexRef.current;
+
+        if (Math.abs(vx) > VELOCITY_THRESHOLD) {
+          targetIndex = vx < 0 ? 1 : 0;
+        } else if (Math.abs(dx) > SWIPE_THRESHOLD) {
+          targetIndex = dx < 0
+            ? Math.min(1, currentIndexRef.current + 1)
+            : Math.max(0, currentIndexRef.current - 1);
+        }
+
+        targetIndex = Math.max(0, Math.min(1, targetIndex));
+        currentIndexRef.current = targetIndex;
+
+        Animated.spring(slideAnim, {
+          toValue: targetIndex,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 15,
+        }).start();
+
+        const newTab: TabType = targetIndex === 0 ? 'people' : 'communities';
+        if (newTab !== activeTabRef.current) {
+          setActiveTab(newTab);
+          setSearchQuery('');
+        }
+      },
+    })
+  ).current;
+
+  // Derived animated values
+  const contentTranslateX = slideAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -SCREEN_WIDTH],
+  });
+
+  const indicatorTranslateX = slideAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, SCREEN_WIDTH / 2],
+  });
 
   // Update header with Create Topic button (only on Communities tab)
   useLayoutEffect(() => {
@@ -39,7 +147,7 @@ export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
 
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab);
-    setSearchQuery(''); // Clear search when switching tabs
+    setSearchQuery('');
   };
 
   const handleClearSearch = () => {
@@ -77,7 +185,7 @@ export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
       {/* Tab Bar */}
       <View style={[styles.tabBar, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}>
         <TouchableOpacity
-          style={[styles.tab, activeTab === 'people' && styles.activeTab]}
+          style={styles.tab}
           onPress={() => handleTabChange('people')}
         >
           <Ionicons
@@ -92,7 +200,7 @@ export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.tab, activeTab === 'communities' && styles.activeTab]}
+          style={styles.tab}
           onPress={() => handleTabChange('communities')}
         >
           <Ionicons
@@ -105,14 +213,35 @@ export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
             Communities
           </Text>
         </TouchableOpacity>
+
+        {/* Sliding indicator */}
+        <Animated.View
+          style={[
+            styles.tabIndicator,
+            {
+              backgroundColor: '#14B8A6',
+              transform: [{ translateX: indicatorTranslateX }],
+            },
+          ]}
+        />
       </View>
 
-      {/* Tab Content - Keep both mounted to preserve state */}
-      <View style={[styles.tabContent, activeTab !== 'people' && styles.hiddenTab]}>
-        <PeopleTab searchQuery={searchQuery} navigation={navigation} />
-      </View>
-      <View style={[styles.tabContent, activeTab !== 'communities' && styles.hiddenTab]}>
-        <CommunitiesTab searchQuery={searchQuery} navigation={navigation} />
+      {/* Tab Content - both mounted side by side, slides with gesture */}
+      <View style={styles.contentContainer}>
+        <Animated.View
+          style={[
+            styles.slidingContainer,
+            { transform: [{ translateX: contentTranslateX }] },
+          ]}
+          {...panResponder.panHandlers}
+        >
+          <View style={styles.tabPage}>
+            <PeopleTab searchQuery={searchQuery} navigation={navigation} />
+          </View>
+          <View style={styles.tabPage}>
+            <CommunitiesTab searchQuery={searchQuery} navigation={navigation} />
+          </View>
+        </Animated.View>
       </View>
     </View>
   );
@@ -148,6 +277,7 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: 'row',
     borderBottomWidth: 1,
+    position: 'relative',
   },
   tab: {
     flex: 1,
@@ -155,11 +285,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
-  },
-  activeTab: {
-    borderBottomColor: '#14B8A6',
   },
   tabIcon: {
     marginRight: 6,
@@ -172,10 +297,23 @@ const styles = StyleSheet.create({
     color: '#14B8A6',
     fontWeight: '600',
   },
-  tabContent: {
-    flex: 1,
+  tabIndicator: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    width: SCREEN_WIDTH / 2,
+    height: 2,
   },
-  hiddenTab: {
-    display: 'none',
+  contentContainer: {
+    flex: 1,
+    overflow: 'hidden',
+  },
+  slidingContainer: {
+    flexDirection: 'row',
+    width: SCREEN_WIDTH * 2,
+    height: '100%',
+  },
+  tabPage: {
+    width: SCREEN_WIDTH,
   },
 });

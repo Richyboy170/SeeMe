@@ -1,9 +1,26 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { authenticateToken } from '../middleware/auth';
 import { UserController } from '../controllers/UserController';
 import { UserRecommendationController } from '../controllers/UserRecommendationController';
 
 const router = Router();
+
+// Configure multer for profile image uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit for profile images
+  },
+  fileFilter: (_req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only JPEG, PNG, WebP, and HEIC images are allowed.'));
+    }
+  }
+});
 
 /**
  * @route   GET /api/users/recommendations
@@ -32,6 +49,13 @@ router.get('/me', authenticateToken, UserController.getCurrentUser);
  * @access  Private
  */
 router.patch('/me', authenticateToken, UserController.updateCurrentUser);
+
+/**
+ * @route   POST /api/users/me/avatar
+ * @desc    Upload a profile image
+ * @access  Private
+ */
+router.post('/me/avatar', authenticateToken, upload.single('image'), UserController.uploadProfileImage);
 
 /**
  * @route   POST /api/users/fcm-token

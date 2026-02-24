@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 import * as MediaLibrary from 'expo-media-library';
+import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useNavigation, CommonActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme';
@@ -95,7 +96,22 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
   const [loadingSaved, setLoadingSaved] = useState(false);
   const [shareCardVisible, setShareCardVisible] = useState(false);
   const [savingCard, setSavingCard] = useState(false);
+  const [setupBannerDismissed, setSetupBannerDismissed] = useState(false);
   const shareCardRef = useRef<ViewShot>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  // Scroll to top when tab is re-tapped
+  useEffect(() => {
+    const parent = navigation.getParent();
+    if (!parent) return;
+
+    const unsubscribe = parent.addListener('tabPress', (e: any) => {
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    });
+
+    return unsubscribe;
+  }, [navigation]);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [trustData, setTrustData] = useState<{
     hasConnection: boolean;
     trustScore: number;
@@ -373,6 +389,32 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     setEditModalVisible(true);
   };
 
+  const handleChangeProfileImage = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets?.[0]) return;
+
+      setUploadingImage(true);
+      const response = await api.uploadProfileImage(result.assets[0].uri);
+      if (response.avatarUrl) {
+        setUser((prev: any) => ({ ...prev, avatarUrl: response.avatarUrl, activeAvatarId: null }));
+        // Clear custom avatar so the uploaded photo is displayed
+        setActiveAvatar(null);
+      }
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.error || 'Failed to upload image';
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
   const handleSaveProfile = async () => {
     if (savingProfile) return;
 
@@ -538,7 +580,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollViewRef} showsVerticalScrollIndicator={false}>
         {/* Profile Header */}
         <View style={[styles.profileHeader, { backgroundColor: colors.background }]}>
           {/* Top Bar */}
@@ -558,6 +600,33 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
               </TouchableOpacity>
             )}
           </View>
+
+          {/* Setup Banner */}
+          {isOwnProfile && !user.avatarUrl && !activeAvatar && !setupBannerDismissed && (
+            <View style={styles.setupBannerWrapper}>
+              <TouchableOpacity
+                style={[styles.setupBanner, { backgroundColor: isDark ? '#1A1708' : '#FFFBEB' }]}
+                onPress={handleEditProfile}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.setupBannerIcon, { backgroundColor: isDark ? '#2D2306' : '#FEF3C7' }]}>
+                  <Ionicons name="camera-outline" size={20} color="#F59E0B" />
+                </View>
+                <View style={styles.setupBannerText}>
+                  <Text style={[styles.setupBannerTitle, { color: colors.text.primary }]}>Complete your profile</Text>
+                  <Text style={[styles.setupBannerSubtitle, { color: colors.text.secondary }]}>Add a photo or create a custom avatar</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.text.tertiary} style={{ marginRight: 4 }} />
+                <TouchableOpacity
+                  onPress={() => setSetupBannerDismissed(true)}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  style={[styles.setupBannerClose, { backgroundColor: isDark ? '#2D2306' : '#FEF3C7' }]}
+                >
+                  <Ionicons name="close" size={14} color={colors.text.tertiary} />
+                </TouchableOpacity>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* Avatar with rank-colored ring */}
           <View style={styles.avatarSection}>
@@ -711,19 +780,11 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
               style={styles.trustGaugeContainer}
               activeOpacity={0.7}
               onPress={() => {
-                navigation.dispatch(
-                  CommonActions.navigate({
-                    name: 'Coins',
-                    params: {
-                      screen: 'FriendshipDetail',
-                      params: {
-                        otherUserId: user.id,
-                        otherUsername: user.username,
-                        otherAvatarUrl: user.avatarUrl,
-                      },
-                    },
-                  })
-                );
+                navigation.navigate('FriendshipDetail', {
+                  otherUserId: user.id,
+                  otherUsername: user.username,
+                  otherAvatarUrl: user.avatarUrl,
+                });
               }}
             >
               <TrustGauge
@@ -835,6 +896,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
           user: {
             id: user.id,
             username: user.username,
+            avatarUrl: user.avatarUrl,
             activeAvatar: activeAvatar,
           },
         }))}
@@ -879,23 +941,61 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
           <ScrollView style={styles.editModalContent}>
             {/* Avatar Section */}
             <View style={styles.editAvatarSection}>
-              <Avatar
-                size={100}
-                avatarUrl={!activeAvatar ? user?.avatarUrl : undefined}
-                username={user?.username}
-                showBorder
-                customizations={activeAvatar?.customizations}
-                avatarStyle={activeAvatar?.style}
-              />
+              <View>
+                <Avatar
+                  size={100}
+                  avatarUrl={!activeAvatar ? user?.avatarUrl : undefined}
+                  username={user?.username}
+                  showBorder
+                  customizations={activeAvatar?.customizations}
+                  avatarStyle={activeAvatar?.style}
+                />
+                {uploadingImage && (
+                  <View style={styles.uploadingOverlay}>
+                    <ActivityIndicator size="small" color="#FFF" />
+                  </View>
+                )}
+              </View>
+              <Text style={styles.editAvatarActiveLabel}>
+                {activeAvatar ? 'Using custom avatar' : user?.avatarUrl ? 'Using profile photo' : 'No profile picture set'}
+              </Text>
               <TouchableOpacity
-                style={styles.editAvatarButton}
+                style={[styles.editAvatarButton, !activeAvatar && user?.avatarUrl && styles.editAvatarButtonActive]}
+                onPress={handleChangeProfileImage}
+                disabled={uploadingImage}
+              >
+                <Text style={[styles.editAvatarButtonText, !activeAvatar && user?.avatarUrl && styles.editAvatarButtonTextActive]}>
+                  {uploadingImage ? 'Uploading...' : user?.avatarUrl && activeAvatar ? 'Switch to Profile Photo' : 'Upload Profile Photo'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.editAvatarButton, { marginTop: 4 }, activeAvatar && styles.editAvatarButtonActive]}
                 onPress={() => {
                   setEditModalVisible(false);
                   navigation.navigate('AvatarCustomization', {});
                 }}
               >
-                <Text style={styles.editAvatarButtonText}>Customize Avatar</Text>
+                <Text style={[styles.editAvatarButtonText, activeAvatar ? styles.editAvatarButtonTextActive : { color: '#6B7280' }]}>
+                  {activeAvatar ? 'Edit Custom Avatar' : 'Use Custom Avatar'}
+                </Text>
               </TouchableOpacity>
+              {activeAvatar && user?.avatarUrl && (
+                <TouchableOpacity
+                  style={[styles.editAvatarButton, { marginTop: 4 }]}
+                  onPress={async () => {
+                    try {
+                      // Deactivate custom avatar to show profile photo
+                      await api.updateProfile({ clearActiveAvatar: true } as any);
+                      setActiveAvatar(null);
+                      setUser((prev: any) => ({ ...prev, activeAvatarId: null }));
+                    } catch (error) {
+                      Alert.alert('Error', 'Failed to switch to profile photo');
+                    }
+                  }}
+                >
+                  <Text style={[styles.editAvatarButtonText]}>Switch to Profile Photo</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             {/* Username Input */}
@@ -1734,16 +1834,42 @@ const styles = StyleSheet.create({
     borderWidth: 0.5,
     borderColor: '#C7C7CC',
   },
+  uploadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 50,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  editAvatarActiveLabel: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 8,
+    fontWeight: '500',
+  },
   editAvatarButton: {
     marginTop: 12,
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: '#FBBF24',
+    backgroundColor: '#F3F4F6',
     borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  editAvatarButtonActive: {
+    backgroundColor: '#FBBF24',
+    borderColor: '#FBBF24',
   },
   editAvatarButtonText: {
     fontSize: 14,
     fontWeight: '600',
+    color: '#374151',
+  },
+  editAvatarButtonTextActive: {
     color: '#FFF',
   },
   editInputGroup: {
@@ -2183,6 +2309,49 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#FBBF24',
+  },
+
+  // Setup Banner
+  setupBannerWrapper: {
+    marginBottom: 16,
+  },
+  setupBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 0,
+    paddingVertical: 14,
+    paddingLeft: 14,
+    paddingRight: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(251, 191, 36, 0.25)',
+  },
+  setupBannerIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  setupBannerText: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  setupBannerTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  setupBannerSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+    opacity: 0.7,
+  },
+  setupBannerClose: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
 });

@@ -43,6 +43,10 @@ import CreateTopicScreen from '../screens/topics/CreateTopicScreen';
 import ConversationsScreen from '../screens/chat/ConversationsScreen';
 import ChatScreen from '../screens/chat/ChatScreen';
 
+
+// Welcome motto
+import { useWelcomeMotto } from '../contexts/WelcomeMottoContext';
+
 // Socket service
 import { socketService } from '../services/socket';
 
@@ -203,6 +207,14 @@ function DiscoverNavigator() {
           headerBackTitle: 'Back'
         }}
       />
+      <DiscoverStack.Screen
+        name="FriendshipDetail"
+        component={FriendshipDetailScreen}
+        options={({ route }) => ({
+          title: `@${route.params.otherUsername}`,
+          headerBackTitle: 'Back'
+        })}
+      />
     </DiscoverStack.Navigator>
   );
 }
@@ -264,6 +276,14 @@ function FeedNavigator() {
         options={({ route }) => ({
           title: route.params.otherUser.username,
           headerBackTitle: 'Back',
+        })}
+      />
+      <FeedStack.Screen
+        name="FriendshipDetail"
+        component={FriendshipDetailScreen}
+        options={({ route }) => ({
+          title: `@${route.params.otherUsername}`,
+          headerBackTitle: 'Back'
         })}
       />
     </FeedStack.Navigator>
@@ -413,6 +433,7 @@ function RootNavigatorContent() {
   const isAddingAccountRef = useRef(false);
   // Track the account ID before adding new account
   const previousAccountIdRef = useRef<string | null>(null);
+  const { triggerWelcomeMotto } = useWelcomeMotto();
   const {
     showAccountSwitcher,
     setShowAccountSwitcher,
@@ -474,6 +495,19 @@ function RootNavigatorContent() {
         }
       };
       checkNavigateToProfile();
+
+      // Check if we should show the welcome motto (fresh login/register)
+      const checkWelcomeMotto = async () => {
+        const shouldShowMotto = await AsyncStorage.getItem('show_welcome_motto');
+        if (shouldShowMotto) {
+          await AsyncStorage.removeItem('show_welcome_motto');
+          // Delay to let MainNavigator mount first
+          setTimeout(() => {
+            triggerWelcomeMotto();
+          }, 500);
+        }
+      };
+      checkWelcomeMotto();
     } else {
       socketService.disconnect();
       setUnreadCount(0);

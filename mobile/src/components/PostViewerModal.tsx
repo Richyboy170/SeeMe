@@ -126,6 +126,7 @@ export default function PostViewerModal({
         >
           <Avatar
             size={36}
+            avatarUrl={!item.user.activeAvatar ? item.user.avatarUrl : undefined}
             username={item.user.username}
             customizations={item.user.activeAvatar?.customizations}
             avatarStyle={item.user.activeAvatar?.style}

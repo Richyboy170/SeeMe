@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     View,
     ScrollView,
@@ -9,7 +9,7 @@ import {
     Alert,
     Animated,
     Dimensions,
-    Easing
+    PanResponder
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { CommonActions } from '@react-navigation/native';
@@ -25,6 +25,11 @@ import { AvatarCustomizations } from '../../components/AvatarRenderer';
 import { useTheme } from '../../theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
+const VELOCITY_THRESHOLD = 0.5;
+const SEGMENT_H_PADDING = 16;
+const SEGMENT_INNER_PADDING = 3;
+const SEGMENT_TAB_WIDTH = (SCREEN_WIDTH - SEGMENT_H_PADDING * 2 - SEGMENT_INNER_PADDING * 2) / 2;
 
 interface ReceivedCoin {
     id: string;
@@ -67,7 +72,11 @@ export default function CoinsScreen({ navigation }: any) {
         cooldownCoinsAvailable: 0,
         minutesUntilNextCooldown: null,
         secondsUntilNextCooldown: null,
-        rank: 'beginner'
+        rank: 'beginner',
+        nextRank: null as string | null,
+        coinsToNextRank: null as number | null,
+        rankProgress: 0,
+        rankPercentile: 0
     });
     const [receivedCoins, setReceivedCoins] = useState<ReceivedCoin[]>([]);
     const [uncollectedCoins, setUncollectedCoins] = useState<ReceivedCoin[]>([]);
@@ -77,198 +86,95 @@ export default function CoinsScreen({ navigation }: any) {
     const [showEncouragement, setShowEncouragement] = useState(false);
     const [activeTab, setActiveTab] = useState<'wallet' | 'store'>('wallet');
 
+    // Tab slide animation: 0 = wallet (left), 1 = store (right)
+    const slideAnim = useRef(new Animated.Value(0)).current;
+    const currentIndexRef = useRef(0);
+    const activeTabRef = useRef<'wallet' | 'store'>('wallet');
+
+    useEffect(() => {
+        activeTabRef.current = activeTab;
+    }, [activeTab]);
+
+    // Sync animation when activeTab changes from button press
+    useEffect(() => {
+        const targetIndex = activeTab === 'wallet' ? 0 : 1;
+        if (currentIndexRef.current !== targetIndex) {
+            currentIndexRef.current = targetIndex;
+            Animated.spring(slideAnim, {
+                toValue: targetIndex,
+                useNativeDriver: true,
+                tension: 100,
+                friction: 15,
+            }).start();
+        }
+    }, [activeTab]);
+
+    const tabPanResponder = useRef(
+        PanResponder.create({
+            onMoveShouldSetPanResponder: (_, { dx, dy }) =>
+                Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10,
+            onPanResponderMove: (_, { dx }) => {
+                const normalized = currentIndexRef.current - dx / SCREEN_WIDTH;
+                slideAnim.setValue(Math.max(0, Math.min(1, normalized)));
+            },
+            onPanResponderRelease: (_, { dx, vx }) => {
+                let targetIndex = currentIndexRef.current;
+
+                if (Math.abs(vx) > VELOCITY_THRESHOLD) {
+                    targetIndex = vx < 0 ? 1 : 0;
+                } else if (Math.abs(dx) > SWIPE_THRESHOLD) {
+                    targetIndex = dx < 0
+                        ? Math.min(1, currentIndexRef.current + 1)
+                        : Math.max(0, currentIndexRef.current - 1);
+                }
+
+                targetIndex = Math.max(0, Math.min(1, targetIndex));
+                currentIndexRef.current = targetIndex;
+
+                Animated.spring(slideAnim, {
+                    toValue: targetIndex,
+                    useNativeDriver: true,
+                    tension: 100,
+                    friction: 15,
+                }).start();
+
+                const newTab = targetIndex === 0 ? 'wallet' : 'store';
+                if (newTab !== activeTabRef.current) {
+                    setActiveTab(newTab as 'wallet' | 'store');
+                }
+            },
+        })
+    ).current;
+
+    const contentTranslateX = slideAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, -SCREEN_WIDTH],
+    });
+
+    const segmentIndicatorX = slideAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, SEGMENT_TAB_WIDTH],
+    });
+
     // Coin celebration hook
     const { showCelebration } = useCoinCelebration();
 
-    // Rainbow animation for encouragement button
-    const [rainbowIndex, setRainbowIndex] = useState(0);
-    const RAINBOW_COLORS: [string, string, string][] = [
-        ['#EF4444', '#F97316', '#FBBF24'],
-        ['#F97316', '#FBBF24', '#22C55E'],
-        ['#FBBF24', '#22C55E', '#3B82F6'],
-        ['#22C55E', '#3B82F6', '#8B5CF6'],
-        ['#3B82F6', '#8B5CF6', '#EC4899'],
-        ['#8B5CF6', '#EC4899', '#EF4444'],
-        ['#EC4899', '#EF4444', '#F97316'],
-    ];
+    const scrollViewRef = useRef<ScrollView>(null);
+
+    // Scroll to top when tab is re-tapped
+    useEffect(() => {
+        const parent = navigation.getParent();
+        if (!parent) return;
+
+        const unsubscribe = parent.addListener('tabPress', (e: any) => {
+            scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+        });
+
+        return unsubscribe;
+    }, [navigation]);
 
     // Animations for hero section
     const coinPulse = useRef(new Animated.Value(1)).current;
-    const rankGlow = useRef(new Animated.Value(0)).current;
-
-    // Wind blast — explodes from Sky Coins and hits you in the face
-    const WIND_COUNT = 32;
-    const [windActive, setWindActive] = useState(false);
-    const windParticles = useRef(
-        Array.from({ length: WIND_COUNT }, () => ({
-            x: new Animated.Value(0),
-            y: new Animated.Value(0),
-            opacity: new Animated.Value(0),
-            rotate: new Animated.Value(0),
-            scale: new Animated.Value(0.1),
-        }))
-    ).current;
-    const windFlash = useRef(new Animated.Value(0)).current;
-    const RING_COUNT = 4;
-    const windRings = useRef(
-        Array.from({ length: RING_COUNT }, () => ({
-            scale: new Animated.Value(0),
-            opacity: new Animated.Value(0),
-        }))
-    ).current;
-
-    const triggerWind = useCallback(() => {
-        if (windActive) return;
-        setWindActive(true);
-
-        const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-        const originX = SCREEN_WIDTH / 2;
-        const originY = SCREEN_HEIGHT * 0.32;
-
-        // Reset rings
-        windRings.forEach(r => {
-            r.scale.setValue(0);
-            r.opacity.setValue(0);
-        });
-
-        // Expanding rings — ripple outward from center
-        const ringAnimations = windRings.map((r, i) => {
-            const ringDelay = i * 180;
-            const peakOpacity = 0.4 - i * 0.07;
-            return Animated.sequence([
-                Animated.delay(ringDelay),
-                Animated.parallel([
-                    Animated.timing(r.scale, {
-                        toValue: 1,
-                        duration: 1100,
-                        easing: Easing.out(Easing.cubic),
-                        useNativeDriver: true,
-                    }),
-                    Animated.sequence([
-                        Animated.timing(r.opacity, {
-                            toValue: peakOpacity,
-                            duration: 180,
-                            useNativeDriver: true,
-                        }),
-                        Animated.timing(r.opacity, {
-                            toValue: 0,
-                            duration: 920,
-                            easing: Easing.in(Easing.quad),
-                            useNativeDriver: true,
-                        }),
-                    ]),
-                ]),
-            ]);
-        });
-
-        // Soft center glow
-        windFlash.setValue(0);
-        const flashAnim = Animated.sequence([
-            Animated.timing(windFlash, {
-                toValue: 1,
-                duration: 200,
-                easing: Easing.out(Easing.quad),
-                useNativeDriver: true,
-            }),
-            Animated.timing(windFlash, {
-                toValue: 0,
-                duration: 1000,
-                easing: Easing.in(Easing.cubic),
-                useNativeDriver: true,
-            }),
-        ]);
-
-        // Wind particles — flow outward in 3 progressive waves
-        const particleAnimations = windParticles.map((p, i) => {
-            const baseAngle = (i / WIND_COUNT) * Math.PI * 2;
-            const angle = baseAngle + (Math.random() - 0.5) * 0.4;
-
-            // Wave grouping: inner → mid → outer
-            const wave = Math.floor(i / (WIND_COUNT / 3));
-            const dist = Math.max(SCREEN_WIDTH, SCREEN_HEIGHT) * (0.4 + wave * 0.3 + Math.random() * 0.2);
-
-            const endX = originX + Math.cos(angle) * dist;
-            const endY = originY + Math.sin(angle) * dist;
-
-            p.x.setValue(originX);
-            p.y.setValue(originY);
-            p.opacity.setValue(0);
-            p.rotate.setValue(0);
-            p.scale.setValue(0.2);
-
-            // Each wave flows out after the previous
-            const waveDelay = wave * 200;
-            const delay = waveDelay + Math.random() * 100;
-            const duration = 900 + Math.random() * 400;
-            const peakOpacity = 0.55 - wave * 0.08 + Math.random() * 0.15;
-            const endScale = 1.2 + wave * 0.6 + Math.random() * 0.8;
-
-            return Animated.parallel([
-                // Opacity: fade in, hold briefly, fade out
-                Animated.sequence([
-                    Animated.delay(delay),
-                    Animated.timing(p.opacity, {
-                        toValue: peakOpacity,
-                        duration: 150,
-                        useNativeDriver: true,
-                    }),
-                    Animated.delay(duration * 0.15),
-                    Animated.timing(p.opacity, {
-                        toValue: 0,
-                        duration: duration * 0.7,
-                        useNativeDriver: true,
-                    }),
-                ]),
-                // X: smooth flow outward
-                Animated.sequence([
-                    Animated.delay(delay),
-                    Animated.timing(p.x, {
-                        toValue: endX,
-                        duration,
-                        easing: Easing.out(Easing.cubic),
-                        useNativeDriver: true,
-                    }),
-                ]),
-                // Y: smooth flow outward
-                Animated.sequence([
-                    Animated.delay(delay),
-                    Animated.timing(p.y, {
-                        toValue: endY,
-                        duration,
-                        easing: Easing.out(Easing.cubic),
-                        useNativeDriver: true,
-                    }),
-                ]),
-                // Scale: grow as it flows out
-                Animated.sequence([
-                    Animated.delay(delay),
-                    Animated.timing(p.scale, {
-                        toValue: endScale,
-                        duration: duration * 0.85,
-                        easing: Easing.out(Easing.cubic),
-                        useNativeDriver: true,
-                    }),
-                ]),
-                // Gentle rotation
-                Animated.sequence([
-                    Animated.delay(delay),
-                    Animated.timing(p.rotate, {
-                        toValue: (Math.random() - 0.5) * 3,
-                        duration,
-                        easing: Easing.out(Easing.quad),
-                        useNativeDriver: true,
-                    }),
-                ]),
-            ]);
-        });
-
-        Animated.parallel([
-            flashAnim,
-            ...ringAnimations,
-            ...particleAnimations,
-        ]).start(() => setWindActive(false));
-    }, [windActive]);
-
     useEffect(() => {
         loadCoins();
         loadReceivedCoins();
@@ -280,14 +186,6 @@ export default function CoinsScreen({ navigation }: any) {
         return () => clearInterval(interval);
     }, []);
 
-    // Rainbow cycling effect when uncollected coins exist
-    useEffect(() => {
-        if (uncollectedCount === 0) return;
-        const interval = setInterval(() => {
-            setRainbowIndex(prev => (prev + 1) % RAINBOW_COLORS.length);
-        }, 600);
-        return () => clearInterval(interval);
-    }, [uncollectedCount]);
 
     // Hero animations
     useEffect(() => {
@@ -307,21 +205,6 @@ export default function CoinsScreen({ navigation }: any) {
             ])
         ).start();
 
-        // Rank glow animation
-        Animated.loop(
-            Animated.sequence([
-                Animated.timing(rankGlow, {
-                    toValue: 1,
-                    duration: 2000,
-                    useNativeDriver: true,
-                }),
-                Animated.timing(rankGlow, {
-                    toValue: 0,
-                    duration: 2000,
-                    useNativeDriver: true,
-                }),
-            ])
-        ).start();
     }, []);
 
     const loadReceivedCoins = async () => {
@@ -365,7 +248,11 @@ export default function CoinsScreen({ navigation }: any) {
                 cooldownCoinsAvailable: response.coins.cooldownCoinsAvailable,
                 minutesUntilNextCooldown: response.coins.minutesUntilNextCooldown,
                 secondsUntilNextCooldown: secondsUntilNext,
-                rank: response.coins.rank || 'beginner'
+                rank: response.coins.rank || 'beginner',
+                nextRank: response.coins.nextRank || null,
+                coinsToNextRank: response.coins.coinsToNextRank ?? null,
+                rankProgress: response.coins.rankProgress || 0,
+                rankPercentile: response.coins.rankPercentile || 0
             });
             setUncollectedCount(response.coins.uncollectedCount || 0);
         } catch (error) {
@@ -509,11 +396,19 @@ export default function CoinsScreen({ navigation }: any) {
         {/* Segmented Control */}
         <View style={[styles.segmentedControlContainer, { backgroundColor: colors.surface }]}>
             <View style={[styles.segmentedControl, { backgroundColor: colors.surfaceVariant }]}>
-                <TouchableOpacity
+                {/* Sliding pill indicator */}
+                <Animated.View
                     style={[
-                        styles.segmentedTab,
-                        activeTab === 'wallet' && [styles.segmentedTabActive, { backgroundColor: colors.background }]
+                        styles.segmentedIndicator,
+                        {
+                            backgroundColor: colors.background,
+                            width: SEGMENT_TAB_WIDTH,
+                            transform: [{ translateX: segmentIndicatorX }],
+                        },
                     ]}
+                />
+                <TouchableOpacity
+                    style={styles.segmentedTab}
                     onPress={() => setActiveTab('wallet')}
                     activeOpacity={0.8}
                 >
@@ -525,10 +420,7 @@ export default function CoinsScreen({ navigation }: any) {
                     ]}>Wallet</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                    style={[
-                        styles.segmentedTab,
-                        activeTab === 'store' && [styles.segmentedTabActive, { backgroundColor: colors.background }]
-                    ]}
+                    style={styles.segmentedTab}
                     onPress={() => setActiveTab('store')}
                     activeOpacity={0.8}
                 >
@@ -542,13 +434,14 @@ export default function CoinsScreen({ navigation }: any) {
             </View>
         </View>
 
-        {activeTab === 'store' ? (
-            <DecorationStoreContent
-                skyCoins={coinsData.skyCoins}
-                onPurchase={loadCoins}
-            />
-        ) : (
+        <View style={styles.tabContentContainer}>
+        <Animated.View
+            style={[styles.tabSlidingContainer, { transform: [{ translateX: contentTranslateX }] }]}
+            {...tabPanResponder.panHandlers}
+        >
+        <View style={styles.tabPage}>
         <ScrollView
+            ref={scrollViewRef}
             style={[styles.container, { backgroundColor: colors.surface }]}
             contentContainerStyle={styles.contentContainer}
             refreshControl={
@@ -579,55 +472,172 @@ export default function CoinsScreen({ navigation }: any) {
                         {coinsData.totalCoins.toLocaleString()}
                     </Text>
                     <Text style={[styles.balanceLabel, { color: colors.text.secondary }]}>Positivity Coins</Text>
-
-                    {/* Sky Coins Display */}
-                    <TouchableOpacity activeOpacity={0.85} onPress={triggerWind} style={styles.skyCoinsCard}>
-                        <LinearGradient
-                            colors={SKY_COIN_COLORS.cardGradient}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 1 }}
-                            style={styles.skyCoinsGradientFill}
-                        >
-                            {/* Decorative clouds */}
-                            <Ionicons name="cloud" size={50} color="rgba(255,255,255,0.08)" style={styles.skyCloud1} />
-                            <Ionicons name="cloud" size={32} color="rgba(255,255,255,0.06)" style={styles.skyCloud2} />
-                            <Ionicons name="cloud" size={40} color="rgba(255,255,255,0.07)" style={styles.skyCloud3} />
-
-                            {/* Sparkle accents */}
-                            <Ionicons name="sparkles" size={14} color="rgba(255,255,255,0.25)" style={styles.skySpark1} />
-                            <Ionicons name="sparkles" size={10} color="rgba(255,255,255,0.2)" style={styles.skySpark2} />
-
-                            <View style={styles.skyCoinsContent}>
-                                <View style={styles.skyCoinIconWrap}>
-                                    <View style={styles.skyCoinGlow} />
-                                    <SkyCoinIcon size={48} />
-                                </View>
-                                <View style={styles.skyCoinsTextBlock}>
-                                    <Text style={styles.skyCoinsAmount}>
-                                        {coinsData.skyCoins.toLocaleString()}
-                                    </Text>
-                                    <Text style={styles.skyCoinsLabel}>Sky Coins</Text>
-                                </View>
-                            </View>
-                        </LinearGradient>
-                    </TouchableOpacity>
-
-                    {/* Stats Row */}
-                    <View style={[styles.heroStatsRow, { backgroundColor: colors.background }]}>
-                        <View style={styles.heroStatHalf}>
-                            <Text style={[styles.heroStatValue, { color: colors.text.primary }]}>{coinsData.lifetimeGiven}</Text>
-                            <Text style={[styles.heroStatLabel, { color: colors.text.secondary }]}>Given</Text>
-                        </View>
-                        <View style={[styles.heroStatDivider, { backgroundColor: colors.border }]} />
-                        <TouchableOpacity style={styles.heroStatHalf} onPress={() => navigation.navigate('GiveLeaderboard')}>
-                            <View style={[styles.rankDotInline, { backgroundColor: rankInfo.heroGradient[0] }]} />
-                            <Text style={[styles.heroStatValue, { color: colors.text.primary }]}>
-                                {coinsData.rank.charAt(0).toUpperCase() + coinsData.rank.slice(1)}
-                            </Text>
-                            <Ionicons name="chevron-forward" size={11} color={colors.text.secondary} />
-                        </TouchableOpacity>
-                    </View>
                 </View>
+            </View>
+
+            {/* ============ COINS GIVEN & SKY COINS — SIDE BY SIDE ============ */}
+            <View style={styles.panelsRow}>
+                {/* Coins Given Panel */}
+                <View style={styles.panelCard}>
+                    <LinearGradient
+                        colors={[rankInfo.heroGradient[0], rankInfo.heroGradient[1], rankInfo.heroGradient[2]]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.panelGradient}
+                    >
+                        <Ionicons name="heart" size={44} color="rgba(255,255,255,0.06)" style={styles.panelDecor1} />
+
+                        {/* Slot 1: Header */}
+                        <View style={styles.panelHeader}>
+                            <View style={styles.panelIconCircle}>
+                                <Ionicons name="heart" size={14} color="#FFF" />
+                            </View>
+                            <Text style={styles.panelTitle}>Given</Text>
+                        </View>
+
+                        {/* Slot 2: Amount */}
+                        <Text style={styles.panelAmount}>
+                            {coinsData.lifetimeGiven.toLocaleString()}
+                        </Text>
+
+                        {/* Slot 3: Badge */}
+                        <View style={styles.panelBadgeSlot}>
+                            <TouchableOpacity
+                                style={styles.panelBadge}
+                                onPress={() => navigation.navigate('GiveLeaderboard')}
+                                activeOpacity={0.8}
+                            >
+                                <Text style={styles.panelBadgeEmoji}>{rankInfo.emoji}</Text>
+                                <Text style={styles.panelBadgeLabel}>
+                                    {coinsData.rank.charAt(0).toUpperCase() + coinsData.rank.slice(1)}
+                                </Text>
+                                <Ionicons name="chevron-forward" size={9} color="rgba(255,255,255,0.5)" />
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Slot 4: Middle info */}
+                        <View style={styles.panelMidSlot}>
+                            <View style={styles.panelProgressTrack}>
+                                <View
+                                    style={[
+                                        styles.panelProgressFill,
+                                        { width: `${Math.min(Math.max(coinsData.rankProgress, 3), 100)}%` }
+                                    ]}
+                                />
+                            </View>
+                            {coinsData.nextRank && coinsData.coinsToNextRank !== null ? (
+                                <Text style={styles.panelMidText}>
+                                    <Text style={{ fontWeight: '800' }}>{coinsData.coinsToNextRank}</Text>
+                                    {' '}to {coinsData.nextRank.charAt(0).toUpperCase() + coinsData.nextRank.slice(1)}
+                                </Text>
+                            ) : (
+                                <Text style={styles.panelMidText}>Max rank!</Text>
+                            )}
+                        </View>
+
+                        {/* Slot 5: Footer pill */}
+                        <View style={styles.panelFooterSlot}>
+                            <View style={styles.panelStatPill}>
+                                <Ionicons name="people" size={10} color="rgba(255,255,255,0.8)" />
+                                <Text style={styles.panelStatText}>Top {coinsData.rankPercentile}%</Text>
+                            </View>
+                        </View>
+
+                        {/* Slot 6: CTA */}
+                        <TouchableOpacity
+                            style={styles.panelCTA}
+                            onPress={() => navigation.dispatch(
+                                CommonActions.navigate({ name: 'Feed' })
+                            )}
+                            activeOpacity={0.85}
+                        >
+                            <Ionicons name="gift" size={13} color={rankInfo.heroGradient[1]} />
+                            <Text style={[styles.panelCTAText, { color: rankInfo.heroGradient[1] }]}>
+                                Spread Kindness
+                            </Text>
+                        </TouchableOpacity>
+                    </LinearGradient>
+                </View>
+
+                {/* Sky Coins Panel */}
+                <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={() => setShowEncouragement(true)}
+                    style={styles.panelCard}
+                >
+                    <LinearGradient
+                        colors={SKY_COIN_COLORS.cardGradient}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.panelGradient}
+                    >
+                        <Ionicons name="cloud" size={44} color="rgba(255,255,255,0.06)" style={styles.panelDecor1} />
+
+                        {/* Notification badge */}
+                        {uncollectedCount > 0 && (
+                            <View style={styles.panelNotifBadge}>
+                                <Text style={styles.panelNotifText}>
+                                    {uncollectedCount > 99 ? '99+' : uncollectedCount}
+                                </Text>
+                            </View>
+                        )}
+
+                        {/* Slot 1: Header */}
+                        <View style={styles.panelHeader}>
+                            <View style={styles.panelIconCircle}>
+                                <SkyCoinIcon size={18} />
+                            </View>
+                            <Text style={styles.panelTitle}>Sky Coins</Text>
+                        </View>
+
+                        {/* Slot 2: Amount */}
+                        <Text style={styles.panelAmount}>
+                            {coinsData.skyCoins.toLocaleString()}
+                        </Text>
+
+                        {/* Slot 3: Badge */}
+                        <View style={styles.panelBadgeSlot}>
+                            <View style={styles.panelBadge}>
+                                <Ionicons name="arrow-down" size={10} color="rgba(255,255,255,0.85)" />
+                                <Text style={styles.panelBadgeLabel}>Received</Text>
+                            </View>
+                        </View>
+
+                        {/* Slot 4: Middle info */}
+                        <View style={styles.panelMidSlot}>
+                            <Text style={styles.panelMidText}>
+                                Earned when others send you coins
+                            </Text>
+                        </View>
+
+                        {/* Slot 5: Footer pill */}
+                        <View style={styles.panelFooterSlot}>
+                            <View style={styles.panelStatPill}>
+                                <Ionicons name="storefront-outline" size={10} color="rgba(255,255,255,0.8)" />
+                                <Text style={styles.panelStatText}>Use in Store</Text>
+                            </View>
+                        </View>
+
+                        {/* Slot 6: CTA */}
+                        <View style={styles.panelCTA}>
+                            {uncollectedCount > 0 ? (
+                                <>
+                                    <Ionicons name="sparkles" size={13} color={SKY_COIN_COLORS.cardGradient[1]} />
+                                    <Text style={[styles.panelCTAText, { color: SKY_COIN_COLORS.cardGradient[1] }]}>
+                                        Collect {uncollectedCount}
+                                    </Text>
+                                </>
+                            ) : (
+                                <>
+                                    <Ionicons name="basket-outline" size={13} color={SKY_COIN_COLORS.cardGradient[1]} />
+                                    <Text style={[styles.panelCTAText, { color: SKY_COIN_COLORS.cardGradient[1] }]}>
+                                        Store
+                                    </Text>
+                                </>
+                            )}
+                        </View>
+                    </LinearGradient>
+                </TouchableOpacity>
             </View>
 
             {/* ============ GET MORE COINS - UNIFIED SECTION ============ */}
@@ -760,50 +770,16 @@ export default function CoinsScreen({ navigation }: any) {
                 </View>
             )}
 
-            {/* ============ KINDNESS RECEIVED + TRANSACTION HISTORY ============ */}
-            <View style={[styles.receivedSection, { backgroundColor: colors.background }]}>
-                <View style={styles.sectionHeader}>
-                    <View style={[styles.sectionIcon, { backgroundColor: '#FEE2E2' }]}>
-                        <Ionicons name="heart" size={16} color="#EF4444" />
-                    </View>
-                    <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Kindness Received</Text>
-                </View>
-
-                {uncollectedCount > 0 ? (
-                    <TouchableOpacity
-                        style={styles.encouragementButton}
-                        onPress={() => setShowEncouragement(true)}
-                        activeOpacity={0.85}
-                    >
-                        <LinearGradient
-                            colors={RAINBOW_COLORS[rainbowIndex]}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 0 }}
-                            style={styles.encouragementGradient}
-                        >
-                            <Ionicons name="heart" size={16} color="#FFF" />
-                            <Text style={styles.encouragementButtonText}>
-                                View Encouragement ({uncollectedCount})
-                            </Text>
-                            <Ionicons name="sparkles" size={16} color="#FFF" />
-                        </LinearGradient>
-                    </TouchableOpacity>
-                ) : (
-                    <View style={styles.emptyReceived}>
-                        <Ionicons name="gift-outline" size={24} color={colors.border} />
-                        <Text style={[styles.emptyReceivedText, { color: colors.text.secondary }]}>No uncollected coins</Text>
-                    </View>
-                )}
-
-                <TouchableOpacity
-                    style={[styles.viewAllActivityBtn, { borderTopColor: colors.surfaceVariant }]}
-                    onPress={() => navigation.navigate('CoinHistory')}
-                >
-                    <Ionicons name="receipt-outline" size={16} color="#6366F1" />
-                    <Text style={styles.viewAllActivityText}>View All Activity</Text>
-                    <Ionicons name="chevron-forward" size={14} color="#6366F1" />
-                </TouchableOpacity>
-            </View>
+            {/* ============ VIEW ALL ACTIVITY — BOTTOM ============ */}
+            <TouchableOpacity
+                style={[styles.viewAllActivityBottom, { backgroundColor: colors.background, borderColor: colors.border }]}
+                onPress={() => navigation.navigate('CoinHistory')}
+                activeOpacity={0.7}
+            >
+                <Ionicons name="receipt-outline" size={16} color="#6366F1" />
+                <Text style={styles.viewAllActivityText}>View All Activity</Text>
+                <Ionicons name="chevron-forward" size={14} color="#6366F1" />
+            </TouchableOpacity>
 
             <View style={styles.bottomSpacer} />
 
@@ -813,86 +789,16 @@ export default function CoinsScreen({ navigation }: any) {
                 onClose={handleEncouragementClose}
             />
         </ScrollView>
-        )}
+        </View>
+        <View style={styles.tabPage}>
+            <DecorationStoreContent
+                skyCoins={coinsData.skyCoins}
+                onPurchase={loadCoins}
+            />
+        </View>
+        </Animated.View>
+        </View>
 
-        {/* Wind expanding overlay */}
-        {windActive && (
-            <View style={styles.windOverlay} pointerEvents="none">
-                {/* Soft center glow */}
-                <Animated.View style={[
-                    styles.windFlash,
-                    { opacity: windFlash.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, 0.2],
-                    })},
-                ]}>
-                    <View style={styles.windRadialCenter}>
-                        <View style={styles.windRadialGlow} />
-                    </View>
-                </Animated.View>
-
-                {/* Expanding rings — ripple outward from Sky Coins */}
-                {windRings.map((r, i) => {
-                    const screenH = Dimensions.get('window').height;
-                    const ringSize = Math.max(SCREEN_WIDTH, screenH) * 1.6;
-                    return (
-                        <Animated.View
-                            key={`ring-${i}`}
-                            style={[
-                                styles.windRing,
-                                {
-                                    width: ringSize,
-                                    height: ringSize,
-                                    borderRadius: ringSize / 2,
-                                    left: SCREEN_WIDTH / 2 - ringSize / 2,
-                                    top: screenH * 0.32 - ringSize / 2,
-                                    opacity: r.opacity,
-                                    transform: [{ scale: r.scale }],
-                                    borderWidth: 2.5 - i * 0.4,
-                                },
-                            ]}
-                        />
-                    );
-                })}
-
-                {/* Wind particles — flowing outward in waves */}
-                {windParticles.map((p, i) => {
-                    const angle = (i / WIND_COUNT) * Math.PI * 2 + (i % 3) * 0.12;
-                    const angleDeg = angle * 180 / Math.PI;
-                    const icons: Array<keyof typeof Ionicons.glyphMap> = [
-                        'reorder-three-outline', 'reorder-two-outline', 'remove-outline',
-                    ];
-                    const icon = icons[i % 3];
-                    const size = 20 + (i % 4) * 4;
-                    const alpha = 0.4 + (i % 3) * 0.1;
-                    const color = i % 3 === 0
-                        ? `rgba(255,255,255,${alpha})`
-                        : i % 3 === 1
-                        ? `rgba(186,230,253,${alpha})`
-                        : `rgba(224,242,254,${alpha})`;
-
-                    return (
-                        <Animated.View
-                            key={`p-${i}`}
-                            style={[
-                                styles.windParticle,
-                                {
-                                    opacity: p.opacity,
-                                    transform: [
-                                        { translateX: p.x },
-                                        { translateY: p.y },
-                                        { scale: p.scale },
-                                        { rotate: `${angleDeg}deg` },
-                                    ],
-                                },
-                            ]}
-                        >
-                            <Ionicons name={icon} size={size} color={color} />
-                        </Animated.View>
-                    );
-                })}
-            </View>
-        )}
         </View>
     );
 }
@@ -1001,6 +907,19 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         borderRadius: 20,
         padding: 3,
+        position: 'relative',
+    },
+    segmentedIndicator: {
+        position: 'absolute',
+        top: 3,
+        bottom: 3,
+        left: 3,
+        borderRadius: 17,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.08,
+        shadowRadius: 2,
+        elevation: 2,
     },
     segmentedTab: {
         flex: 1,
@@ -1011,19 +930,24 @@ const styles = StyleSheet.create({
         borderRadius: 17,
         gap: 5,
     },
-    segmentedTabActive: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.08,
-        shadowRadius: 2,
-        elevation: 2,
-    },
     segmentedTabText: {
         fontSize: 13,
         fontWeight: '500',
     },
     segmentedTabTextActive: {
         fontWeight: '700',
+    },
+    tabContentContainer: {
+        flex: 1,
+        overflow: 'hidden',
+    },
+    tabSlidingContainer: {
+        flexDirection: 'row',
+        width: SCREEN_WIDTH * 2,
+        height: '100%',
+    },
+    tabPage: {
+        width: SCREEN_WIDTH,
     },
     container: {
         flex: 1,
@@ -1034,7 +958,7 @@ const styles = StyleSheet.create({
 
     // ============ HERO SECTION ============
     heroWrapper: {
-        paddingBottom: 16,
+        paddingBottom: 8,
         paddingHorizontal: 20,
         alignItems: 'center',
     },
@@ -1063,118 +987,165 @@ const styles = StyleSheet.create({
     balanceLabel: {
         fontSize: 14,
         fontWeight: '500',
-        marginBottom: 12,
+        marginBottom: 4,
     },
-    // ============ SKY COINS ============
-    skyCoinsCard: {
-        width: SCREEN_WIDTH - 60,
+    // ============ SIDE-BY-SIDE PANELS ============
+    panelsRow: {
+        flexDirection: 'row',
+        paddingHorizontal: 16,
+        gap: 10,
+        marginBottom: 14,
+    },
+    panelCard: {
+        flex: 1,
         borderRadius: 18,
         overflow: 'hidden',
-        marginBottom: 14,
-        shadowColor: SKY_COIN_COLORS.deepDark,
+        shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.25,
+        shadowOpacity: 0.15,
         shadowRadius: 12,
         elevation: 6,
     },
-    skyCoinsGradientFill: {
+    panelGradient: {
+        padding: 14,
         borderRadius: 18,
         overflow: 'hidden',
     },
-    skyCloud1: {
-        position: 'absolute',
-        top: -8,
-        right: 10,
-    },
-    skyCloud2: {
-        position: 'absolute',
-        bottom: -4,
-        left: 16,
-    },
-    skyCloud3: {
-        position: 'absolute',
-        top: 4,
-        left: -6,
-    },
-    skySpark1: {
-        position: 'absolute',
-        top: 10,
-        right: 50,
-    },
-    skySpark2: {
-        position: 'absolute',
-        bottom: 12,
-        right: 24,
-    },
-    skyCoinsContent: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 16,
-        paddingHorizontal: 22,
-        gap: 16,
-    },
-    skyCoinIconWrap: {
-        position: 'relative',
-    },
-    skyCoinGlow: {
+    panelDecor1: {
         position: 'absolute',
         top: -6,
-        left: -6,
         right: -6,
-        bottom: -6,
-        borderRadius: 999,
-        backgroundColor: 'rgba(255,255,255,0.15)',
     },
-    skyCoinsTextBlock: {
-        alignItems: 'flex-start',
-    },
-    skyCoinsAmount: {
-        fontSize: 30,
-        fontWeight: '800',
-        color: '#FFF',
-    },
-    skyCoinsLabel: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: 'rgba(255,255,255,0.8)',
-        marginTop: -1,
-    },
-    heroStatsRow: {
+    // Slot 1: Header row
+    panelHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        width: SCREEN_WIDTH - 60,
-        borderRadius: 14,
-        paddingVertical: 10,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 4,
-        elevation: 2,
+        height: 28,
+        gap: 7,
+        marginBottom: 10,
     },
-    heroStatHalf: {
-        flex: 1,
+    panelIconCircle: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    panelTitle: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: 'rgba(255,255,255,0.85)',
+    },
+    // Slot 2: Amount
+    panelAmount: {
+        fontSize: 26,
+        fontWeight: '900',
+        color: '#FFF',
+        height: 30,
+        lineHeight: 30,
+        marginBottom: 8,
+    },
+    // Slot 3: Badge
+    panelBadgeSlot: {
+        height: 26,
+        marginBottom: 10,
+    },
+    panelBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+        backgroundColor: 'rgba(255,255,255,0.18)',
+        height: 26,
+        paddingHorizontal: 9,
+        borderRadius: 13,
+        gap: 4,
+    },
+    panelBadgeEmoji: {
+        fontSize: 11,
+    },
+    panelBadgeLabel: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#FFF',
+    },
+    // Slot 4: Middle info (progress bar or description)
+    panelMidSlot: {
+        height: 34,
+        marginBottom: 10,
+        justifyContent: 'center',
+    },
+    panelProgressTrack: {
+        height: 5,
+        borderRadius: 2.5,
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        overflow: 'hidden',
+        marginBottom: 6,
+    },
+    panelProgressFill: {
+        height: '100%',
+        borderRadius: 2.5,
+        backgroundColor: 'rgba(255,255,255,0.85)',
+    },
+    panelMidText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: 'rgba(255,255,255,0.7)',
+        lineHeight: 14,
+    },
+    // Slot 5: Footer stat pill
+    panelFooterSlot: {
+        height: 22,
+        marginBottom: 10,
+    },
+    panelStatPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+        backgroundColor: 'rgba(255,255,255,0.12)',
+        height: 22,
+        paddingHorizontal: 8,
+        borderRadius: 11,
+        gap: 4,
+    },
+    panelStatText: {
+        fontSize: 10,
+        fontWeight: '700',
+        color: 'rgba(255,255,255,0.8)',
+    },
+    // Slot 6: CTA button
+    panelCTA: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 6,
+        backgroundColor: '#FFF',
+        height: 34,
+        borderRadius: 12,
+        gap: 5,
     },
-    heroStatValue: {
-        fontSize: 15,
-        fontWeight: '700',
+    panelCTAText: {
+        fontSize: 12,
+        fontWeight: '800',
     },
-    heroStatLabel: {
-        fontSize: 13,
-        fontWeight: '500',
+    panelNotifBadge: {
+        position: 'absolute',
+        top: 8,
+        right: 8,
+        backgroundColor: '#EF4444',
+        minWidth: 20,
+        height: 20,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 5,
+        borderWidth: 2,
+        borderColor: '#FFF',
+        zIndex: 10,
     },
-    heroStatDivider: {
-        width: StyleSheet.hairlineWidth,
-        height: 24,
-    },
-    rankDotInline: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
+    panelNotifText: {
+        fontSize: 10,
+        fontWeight: '800',
+        color: '#FFF',
     },
     // ============ SECTION STYLES ============
     sectionHeader: {
@@ -1208,7 +1179,7 @@ const styles = StyleSheet.create({
 
     // ============ GET MORE COINS SECTION ============
     getCoinsSection: {
-        marginTop: 8,
+        marginTop: 0,
         marginHorizontal: 16
     },
     freeCoinsCard: {
@@ -1350,56 +1321,17 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
 
-    // ============ ENCOURAGEMENT BUTTON ============
-    encouragementButton: {
-        marginBottom: 12,
-        borderRadius: 20,
-        overflow: 'hidden',
-    },
-    encouragementGradient: {
+    // ============ VIEW ALL ACTIVITY (bottom) ============
+    viewAllActivityBottom: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 10,
-        paddingHorizontal: 20,
-        gap: 8,
-    },
-    encouragementButtonText: {
-        fontSize: 14,
-        fontWeight: '700',
-        color: '#FFF',
-    },
-
-    // ============ RECEIVED SECTION ============
-    receivedSection: {
         marginTop: 14,
         marginHorizontal: 16,
-        borderRadius: 16,
-        padding: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-        elevation: 3
-    },
-
-    emptyReceived: {
-        alignItems: 'center',
-        paddingVertical: 16,
+        paddingVertical: 12,
+        borderRadius: 14,
+        borderWidth: 1,
         gap: 6,
-    },
-    emptyReceivedText: {
-        fontSize: 13,
-        fontWeight: '500',
-    },
-    viewAllActivityBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 10,
-        marginTop: 4,
-        borderTopWidth: StyleSheet.hairlineWidth,
-        gap: 5,
     },
     viewAllActivityText: {
         fontSize: 14,
@@ -1434,37 +1366,4 @@ const styles = StyleSheet.create({
         height: 30
     },
 
-    // ============ WIND EFFECT ============
-    windOverlay: {
-        ...StyleSheet.absoluteFillObject,
-        zIndex: 999,
-    },
-    windFlash: {
-        ...StyleSheet.absoluteFillObject,
-    },
-    windRadialCenter: {
-        position: 'absolute',
-        top: '32%',
-        left: '50%',
-        marginLeft: -100,
-        marginTop: -100,
-        width: 200,
-        height: 200,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    windRadialGlow: {
-        width: 200,
-        height: 200,
-        borderRadius: 100,
-        backgroundColor: 'rgba(56,189,248,0.4)',
-    },
-    windRing: {
-        position: 'absolute',
-        borderColor: 'rgba(125,211,252,0.4)',
-        backgroundColor: 'rgba(56,189,248,0.04)',
-    },
-    windParticle: {
-        position: 'absolute',
-    },
 });

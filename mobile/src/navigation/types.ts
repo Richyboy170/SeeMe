@@ -54,7 +54,7 @@ export type SearchStackParamList = {
 };
 
 export type DiscoverStackParamList = {
-  DiscoverHome: undefined;
+  DiscoverHome: { initialTab?: 'communities' | 'people' } | undefined;
   UserProfile: {
     userId: string;
     username: string;
@@ -65,6 +65,11 @@ export type DiscoverStackParamList = {
   CreateTopic: undefined;
   Comments: {
     postId: string;
+  };
+  FriendshipDetail: {
+    otherUserId: string;
+    otherUsername: string;
+    otherAvatarUrl?: string;
   };
 };
 
@@ -88,6 +93,11 @@ export type FeedStackParamList = {
       username: string;
       avatarUrl?: string;
     };
+  };
+  FriendshipDetail: {
+    otherUserId: string;
+    otherUsername: string;
+    otherAvatarUrl?: string;
   };
 };
 

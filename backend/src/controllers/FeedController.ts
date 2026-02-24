@@ -16,16 +16,16 @@ import { Comment } from '../models/Comment';
 
 /**
  * Batch fetch top N recent comments for a list of post IDs.
- * Returns a Map of postId -> Comment[] (top-level only, newest first).
+ * Returns a Map of postId -> Comment[] with the latest reply per comment.
  */
 async function batchFetchRecentComments(
   postIds: string[],
   limit: number = 3
-): Promise<Map<string, Array<{ id: string; content: string; user: { id: string; username: string }; createdAt: Date }>>> {
-  const map = new Map<string, Array<{ id: string; content: string; user: { id: string; username: string }; createdAt: Date }>>();
+): Promise<Map<string, any[]>> {
+  const map = new Map<string, any[]>();
   if (postIds.length === 0) return map;
 
-  // Fetch top-level comments for all posts, newest first
+  // 1. Fetch top-level comments
   const comments = await Comment.findAll({
     where: {
       postId: postIds,
@@ -43,6 +43,7 @@ async function batchFetchRecentComments(
   });
 
   // Group by postId and keep only top N per post
+  const keptCommentIds: string[] = [];
   for (const c of comments) {
     const postId = c.postId;
     if (!map.has(postId)) {
@@ -57,6 +58,42 @@ async function batchFetchRecentComments(
         user: userData ? { id: userData.id, username: userData.username } : { id: '', username: 'Unknown' },
         createdAt: c.createdAt,
       });
+      keptCommentIds.push(c.id);
+    }
+  }
+
+  // 2. Fetch latest reply for each kept comment in a single query
+  if (keptCommentIds.length > 0) {
+    const replies = await Comment.findAll({
+      where: { parentCommentId: keptCommentIds },
+      include: [{ model: User, as: 'user', attributes: ['id', 'username'] }],
+      order: [['createdAt', 'DESC']],
+      attributes: ['id', 'parentCommentId', 'content', 'createdAt'],
+    });
+
+    // Group replies by parentCommentId, keep only the latest one per parent
+    const latestReplyByParent = new Map<string, any>();
+    for (const r of replies) {
+      const pid = (r as any).parentCommentId;
+      if (!latestReplyByParent.has(pid)) {
+        const replyUser = (r as any).user;
+        latestReplyByParent.set(pid, {
+          id: r.id,
+          content: r.content,
+          user: replyUser ? { id: replyUser.id, username: replyUser.username } : { id: '', username: 'Unknown' },
+          createdAt: r.createdAt,
+        });
+      }
+    }
+
+    // Attach replies to their parent comments
+    for (const arr of map.values()) {
+      for (const comment of arr) {
+        const reply = latestReplyByParent.get(comment.id);
+        if (reply) {
+          comment.replies = [reply];
+        }
+      }
     }
   }
 
@@ -144,7 +181,7 @@ export class FeedController {
           {
             model: User,
             as: 'user',
-            attributes: ['id', 'username', 'activeAvatarId']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
           },
           {
             model: Topic,
@@ -165,6 +202,8 @@ export class FeedController {
           'caption',
           'likesCount',
           'commentsCount',
+          'locationName',
+          'photoTakenAt',
           'createdAt'
         ]
       });
@@ -214,6 +253,8 @@ export class FeedController {
             caption: post.caption,
             likesCount: post.likesCount,
             commentsCount: post.commentsCount,
+            locationName: post.locationName,
+            photoTakenAt: post.photoTakenAt,
             createdAt: post.createdAt,
             likedByMe: likedPostIds.has(post.id),
             topics: ((post as any).topics || []).map((t: any) => ({
@@ -294,7 +335,7 @@ export class FeedController {
           {
             model: User,
             as: 'user',
-            attributes: ['id', 'username', 'activeAvatarId']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
           },
           {
             model: Topic,
@@ -315,6 +356,8 @@ export class FeedController {
           'caption',
           'likesCount',
           'commentsCount',
+          'locationName',
+          'photoTakenAt',
           'createdAt'
         ]
       });
@@ -367,6 +410,8 @@ export class FeedController {
             caption: post.caption,
             likesCount: post.likesCount,
             commentsCount: post.commentsCount,
+            locationName: post.locationName,
+            photoTakenAt: post.photoTakenAt,
             createdAt: post.createdAt,
             likedByMe: likedPostIds.has(post.id),
             topics: ((post as any).topics || []).map((t: any) => ({
@@ -419,6 +464,24 @@ export class FeedController {
       }
     } catch (error) {
       logger.error('Error invalidating feed cache', { error, userId });
+    }
+  }
+
+  /**
+   * Invalidate algorithmic feed cache for user
+   * Called when user follows/unfollows someone
+   */
+  static async invalidateAlgorithmicFeedCache(userId: string): Promise<void> {
+    if (!redisAvailable || !redisClient) return;
+
+    try {
+      const keys = await redisClient.keys(`algo_feed:${userId}:page:*`);
+      if (keys.length > 0) {
+        await redisClient.del(keys);
+        logger.debug('Algorithmic feed cache invalidated', { userId, keysDeleted: keys.length });
+      }
+    } catch (error) {
+      logger.error('Error invalidating algorithmic feed cache', { error, userId });
     }
   }
 

@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import { Post, PostStatus, PostVisibility } from '../models/Post';
 import { User } from '../models/User';
-import { Topic } from '../models/Topic';
 import { PostTopic } from '../models/PostTopic';
 import { S3Service } from '../services/S3Service';
 import { CoinsService } from '../services/CoinsService';
@@ -22,7 +21,7 @@ export class PostController {
    */
   static async createPost(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const { caption, visibility, topicIds } = req.body;
+      const { caption, visibility, topicIds, locationName, locationLat, locationLng, photoTakenAt } = req.body;
       const userId = req.user!.id;
 
       // Validate visibility
@@ -109,6 +108,10 @@ export class PostController {
         avatarId,
         imageWidth,
         imageHeight,
+        locationName: locationName || null,
+        locationLat: locationLat ? parseFloat(locationLat) : null,
+        locationLng: locationLng ? parseFloat(locationLng) : null,
+        photoTakenAt: photoTakenAt ? new Date(photoTakenAt) : null,
         processingStartedAt: new Date()
       });
 
@@ -122,11 +125,9 @@ export class PostController {
         }));
         await PostTopic.bulkCreate(postTopicRecords);
 
-        // Update topic post counts
-        await Topic.increment('postCount', {
-          by: 1,
-          where: { id: parsedTopicIds }
-        });
+        // Note: postCount is now computed live from completed posts in getTopics,
+        // so we no longer increment the cached counter here (it was premature
+        // since the post is still in PROCESSING status at this point).
 
         logger.info('Post associated with topics', { postId: post.id, topicIds: parsedTopicIds });
       }
@@ -222,7 +223,7 @@ export class PostController {
         include: [{
           model: User,
           as: 'user',
-          attributes: ['id', 'username', 'activeAvatarId']
+          attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
         }]
       });
 
@@ -240,6 +241,8 @@ export class PostController {
         status: post.status,
         likesCount: post.likesCount,
         commentsCount: post.commentsCount,
+        locationName: post.locationName,
+        photoTakenAt: post.photoTakenAt,
         createdAt: post.createdAt
       });
 
@@ -502,7 +505,7 @@ export class PostController {
         offset,
         attributes: [
           'id', 'processedImageUrl', 'thumbnailUrl', 'caption',
-          'likesCount', 'commentsCount', 'createdAt'
+          'likesCount', 'commentsCount', 'locationName', 'photoTakenAt', 'createdAt'
         ]
       });
 
@@ -544,14 +547,14 @@ export class PostController {
         include: [{
           model: User,
           as: 'user',
-          attributes: ['id', 'username', 'activeAvatarId']
+          attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
         }],
         order: [['createdAt', 'DESC']],
         limit,
         offset,
         attributes: [
           'id', 'processedImageUrl', 'thumbnailUrl', 'caption',
-          'likesCount', 'commentsCount', 'createdAt'
+          'likesCount', 'commentsCount', 'locationName', 'photoTakenAt', 'createdAt'
         ]
       });
 
@@ -564,6 +567,8 @@ export class PostController {
           caption: post.caption,
           likesCount: post.likesCount,
           commentsCount: post.commentsCount,
+          locationName: post.locationName,
+          photoTakenAt: post.photoTakenAt,
           createdAt: post.createdAt
         })),
         pagination: {
@@ -601,6 +606,7 @@ export class PostController {
         attributes: [
           'id', 'originalImageUrl', 'processedImageUrl', 'thumbnailUrl',
           'caption', 'status', 'processingError', 'likesCount', 'commentsCount',
+          'locationName', 'photoTakenAt',
           'createdAt', 'processingStartedAt', 'processingCompletedAt'
         ]
       });

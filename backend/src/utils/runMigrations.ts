@@ -19,6 +19,9 @@ import * as addSkyCoins from '../migrations/add-sky-coins';
 import * as addDecorationStore from '../migrations/add-decoration-store';
 import * as addStoryOfMeTable from '../migrations/add-story-of-me-table';
 import * as addCoinCollectedFlag from '../migrations/add-coin-collected-flag';
+import * as addAvatarUrl from '../migrations/add-avatar-url';
+import * as addPostLocationTime from '../migrations/add-post-location-time';
+import * as addAvatarGenderFields from '../migrations/add-avatar-gender-fields';
 
 /**
  * Run database migrations
@@ -120,6 +123,21 @@ const migrations = [
     name: 'add-coin-collected-flag',
     up: addCoinCollectedFlag.up,
     down: addCoinCollectedFlag.down
+  },
+  {
+    name: 'add-avatar-url',
+    up: addAvatarUrl.up,
+    down: addAvatarUrl.down
+  },
+  {
+    name: 'add-post-location-time',
+    up: addPostLocationTime.up,
+    down: addPostLocationTime.down
+  },
+  {
+    name: 'add-avatar-gender-fields',
+    up: addAvatarGenderFields.up,
+    down: addAvatarGenderFields.down
   }
   // Add more migrations here as needed
 ];

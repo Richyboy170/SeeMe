@@ -39,6 +39,7 @@ export class User extends Model<UserAttributes, UserCreationAttributes> implemen
   public googleId!: string | null;
   public authProvider!: 'email' | 'google' | 'both';
   public ageVerified!: boolean;
+  public avatarUrl!: string | null;
   public activeAvatarId!: string | null;
   public positivityGiveCounter!: number;
   public positivityRank!: string;
@@ -120,6 +121,12 @@ User.init(
       defaultValue: false,
       allowNull: false,
       comment: 'Whether the user has verified their age'
+    },
+    avatarUrl: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+      defaultValue: null,
+      comment: 'URL to the user profile image'
     },
     activeAvatarId: {
       type: DataTypes.STRING(50),
