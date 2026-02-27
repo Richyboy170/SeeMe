@@ -7,10 +7,15 @@ import {
   Animated,
   Dimensions,
   Modal,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+// Responsive breakpoints
+const isLarge = SCREEN_WIDTH >= 768;   // tablets / iPads
+const isMedium = SCREEN_WIDTH >= 414 && SCREEN_WIDTH < 768; // larger phones (Plus/Max/Pro Max)
 
 interface WelcomeMottoModalProps {
   visible: boolean;
@@ -25,9 +30,10 @@ export default function WelcomeMottoModal({ visible, onClose }: WelcomeMottoModa
   const heart1Y = useRef(new Animated.Value(SCREEN_HEIGHT * 0.4)).current;
   const heart2Y = useRef(new Animated.Value(SCREEN_HEIGHT * 0.4)).current;
   const heart3Y = useRef(new Animated.Value(SCREEN_HEIGHT * 0.4)).current;
-  const heart1X = useRef(new Animated.Value(-60)).current;
+  const heartSpread = isLarge ? 80 : isMedium ? 68 : 60;
+  const heart1X = useRef(new Animated.Value(-heartSpread)).current;
   const heart2X = useRef(new Animated.Value(0)).current;
-  const heart3X = useRef(new Animated.Value(60)).current;
+  const heart3X = useRef(new Animated.Value(heartSpread)).current;
   const heartScale = useRef(new Animated.Value(1)).current;
   const heartOpacity = useRef(new Animated.Value(0)).current;
   const soilOpacity = useRef(new Animated.Value(0)).current;
@@ -84,9 +90,9 @@ export default function WelcomeMottoModal({ visible, onClose }: WelcomeMottoModa
     heart1Y.setValue(SCREEN_HEIGHT * 0.4);
     heart2Y.setValue(SCREEN_HEIGHT * 0.4);
     heart3Y.setValue(SCREEN_HEIGHT * 0.4);
-    heart1X.setValue(-60);
+    heart1X.setValue(-heartSpread);
     heart2X.setValue(0);
-    heart3X.setValue(60);
+    heart3X.setValue(heartSpread);
     heartScale.setValue(1);
     heartOpacity.setValue(0);
     soilOpacity.setValue(0);
@@ -158,7 +164,7 @@ export default function WelcomeMottoModal({ visible, onClose }: WelcomeMottoModa
     setTimeout(() => {
       // Stem grows
       Animated.timing(stemHeight, {
-        toValue: 140,
+        toValue: isLarge ? 160 : isMedium ? 148 : 140,
         duration: 600,
         useNativeDriver: false,
       }).start();
@@ -315,194 +321,304 @@ export default function WelcomeMottoModal({ visible, onClose }: WelcomeMottoModa
         >
           <Ionicons name="sparkles" size={14} color="#fbbf24" />
         </Animated.View>
-
-        {/* Tree area */}
-        <View style={styles.treeContainer}>
-          {/* Phase 2: Heart seeds */}
-          <Animated.View
-            style={[
-              styles.heartSeed,
-              {
-                opacity: heartOpacity,
-                transform: [
-                  { translateX: heart1X },
-                  { translateY: heart1Y },
-                  { scale: heartScale },
-                ],
-              },
-            ]}
-          >
-            <Ionicons name="heart" size={24} color="#fbbf24" />
-          </Animated.View>
-          <Animated.View
-            style={[
-              styles.heartSeed,
-              {
-                opacity: heartOpacity,
-                transform: [
-                  { translateX: heart2X },
-                  { translateY: heart2Y },
-                  { scale: heartScale },
-                ],
-              },
-            ]}
-          >
-            <Ionicons name="heart" size={24} color="#fbbf24" />
-          </Animated.View>
-          <Animated.View
-            style={[
-              styles.heartSeed,
-              {
-                opacity: heartOpacity,
-                transform: [
-                  { translateX: heart3X },
-                  { translateY: heart3Y },
-                  { scale: heartScale },
-                ],
-              },
-            ]}
-          >
-            <Ionicons name="heart" size={24} color="#fbbf24" />
-          </Animated.View>
-
-          {/* Soil band */}
-          <Animated.View style={[styles.soil, { opacity: soilOpacity }]} />
-
-          {/* Phase 3: Stem */}
-          <Animated.View style={[styles.stem, { height: stemHeight }]} />
-
-          {/* Leaves */}
-          <Animated.View
-            style={[
-              styles.leaf,
-              styles.leafLeft1,
-              { opacity: leaf1Opacity, transform: [{ scale: leaf1Scale }, { rotate: '-30deg' }] },
-            ]}
-          >
-            <Ionicons name="leaf" size={22} color="#4ade80" />
-          </Animated.View>
-          <Animated.View
-            style={[
-              styles.leaf,
-              styles.leafRight1,
-              { opacity: leaf2Opacity, transform: [{ scale: leaf2Scale }, { rotate: '30deg' }] },
-            ]}
-          >
-            <Ionicons name="leaf" size={22} color="#22c55e" />
-          </Animated.View>
-          <Animated.View
-            style={[
-              styles.leaf,
-              styles.leafLeft2,
-              { opacity: leaf3Opacity, transform: [{ scale: leaf3Scale }, { rotate: '-20deg' }] },
-            ]}
-          >
-            <Ionicons name="leaf" size={18} color="#86efac" />
-          </Animated.View>
-
-          {/* Top golden heart */}
-          <Animated.View
-            style={[
-              styles.topHeart,
-              { opacity: topHeartOpacity, transform: [{ scale: topHeartScale }] },
-            ]}
-          >
-            <Ionicons name="heart" size={36} color="#fbbf24" />
-            {/* Sparkles */}
-            <Animated.View style={[styles.sparkle, styles.sparkleLeft, { opacity: sparkleOpacity }]}>
-              <Ionicons name="sparkles" size={14} color="#fde68a" />
+        {/* Extra particles for large screens */}
+        {isLarge && (
+          <>
+            <Animated.View
+              style={[
+                styles.particle,
+                { left: SCREEN_WIDTH * 0.1, top: SCREEN_HEIGHT * 0.15 },
+                { opacity: particle2Opacity, transform: [{ translateY: particle2Y }] },
+              ]}
+            >
+              <Ionicons name="heart" size={18} color="#fbbf2480" />
             </Animated.View>
-            <Animated.View style={[styles.sparkle, styles.sparkleRight, { opacity: sparkleOpacity }]}>
-              <Ionicons name="sparkles" size={12} color="#fde68a" />
+            <Animated.View
+              style={[
+                styles.particle,
+                { right: SCREEN_WIDTH * 0.08, top: SCREEN_HEIGHT * 0.4 },
+                { opacity: particle1Opacity, transform: [{ translateY: particle1Y }] },
+              ]}
+            >
+              <Ionicons name="leaf" size={20} color="#4ade8060" />
             </Animated.View>
-            <Animated.View style={[styles.sparkle, styles.sparkleTop, { opacity: sparkleOpacity }]}>
-              <Ionicons name="sparkles" size={10} color="#fde68a" />
-            </Animated.View>
-          </Animated.View>
-        </View>
+          </>
+        )}
 
-        {/* Phase 4: Text content */}
-        <View style={styles.textContainer}>
-          <Animated.Text
-            style={[
-              styles.primaryText,
-              { opacity: primaryTextOpacity, transform: [{ translateY: primaryTextY }] },
-            ]}
-          >
-            It is more blessed to give{'\n'}than to receive
-          </Animated.Text>
-          <Animated.Text
-            style={[
-              styles.citationText,
-              { opacity: primaryTextOpacity, transform: [{ translateY: primaryTextY }] },
-            ]}
-          >
-            — Acts 20:35
-          </Animated.Text>
-
-          <Animated.Text
-            style={[
-              styles.secondaryText,
-              { opacity: secondaryTextOpacity, transform: [{ translateY: secondaryTextY }] },
-            ]}
-          >
-            Giving Positivity to your friends{'\n'}is our Mission
-          </Animated.Text>
-
-          <Animated.View
-            style={[
-              styles.perkRow,
-              { opacity: perk1Opacity, transform: [{ translateY: perk1Y }] },
-            ]}
-          >
-            <Ionicons name="battery-dead-outline" size={18} color="#c084fc" style={styles.perkIcon} />
-            <View style={styles.perkTextWrap}>
-              <Text style={styles.perkTitle}>Detox</Text>
-              <Text style={styles.perkDesc}>No reels = No dopamine addiction</Text>
-            </View>
-          </Animated.View>
-
-          <Animated.View
-            style={[
-              styles.perkRow,
-              { opacity: perk2Opacity, transform: [{ translateY: perk2Y }] },
-            ]}
-          >
-            <Ionicons name="people-outline" size={18} color="#fbbf24" style={styles.perkIcon} />
-            <View style={styles.perkTextWrap}>
-              <Text style={styles.perkTitle}>Relationships</Text>
-              <Text style={styles.perkDesc}>Give and receive from friends to build consistency in your friendship bond</Text>
-            </View>
-          </Animated.View>
-
-          <Animated.View
-            style={[
-              styles.perkRow,
-              { opacity: perk3Opacity, transform: [{ translateY: perk3Y }] },
-            ]}
-          >
-            <Ionicons name="trending-up-outline" size={18} color="#4ade80" style={styles.perkIcon} />
-            <View style={styles.perkTextWrap}>
-              <Text style={styles.perkTitle}>Grow & Breakthrough Together</Text>
-              <Text style={styles.perkDesc}>Share your work and daily routine with your people — let them encourage you!</Text>
-            </View>
-          </Animated.View>
-        </View>
-
-        {/* Phase 5: Start Giving button */}
-        <Animated.View
-          style={[
-            styles.buttonContainer,
-            { opacity: buttonOpacity, transform: [{ scale: buttonScale }] },
-          ]}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
         >
-          <TouchableOpacity style={styles.button} onPress={handleDismiss} activeOpacity={0.8}>
-            <View style={styles.buttonGradient}>
-              <Ionicons name="heart" size={20} color="#fff" style={styles.buttonIcon} />
-              <Text style={styles.buttonText}>Start Giving</Text>
-            </View>
-          </TouchableOpacity>
-        </Animated.View>
+          {/* Tree area */}
+          <View style={[styles.treeContainer, {
+            height: isLarge ? 250 : isMedium ? 230 : 220,
+            marginBottom: isLarge ? 36 : 30,
+          }]}>
+            {/* Phase 2: Heart seeds */}
+            <Animated.View
+              style={[
+                styles.heartSeed,
+                { bottom: 30 },
+                {
+                  opacity: heartOpacity,
+                  transform: [
+                    { translateX: heart1X },
+                    { translateY: heart1Y },
+                    { scale: heartScale },
+                  ],
+                },
+              ]}
+            >
+              <Ionicons name="heart" size={isLarge ? 28 : 24} color="#fbbf24" />
+            </Animated.View>
+            <Animated.View
+              style={[
+                styles.heartSeed,
+                { bottom: 30 },
+                {
+                  opacity: heartOpacity,
+                  transform: [
+                    { translateX: heart2X },
+                    { translateY: heart2Y },
+                    { scale: heartScale },
+                  ],
+                },
+              ]}
+            >
+              <Ionicons name="heart" size={isLarge ? 28 : 24} color="#fbbf24" />
+            </Animated.View>
+            <Animated.View
+              style={[
+                styles.heartSeed,
+                { bottom: 30 },
+                {
+                  opacity: heartOpacity,
+                  transform: [
+                    { translateX: heart3X },
+                    { translateY: heart3Y },
+                    { scale: heartScale },
+                  ],
+                },
+              ]}
+            >
+              <Ionicons name="heart" size={isLarge ? 28 : 24} color="#fbbf24" />
+            </Animated.View>
+
+            {/* Soil band */}
+            <Animated.View
+              style={[
+                styles.soil,
+                { width: isLarge ? 140 : 120, height: 12, borderRadius: 6, bottom: 20 },
+                { opacity: soilOpacity },
+              ]}
+            />
+
+            {/* Phase 3: Stem */}
+            <Animated.View
+              style={[
+                styles.stem,
+                { width: isLarge ? 5 : 4, borderRadius: 2, bottom: 26 },
+                { height: stemHeight },
+              ]}
+            />
+
+            {/* Leaves */}
+            <Animated.View
+              style={[
+                styles.leaf,
+                { bottom: isLarge ? 100 : 90, left: SCREEN_WIDTH / 2 - 30 },
+                { opacity: leaf1Opacity, transform: [{ scale: leaf1Scale }, { rotate: '-30deg' }] },
+              ]}
+            >
+              <Ionicons name="leaf" size={isLarge ? 26 : 22} color="#4ade80" />
+            </Animated.View>
+            <Animated.View
+              style={[
+                styles.leaf,
+                { bottom: isLarge ? 124 : 110, right: SCREEN_WIDTH / 2 - 30 },
+                { opacity: leaf2Opacity, transform: [{ scale: leaf2Scale }, { rotate: '30deg' }] },
+              ]}
+            >
+              <Ionicons name="leaf" size={isLarge ? 26 : 22} color="#22c55e" />
+            </Animated.View>
+            <Animated.View
+              style={[
+                styles.leaf,
+                { bottom: isLarge ? 148 : 130, left: SCREEN_WIDTH / 2 - 25 },
+                { opacity: leaf3Opacity, transform: [{ scale: leaf3Scale }, { rotate: '-20deg' }] },
+              ]}
+            >
+              <Ionicons name="leaf" size={isLarge ? 22 : 18} color="#86efac" />
+            </Animated.View>
+
+            {/* Top golden heart */}
+            <Animated.View
+              style={[
+                styles.topHeart,
+                { bottom: isLarge ? 172 : 155 },
+                { opacity: topHeartOpacity, transform: [{ scale: topHeartScale }] },
+              ]}
+            >
+              <Ionicons name="heart" size={isLarge ? 42 : 36} color="#fbbf24" />
+              {/* Sparkles */}
+              <Animated.View style={[styles.sparkle, { left: -16, top: 2 }, { opacity: sparkleOpacity }]}>
+                <Ionicons name="sparkles" size={14} color="#fde68a" />
+              </Animated.View>
+              <Animated.View style={[styles.sparkle, { right: -14, top: 6 }, { opacity: sparkleOpacity }]}>
+                <Ionicons name="sparkles" size={12} color="#fde68a" />
+              </Animated.View>
+              <Animated.View style={[styles.sparkle, { top: -12, left: 10 }, { opacity: sparkleOpacity }]}>
+                <Ionicons name="sparkles" size={10} color="#fde68a" />
+              </Animated.View>
+            </Animated.View>
+          </View>
+
+          {/* Phase 4: Text content */}
+          <View style={styles.textContainer}>
+            <Animated.Text
+              style={[
+                styles.primaryText,
+                {
+                  fontSize: isLarge ? 26 : isMedium ? 24 : 22,
+                  lineHeight: isLarge ? 36 : isMedium ? 33 : 30,
+                  marginBottom: isLarge ? 12 : 16,
+                },
+                { opacity: primaryTextOpacity, transform: [{ translateY: primaryTextY }] },
+              ]}
+            >
+              It is more blessed to give{'\n'}than to receive
+            </Animated.Text>
+            <Animated.Text
+              style={[
+                styles.citationText,
+                {
+                  fontSize: isLarge ? 15 : 13,
+                  marginBottom: isLarge ? 18 : 14,
+                },
+                { opacity: primaryTextOpacity, transform: [{ translateY: primaryTextY }] },
+              ]}
+            >
+              — Acts 20:35
+            </Animated.Text>
+
+            <Animated.Text
+              style={[
+                styles.secondaryText,
+                {
+                  fontSize: isLarge ? 18 : isMedium ? 17 : 16,
+                  lineHeight: isLarge ? 26 : isMedium ? 24 : 22,
+                  marginBottom: isLarge ? 20 : 14,
+                },
+                { opacity: secondaryTextOpacity, transform: [{ translateY: secondaryTextY }] },
+              ]}
+            >
+              Giving Positivity to your friends{'\n'}is our Mission
+            </Animated.Text>
+
+            {/* Perks — card grid on tablet, stacked rows on phones */}
+            {isLarge ? (
+              <View style={styles.perksGrid}>
+                <Animated.View
+                  style={[
+                    styles.perkCard,
+                    { opacity: perk1Opacity, transform: [{ translateY: perk1Y }] },
+                  ]}
+                >
+                  <Ionicons name="battery-dead-outline" size={28} color="#c084fc" style={styles.perkCardIcon} />
+                  <Text style={[styles.perkTitle, { fontSize: 16, marginBottom: 6 }]}>Detox</Text>
+                  <Text style={[styles.perkDesc, { fontSize: 14, lineHeight: 20 }]}>No reels = No dopamine addiction</Text>
+                </Animated.View>
+
+                <Animated.View
+                  style={[
+                    styles.perkCard,
+                    { opacity: perk2Opacity, transform: [{ translateY: perk2Y }] },
+                  ]}
+                >
+                  <Ionicons name="people-outline" size={28} color="#fbbf24" style={styles.perkCardIcon} />
+                  <Text style={[styles.perkTitle, { fontSize: 16, marginBottom: 6 }]}>Relationships</Text>
+                  <Text style={[styles.perkDesc, { fontSize: 14, lineHeight: 20 }]}>Give and receive from friends to build your friendship bond</Text>
+                </Animated.View>
+
+                <Animated.View
+                  style={[
+                    styles.perkCard,
+                    { opacity: perk3Opacity, transform: [{ translateY: perk3Y }] },
+                  ]}
+                >
+                  <Ionicons name="trending-up-outline" size={28} color="#4ade80" style={styles.perkCardIcon} />
+                  <Text style={[styles.perkTitle, { fontSize: 16, marginBottom: 6 }]}>Grow Together</Text>
+                  <Text style={[styles.perkDesc, { fontSize: 14, lineHeight: 20 }]}>Share your routine — let them encourage you!</Text>
+                </Animated.View>
+              </View>
+            ) : (
+              <>
+                <Animated.View
+                  style={[
+                    styles.perkRow,
+                    { marginBottom: isMedium ? 14 : 12 },
+                    { opacity: perk1Opacity, transform: [{ translateY: perk1Y }] },
+                  ]}
+                >
+                  <Ionicons name="battery-dead-outline" size={isMedium ? 20 : 18} color="#c084fc" style={[styles.perkIcon, { marginRight: 10 }]} />
+                  <View style={styles.perkTextWrap}>
+                    <Text style={[styles.perkTitle, { fontSize: isMedium ? 15 : 14 }]}>Detox</Text>
+                    <Text style={[styles.perkDesc, { fontSize: isMedium ? 13 : 12, lineHeight: isMedium ? 18 : 17 }]}>No reels = No dopamine addiction</Text>
+                  </View>
+                </Animated.View>
+
+                <Animated.View
+                  style={[
+                    styles.perkRow,
+                    { marginBottom: isMedium ? 14 : 12 },
+                    { opacity: perk2Opacity, transform: [{ translateY: perk2Y }] },
+                  ]}
+                >
+                  <Ionicons name="people-outline" size={isMedium ? 20 : 18} color="#fbbf24" style={[styles.perkIcon, { marginRight: 10 }]} />
+                  <View style={styles.perkTextWrap}>
+                    <Text style={[styles.perkTitle, { fontSize: isMedium ? 15 : 14 }]}>Relationships</Text>
+                    <Text style={[styles.perkDesc, { fontSize: isMedium ? 13 : 12, lineHeight: isMedium ? 18 : 17 }]}>Give and receive from friends to build consistency in your friendship bond</Text>
+                  </View>
+                </Animated.View>
+
+                <Animated.View
+                  style={[
+                    styles.perkRow,
+                    { marginBottom: isMedium ? 14 : 12 },
+                    { opacity: perk3Opacity, transform: [{ translateY: perk3Y }] },
+                  ]}
+                >
+                  <Ionicons name="trending-up-outline" size={isMedium ? 20 : 18} color="#4ade80" style={[styles.perkIcon, { marginRight: 10 }]} />
+                  <View style={styles.perkTextWrap}>
+                    <Text style={[styles.perkTitle, { fontSize: isMedium ? 15 : 14 }]}>Grow & Breakthrough Together</Text>
+                    <Text style={[styles.perkDesc, { fontSize: isMedium ? 13 : 12, lineHeight: isMedium ? 18 : 17 }]}>Share your work and daily routine with your people — let them encourage you!</Text>
+                  </View>
+                </Animated.View>
+              </>
+            )}
+          </View>
+
+          {/* Phase 5: Start Giving button */}
+          <Animated.View
+            style={[
+              styles.buttonContainer,
+              { marginTop: isLarge ? 16 : 10, marginBottom: isLarge ? 50 : 40 },
+              { opacity: buttonOpacity, transform: [{ scale: buttonScale }] },
+            ]}
+          >
+            <TouchableOpacity style={styles.button} onPress={handleDismiss} activeOpacity={0.8}>
+              <View style={[styles.buttonGradient, {
+                paddingVertical: isLarge ? 16 : 14,
+                paddingHorizontal: isLarge ? 48 : 40,
+                borderRadius: 28,
+              }]}>
+                <Ionicons name="heart" size={isLarge ? 22 : 20} color="#fff" style={{ marginRight: 8 }} />
+                <Text style={[styles.buttonText, { fontSize: isLarge ? 20 : 18 }]}>Start Giving</Text>
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
+        </ScrollView>
       </Animated.View>
     </Modal>
   );
@@ -529,6 +645,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0f3460',
   },
+  scrollContent: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: isLarge ? 50 : 40,
+    paddingHorizontal: isLarge ? 60 : isMedium ? 24 : 0,
+    width: '100%',
+  },
   particle: {
     position: 'absolute',
     zIndex: 10,
@@ -536,125 +660,99 @@ const styles = StyleSheet.create({
   treeContainer: {
     alignItems: 'center',
     justifyContent: 'flex-end',
-    height: 220,
-    marginBottom: 30,
   },
   heartSeed: {
     position: 'absolute',
-    bottom: 30,
     zIndex: 5,
   },
   soil: {
-    width: 120,
-    height: 12,
-    borderRadius: 6,
     backgroundColor: '#92400e',
     position: 'absolute',
-    bottom: 20,
     zIndex: 3,
   },
   stem: {
-    width: 4,
     backgroundColor: '#22c55e',
-    borderRadius: 2,
     position: 'absolute',
-    bottom: 26,
     zIndex: 4,
   },
   leaf: {
     position: 'absolute',
     zIndex: 5,
   },
-  leafLeft1: {
-    bottom: 90,
-    left: SCREEN_WIDTH / 2 - 30,
-  },
-  leafRight1: {
-    bottom: 110,
-    right: SCREEN_WIDTH / 2 - 30,
-  },
-  leafLeft2: {
-    bottom: 130,
-    left: SCREEN_WIDTH / 2 - 25,
-  },
   topHeart: {
     position: 'absolute',
-    bottom: 155,
     zIndex: 6,
   },
   sparkle: {
     position: 'absolute',
   },
-  sparkleLeft: {
-    left: -16,
-    top: 2,
-  },
-  sparkleRight: {
-    right: -14,
-    top: 6,
-  },
-  sparkleTop: {
-    top: -12,
-    left: 10,
-  },
   textContainer: {
     alignItems: 'center',
-    paddingHorizontal: 30,
-    marginBottom: 30,
+    paddingHorizontal: isLarge ? 20 : 30,
+    marginBottom: isLarge ? 36 : 30,
+    alignSelf: 'stretch',
   },
   primaryText: {
-    fontSize: 22,
     fontWeight: 'bold',
     color: '#ffffff',
     textAlign: 'center',
     textShadowColor: '#fbbf24',
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 10,
-    marginBottom: 16,
-    lineHeight: 30,
   },
   citationText: {
-    fontSize: 13,
     fontStyle: 'italic',
     color: 'rgba(251, 191, 36, 0.7)',
     textAlign: 'center',
-    marginBottom: 14,
   },
   secondaryText: {
-    fontSize: 16,
     fontWeight: '600',
     color: '#86efac',
     textAlign: 'center',
-    marginBottom: 14,
-    lineHeight: 22,
   },
+  // Stacked perk rows (phone layout)
   perkRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     alignSelf: 'stretch',
-    marginBottom: 12,
   },
   perkIcon: {
     marginTop: 2,
-    marginRight: 10,
   },
   perkTextWrap: {
     flex: 1,
   },
+  // Grid perk cards (tablet/large layout)
+  perksGrid: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: isLarge ? 20 : 14,
+    marginTop: isLarge ? 16 : 10,
+    alignSelf: 'stretch',
+  },
+  perkCard: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: isLarge ? 18 : 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    padding: isLarge ? 22 : 14,
+    alignItems: 'center',
+  },
+  perkCardIcon: {
+    marginBottom: isLarge ? 12 : 8,
+  },
   perkTitle: {
-    fontSize: 14,
     fontWeight: 'bold',
     color: '#ffffff',
     marginBottom: 2,
+    textAlign: 'center',
   },
   perkDesc: {
-    fontSize: 12,
     color: 'rgba(255, 255, 255, 0.65)',
-    lineHeight: 17,
+    textAlign: 'center',
   },
-  buttonContainer: {
-    marginTop: 10,
-  },
+  buttonContainer: {},
   button: {
     borderRadius: 28,
     overflow: 'hidden',
@@ -668,20 +766,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 40,
     backgroundColor: '#833AB4',
-    // Simulated gradient with border
     borderWidth: 2,
     borderColor: '#E1306C',
-    borderRadius: 28,
   },
-  buttonIcon: {
-    marginRight: 8,
-  },
+  buttonIcon: {},
   buttonText: {
     color: '#ffffff',
-    fontSize: 18,
     fontWeight: 'bold',
     letterSpacing: 0.5,
   },

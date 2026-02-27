@@ -6,6 +6,7 @@ import { CoinGivingActivity } from '../models/CoinGivingActivity';
 import { User } from '../models/User';
 import { logger } from '../utils/logger';
 import { TrustScoreService } from './TrustScoreService';
+import { BotService } from './BotService';
 
 const COOLDOWN_DURATION_MS = 3 * 60 * 60 * 1000; // 3 hours
 const MAX_COOLDOWN_COINS = 3;
@@ -102,11 +103,11 @@ export class CoinsService {
     const user = await User.findByPk(userId, { attributes: ['positivityRank'] });
     const rank = user?.positivityRank || 'beginner';
 
-    // Count uncollected received coins
+    // Count uncollected received coins (includes user-to-user AND bot gifts)
     const uncollectedCount = await CoinTransaction.count({
       where: {
         toUserId: userId,
-        transactionType: 'received_from_user',
+        transactionType: { [Op.in]: ['received_from_user', 'bot_welcome', 'bot_generosity_reward'] },
         collected: false
       }
     });
@@ -472,6 +473,56 @@ export class CoinsService {
   }
 
   /**
+   * Award coins for completing a friendship meetup
+   */
+  static async awardCoinsForFriendshipMeetup(userId: string, meetupId: string): Promise<number> {
+    const COINS_PER_MEETUP = 20;
+
+    let coins = await PositivityCoins.findByPk(userId);
+    if (!coins) {
+      coins = await this.initializeUserCoins(userId);
+    }
+
+    const transaction = await sequelize.transaction();
+
+    try {
+      const coinsInTx = await PositivityCoins.findByPk(userId, { transaction });
+      if (!coinsInTx) {
+        await transaction.rollback();
+        throw new Error('Coins not initialized');
+      }
+
+      await coinsInTx.update(
+        {
+          totalCoins: coinsInTx.totalCoins + COINS_PER_MEETUP,
+          lifetimeEarned: coinsInTx.lifetimeEarned + COINS_PER_MEETUP,
+          coinsFromMeetups: (coinsInTx as any).coinsFromMeetups + COINS_PER_MEETUP
+        },
+        { transaction }
+      );
+
+      await CoinTransaction.create(
+        {
+          fromUserId: null,
+          toUserId: userId,
+          amount: COINS_PER_MEETUP,
+          transactionType: 'earned_friendship',
+          message: `Friendship meetup completed`
+        },
+        { transaction }
+      );
+
+      await transaction.commit();
+      logger.info('Coins awarded for friendship meetup', { userId, meetupId, coins: COINS_PER_MEETUP });
+      return COINS_PER_MEETUP;
+    } catch (error) {
+      await transaction.rollback();
+      logger.error('Error awarding coins for meetup', { error, userId, meetupId });
+      throw error;
+    }
+  }
+
+  /**
    * Give coins to another user
    */
   static async giveCoins(params: {
@@ -606,6 +657,9 @@ export class CoinsService {
         amount
       });
 
+      // Fire-and-forget: reward generosity for new users
+      BotService.rewardGenerosity(fromUserId, amount).catch(() => {});
+
       return {
         success: true,
         newBalance: senderCoinsInTx.totalCoins,
@@ -681,7 +735,11 @@ export class CoinsService {
         'earned_comment': 'comment_reward',
         'earned_ad': 'ad_reward',
         'welcome_bonus': 'welcome_bonus',
-        'spent_on_post': 'post_cost'
+        'spent_on_post': 'post_cost',
+        'bot_welcome': 'bot_welcome',
+        'bot_generosity_reward': 'bot_generosity_reward',
+        'mission_reward': 'mission_reward',
+        'earned_friendship': 'friendship_meetup'
       };
 
       // Transform transactions (newest first, calculate balance backwards)
@@ -743,7 +801,7 @@ export class CoinsService {
     try {
       const whereClause: any = {
         toUserId: userId,
-        transactionType: 'received_from_user'
+        transactionType: { [Op.in]: ['received_from_user', 'bot_welcome', 'bot_generosity_reward'] }
       };
 
       // Optional: filter by date if 'since' is provided
@@ -807,12 +865,12 @@ export class CoinsService {
     const transaction = await sequelize.transaction();
 
     try {
-      // Find uncollected transactions that belong to this user
+      // Find uncollected transactions that belong to this user (user-to-user + bot gifts)
       const transactions = await CoinTransaction.findAll({
         where: {
           id: { [Op.in]: transactionIds },
           toUserId: userId,
-          transactionType: 'received_from_user',
+          transactionType: { [Op.in]: ['received_from_user', 'bot_welcome', 'bot_generosity_reward'] },
           collected: false
         },
         transaction
@@ -890,7 +948,8 @@ export class CoinsService {
           {
             model: User,
             as: 'user',
-            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId', 'positivityRank']
+            attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId', 'positivityRank'],
+            where: { isBot: false }
           }
         ],
         order: [['lifetimeGiven', 'DESC']],
@@ -953,11 +1012,11 @@ export class CoinsService {
    */
   private static async getRankPercentile(rank: string): Promise<number> {
     try {
-      const totalUsers = await User.count();
+      const totalUsers = await User.count({ where: { isBot: false } });
       if (totalUsers === 0) return 100;
 
       const usersWithRank = await User.count({
-        where: { positivityRank: rank }
+        where: { positivityRank: rank, isBot: false }
       });
 
       return Math.round((usersWithRank / totalUsers) * 100);

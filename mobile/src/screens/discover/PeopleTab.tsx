@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, MutableRefObject } from 'react';
 import {
   View,
   Text,
@@ -51,6 +51,7 @@ interface BondData {
 interface PeopleTabProps {
   searchQuery: string;
   navigation: any;
+  nestedScrollActiveRef?: MutableRefObject<boolean>;
 }
 
 const getRankInfo = (trustScore: number) => {
@@ -61,7 +62,7 @@ const getRankInfo = (trustScore: number) => {
   return { label: 'New', color: '#6B7280', bgColor: '#F3F4F6', darkBgColor: '#1F2937', gradient: ['#9CA3AF', '#D1D5DB'] as [string, string], icon: 'sparkles' as const };
 };
 
-export default function PeopleTab({ searchQuery, navigation }: PeopleTabProps) {
+export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveRef }: PeopleTabProps) {
   const { colors, isDark } = useTheme();
   const [users, setUsers] = useState<SearchUser[]>([]);
   const [followingUsers, setFollowingUsers] = useState<SearchUser[]>([]);
@@ -574,6 +575,9 @@ export default function PeopleTab({ searchQuery, navigation }: PeopleTabProps) {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.friendsScroll}
+            onTouchStart={() => { if (nestedScrollActiveRef) nestedScrollActiveRef.current = true; }}
+            onTouchEnd={() => { if (nestedScrollActiveRef) nestedScrollActiveRef.current = false; }}
+            onTouchCancel={() => { if (nestedScrollActiveRef) nestedScrollActiveRef.current = false; }}
           >
             {followingUsers.map(renderFriendCard)}
           </ScrollView>

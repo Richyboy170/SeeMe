@@ -209,7 +209,7 @@ export class FeedAlgorithmService {
           {
             model: Topic,
             as: 'topics',
-            attributes: ['id', 'name', 'slug', 'iconEmoji'],
+            attributes: ['id', 'name', 'slug', 'iconEmoji', 'iconImageUrl', 'type'],
             through: { attributes: [] }
           }
         ],
@@ -233,8 +233,9 @@ export class FeedAlgorithmService {
       });
 
       // Get posts from followed topics/communities (including from non-followed users)
+      // Only include active memberships (not pending/rejected)
       const followedTopics = await TopicFollow.findAll({
-        where: { userId },
+        where: { userId, status: 'active' },
         attributes: ['topicId']
       });
       const followedTopicIds = followedTopics.map(tf => tf.topicId);
@@ -269,7 +270,7 @@ export class FeedAlgorithmService {
               {
                 model: Topic,
                 as: 'topics',
-                attributes: ['id', 'name', 'slug', 'iconEmoji'],
+                attributes: ['id', 'name', 'slug', 'iconEmoji', 'iconImageUrl', 'type'],
                 through: { attributes: [] }
               }
             ],
@@ -313,7 +314,7 @@ export class FeedAlgorithmService {
               {
                 model: Topic,
                 as: 'topics',
-                attributes: ['id', 'name', 'slug', 'iconEmoji'],
+                attributes: ['id', 'name', 'slug', 'iconEmoji', 'iconImageUrl', 'type'],
                 through: { attributes: [] }
               }
             ],
@@ -387,6 +388,34 @@ export class FeedAlgorithmService {
           score: 0,
           reasons: []
         });
+      }
+
+      // Filter out private group posts where user is not an active member
+      const activePrivateTopicIds = new Set(followedTopicIds);
+      const allFeedPostIds = feedItems.map(item => item.post.id);
+      if (allFeedPostIds.length > 0) {
+        const privateTopicLinks = await PostTopic.findAll({
+          where: { postId: allFeedPostIds },
+          include: [{ model: Topic, as: 'topic', attributes: ['id', 'type'], where: { type: 'private' }, required: true }],
+        });
+        const nonMemberPrivatePostIds = new Set<string>();
+        for (const ptl of privateTopicLinks) {
+          if (!activePrivateTopicIds.has(ptl.topicId)) {
+            nonMemberPrivatePostIds.add(ptl.postId);
+          }
+        }
+        // Remove non-member private group posts
+        const filteredLength = feedItems.length;
+        for (let i = feedItems.length - 1; i >= 0; i--) {
+          if (nonMemberPrivatePostIds.has(feedItems[i].post.id)) {
+            feedItems.splice(i, 1);
+          }
+        }
+        if (feedItems.length < filteredLength) {
+          logger.debug('Filtered private group posts from algorithmic feed', {
+            userId, removed: filteredLength - feedItems.length
+          });
+        }
       }
 
       // Score and rank all feed items

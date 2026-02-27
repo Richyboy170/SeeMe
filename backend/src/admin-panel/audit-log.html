@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SeeMe Admin - Audit Log</title>
+  <link rel="stylesheet" href="/admin/css/admin.css">
+</head>
+<body>
+  <div class="app-layout">
+    <aside class="sidebar">
+      <div class="brand">SeeMe</div>
+      <div class="brand-sub">Admin Dashboard</div>
+      <nav>
+        <a href="/admin/dashboard.html" data-page="dashboard">Dashboard</a>
+        <a href="/admin/users.html" data-page="users">Users</a>
+        <a href="/admin/posts.html" data-page="posts">Posts</a>
+        <a href="/admin/audit-log.html" data-page="audit" class="active">Audit Log</a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="admin-info">Signed in as <span class="admin-name"></span></div>
+        <button class="btn btn-sm btn-danger" onclick="logout()">Sign Out</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <div class="page-header">
+        <h1>Audit Log</h1>
+        <p>Track all admin actions for accountability</p>
+      </div>
+
+      <div class="table-container">
+        <div class="table-header">
+          <h2>All Actions</h2>
+          <div class="filters-bar">
+            <select id="filter-action">
+              <option value="">All Actions</option>
+              <option value="admin_login">Login</option>
+              <option value="suspend_user">Suspend</option>
+              <option value="unsuspend_user">Unsuspend</option>
+              <option value="ban_user">Ban</option>
+              <option value="unban_user">Unban</option>
+              <option value="reset_password">Password Reset</option>
+              <option value="delete_post">Delete Post</option>
+              <option value="delete_comment">Delete Comment</option>
+              <option value="change_role">Role Change</option>
+            </select>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Action</th>
+              <th>Admin</th>
+              <th>Target</th>
+              <th>Details</th>
+              <th>IP Address</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody id="audit-table">
+            <tr><td colspan="6" class="loading">Loading audit log...</td></tr>
+          </tbody>
+        </table>
+
+        <div id="pagination" class="pagination"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/admin/js/api.js"></script>
+  <script src="/admin/js/auth.js"></script>
+  <script src="/admin/js/utils.js"></script>
+  <script src="/admin/js/audit-log.js"></script>
+</body>
+</html>

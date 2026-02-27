@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import CoinCelebration from '../components/coins/CoinCelebration';
 
-type CelebrationSource = 'post' | 'comment' | 'ad' | 'claim' | 'gift' | 'received';
+type CelebrationSource = 'post' | 'comment' | 'ad' | 'claim' | 'gift' | 'received' | 'friendship';
 
 interface CoinCelebrationContextType {
   showCelebration: (amount: number, source: CelebrationSource, recipientUsername?: string) => void;

@@ -61,6 +61,20 @@ router.get('/leaderboard', CoinsController.getLeaderboard);
 router.get('/activity', CoinsController.getGivingActivity);
 
 /**
+ * @route   GET /api/coins/missions
+ * @desc    Get onboarding missions status
+ * @access  Private
+ */
+router.get('/missions', authenticateToken, CoinsController.getMissions);
+
+/**
+ * @route   POST /api/coins/missions/:missionId/claim
+ * @desc    Claim an onboarding mission reward
+ * @access  Private
+ */
+router.post('/missions/:missionId/claim', authenticateToken, CoinsController.claimMissionReward);
+
+/**
  * @route   POST /api/coins/reward-ad
  * @desc    Record ad watch and reward coins (internal)
  * @access  Private

@@ -7,11 +7,13 @@ import { logger } from '../utils/logger';
 export class APIError extends Error {
   statusCode: number;
   isOperational: boolean;
+  data?: Record<string, any>;
 
-  constructor(message: string, statusCode: number = 500, isOperational: boolean = true) {
+  constructor(message: string, statusCode: number = 500, isOperational: boolean = true, data?: Record<string, any>) {
     super(message);
     this.statusCode = statusCode;
     this.isOperational = isOperational;
+    this.data = data;
     Error.captureStackTrace(this, this.constructor);
   }
 }
@@ -63,6 +65,11 @@ export const errorHandler = (
     error: message,
     statusCode
   };
+
+  // Include extra data from APIError (e.g. account status details)
+  if (err instanceof APIError && err.data) {
+    Object.assign(response, err.data);
+  }
 
   if (process.env.NODE_ENV !== 'production') {
     response.stack = err.stack;

@@ -37,6 +37,9 @@ export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
   const currentIndexRef = useRef(1);
   const activeTabRef = useRef<TabType>('communities');
 
+  // When true, a nested horizontal scroll (e.g. "Your Friends") is being touched — pause tab swiping
+  const nestedScrollActiveRef = useRef(false);
+
   // Keep ref in sync with state
   useEffect(() => {
     activeTabRef.current = activeTab;
@@ -84,7 +87,7 @@ export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, { dx, dy }) =>
-        Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10,
+        !nestedScrollActiveRef.current && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10,
       onPanResponderMove: (_, { dx }) => {
         const normalized = currentIndexRef.current - dx / SCREEN_WIDTH;
         slideAnim.setValue(Math.max(0, Math.min(1, normalized)));
@@ -236,7 +239,7 @@ export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
           {...panResponder.panHandlers}
         >
           <View style={styles.tabPage}>
-            <PeopleTab searchQuery={searchQuery} navigation={navigation} />
+            <PeopleTab searchQuery={searchQuery} navigation={navigation} nestedScrollActiveRef={nestedScrollActiveRef} />
           </View>
           <View style={styles.tabPage}>
             <CommunitiesTab searchQuery={searchQuery} navigation={navigation} />

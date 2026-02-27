@@ -72,9 +72,10 @@ export class UserController {
         activeAvatar = formatAvatarForResponse(avatar);
       }
 
-      // Fetch coins received from other users and following count
-      const [positivityCoins, followingCount] = await Promise.all([
+      // Fetch coins received from other users, followers count, and following count
+      const [positivityCoins, followersCount, followingCount] = await Promise.all([
         PositivityCoins.findByPk(userId),
+        Follow.count({ where: { followingId: userId } }),
         Follow.count({ where: { followerId: userId } })
       ]);
       const positivityReceiveCounter = positivityCoins?.coinsFromOther || 0;
@@ -91,6 +92,7 @@ export class UserController {
           positivityGiveCounter: user.positivityGiveCounter,
           positivityReceiveCounter,
           positivityRank: user.positivityRank,
+          followersCount,
           followingCount,
           createdAt: user.createdAt
         }
@@ -154,8 +156,12 @@ export class UserController {
         activeAvatar = formatAvatarForResponse(avatar);
       }
 
-      // Fetch coins received from other users
-      const positivityCoins = await PositivityCoins.findByPk(user.id);
+      // Fetch coins received from other users, followers count, and following count
+      const [positivityCoins, followersCount, followingCount] = await Promise.all([
+        PositivityCoins.findByPk(user.id),
+        Follow.count({ where: { followingId: user.id } }),
+        Follow.count({ where: { followerId: user.id } })
+      ]);
       const positivityReceiveCounter = positivityCoins?.coinsFromOther || 0;
 
       res.json({
@@ -168,6 +174,8 @@ export class UserController {
           positivityGiveCounter: user.positivityGiveCounter,
           positivityReceiveCounter,
           positivityRank: user.positivityRank,
+          followersCount,
+          followingCount,
           createdAt: user.createdAt
         }
       });

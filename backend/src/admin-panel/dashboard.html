@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SeeMe Admin - Dashboard</title>
+  <link rel="stylesheet" href="/admin/css/admin.css">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">SeeMe</div>
+      <div class="brand-sub">Admin Dashboard</div>
+      <nav>
+        <a href="/admin/dashboard.html" data-page="dashboard" class="active">Dashboard</a>
+        <a href="/admin/users.html" data-page="users">Users</a>
+        <a href="/admin/posts.html" data-page="posts">Posts</a>
+        <a href="/admin/audit-log.html" data-page="audit">Audit Log</a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="admin-info">Signed in as <span class="admin-name"></span></div>
+        <button class="btn btn-sm btn-danger" onclick="logout()">Sign Out</button>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main-content">
+      <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+        <div>
+          <h1>Dashboard</h1>
+          <p>Platform overview and analytics <span id="last-updated" style="color:var(--text-muted);font-size:12px;margin-left:8px"></span></p>
+        </div>
+        <div class="period-selector" id="period-selector">
+          <button class="btn btn-sm" data-days="7">7D</button>
+          <button class="btn btn-sm" data-days="14">14D</button>
+          <button class="btn btn-sm active" data-days="30">30D</button>
+          <button class="btn btn-sm" data-days="60">60D</button>
+          <button class="btn btn-sm" data-days="90">90D</button>
+          <button class="btn btn-sm" data-days="365">1Y</button>
+        </div>
+      </div>
+
+      <div id="stats-grid" class="stats-grid">
+        <div class="loading">Loading stats...</div>
+      </div>
+
+      <!-- Row 1: Users + Posts -->
+      <div class="detail-grid">
+        <div class="chart-container" id="users-panel">
+          <div class="chart-header">
+            <h2>New Users</h2>
+            <div class="chart-insights" id="users-insights"></div>
+          </div>
+          <div style="position:relative; height:260px;">
+            <canvas id="users-chart"></canvas>
+          </div>
+        </div>
+        <div class="chart-container" id="posts-panel">
+          <div class="chart-header">
+            <h2>New Posts</h2>
+            <div class="chart-insights" id="posts-insights"></div>
+          </div>
+          <div style="position:relative; height:260px;">
+            <canvas id="posts-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 2: Comments + Likes -->
+      <div class="detail-grid">
+        <div class="chart-container" id="comments-panel">
+          <div class="chart-header">
+            <h2>Comments</h2>
+            <div class="chart-insights" id="comments-insights"></div>
+          </div>
+          <div style="position:relative; height:260px;">
+            <canvas id="comments-chart"></canvas>
+          </div>
+        </div>
+        <div class="chart-container" id="likes-panel">
+          <div class="chart-header">
+            <h2>Likes</h2>
+            <div class="chart-insights" id="likes-insights"></div>
+          </div>
+          <div style="position:relative; height:260px;">
+            <canvas id="likes-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 3: Follows + Coins -->
+      <div class="detail-grid">
+        <div class="chart-container" id="follows-panel">
+          <div class="chart-header">
+            <h2>New Follows</h2>
+            <div class="chart-insights" id="follows-insights"></div>
+          </div>
+          <div style="position:relative; height:260px;">
+            <canvas id="follows-chart"></canvas>
+          </div>
+        </div>
+        <div class="chart-container" id="coins-panel">
+          <div class="chart-header">
+            <h2>Coins Transferred</h2>
+            <div class="chart-insights" id="coins-insights"></div>
+          </div>
+          <div style="position:relative; height:260px;">
+            <canvas id="coins-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 4: Coin Breakdown + Top Posts -->
+      <div class="detail-grid">
+        <div class="chart-container">
+          <h2>Coin Economy Breakdown</h2>
+          <div style="position:relative; height:300px; display:flex; align-items:center; justify-content:center;">
+            <canvas id="coin-breakdown-chart"></canvas>
+          </div>
+          <div id="coin-breakdown-legend" style="margin-top:12px"></div>
+        </div>
+        <div class="detail-card">
+          <h2>Top Posts (by Likes)</h2>
+          <div id="top-posts-list" class="empty-state"><p>No data</p></div>
+        </div>
+      </div>
+
+      <!-- Row 5: Top Active Users + Recent Activity -->
+      <div class="detail-grid">
+        <div class="detail-card">
+          <h2>Most Active Users (by Posts)</h2>
+          <div id="top-users-list" class="empty-state"><p>No data</p></div>
+        </div>
+        <div class="detail-card">
+          <h2>Recent Signups</h2>
+          <div id="recent-signups" class="empty-state"><p>No data</p></div>
+        </div>
+      </div>
+
+      <!-- Recent Activity Panels -->
+      <div class="detail-grid" id="recent-activity" style="display:none">
+        <div class="detail-card">
+          <h2>Recent Posts</h2>
+          <div id="recent-posts" class="empty-state"><p>No data</p></div>
+        </div>
+        <div class="detail-card" style="grid-column: span 1">
+          <h2 style="margin-bottom:0"></h2>
+        </div>
+      </div>
+
+      <div class="table-container" id="transactions-section" style="display:none; margin-top:24px">
+        <div class="table-header"><h2>Recent Coin Transactions</h2></div>
+        <table>
+          <thead>
+            <tr>
+              <th>From</th>
+              <th>To</th>
+              <th>Amount</th>
+              <th>Type</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody id="recent-transactions"></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="/admin/js/api.js"></script>
+  <script src="/admin/js/auth.js"></script>
+  <script src="/admin/js/utils.js"></script>
+  <script src="/admin/js/dashboard.js"></script>
+</body>
+</html>

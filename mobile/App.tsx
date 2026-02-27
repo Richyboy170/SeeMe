@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { RootNavigator } from './src/navigation';
 import { ThemeProvider, useTheme } from './src/theme';
 import { CoinCelebrationProvider } from './src/contexts/CoinCelebrationContext';
+import { BotCoinToastProvider } from './src/contexts/BotCoinToastContext';
 import { WelcomeMottoProvider } from './src/contexts/WelcomeMottoContext';
 
 function AppContent() {
@@ -22,9 +23,11 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
         <CoinCelebrationProvider>
-          <WelcomeMottoProvider>
-            <AppContent />
-          </WelcomeMottoProvider>
+          <BotCoinToastProvider>
+            <WelcomeMottoProvider>
+              <AppContent />
+            </WelcomeMottoProvider>
+          </BotCoinToastProvider>
         </CoinCelebrationProvider>
       </ThemeProvider>
     </GestureHandlerRootView>

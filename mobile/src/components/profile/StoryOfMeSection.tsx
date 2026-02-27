@@ -50,6 +50,8 @@ export interface StoryData {
 interface StoryOfMeSectionProps {
     userId: string;
     isOwnProfile?: boolean;
+    rankGradient?: [string, string, string];
+    rankColor?: string;
 }
 
 export const PERIOD_TABS = [
@@ -57,9 +59,6 @@ export const PERIOD_TABS = [
     { key: 'monthly' as const, label: 'Month' },
     { key: 'yearly' as const, label: 'Year' },
 ];
-
-const ACCENT = '#D97706';
-const ACCENT_LIGHT = '#FEF3C7';
 
 export function parseHighlights(content: string): HighlightCard[] {
     try {
@@ -72,8 +71,14 @@ export function parseHighlights(content: string): HighlightCard[] {
 
 // ── Main component ────────────────────────────────────────────────────
 
-export default function StoryOfMeSection({ userId, isOwnProfile = false }: StoryOfMeSectionProps) {
+const DEFAULT_GRADIENT: [string, string, string] = ['#9CA3AF', '#6B7280', '#4B5563'];
+const DEFAULT_COLOR = '#9CA3AF';
+
+export default function StoryOfMeSection({ userId, isOwnProfile = false, rankGradient, rankColor }: StoryOfMeSectionProps) {
     const { colors } = useTheme();
+    const accentColor = rankColor || DEFAULT_COLOR;
+    const gradientColors = rankGradient || DEFAULT_GRADIENT;
+    const accentLight = accentColor + '20';
     const [viewerVisible, setViewerVisible] = useState(false);
     const [selectedPeriod, setSelectedPeriod] = useState<'weekly' | 'monthly' | 'yearly'>('weekly');
     const [story, setStory] = useState<StoryData | null>(null);
@@ -136,7 +141,7 @@ export default function StoryOfMeSection({ userId, isOwnProfile = false }: Story
             {/* Header */}
             <View style={styles.header}>
                 <View style={styles.headerLeft}>
-                    <Ionicons name="book" size={18} color={ACCENT} />
+                    <Ionicons name="book" size={18} color={accentColor} />
                     <Text style={[styles.title, { color: colors.text.primary }]}>Story of Me</Text>
                 </View>
             </View>
@@ -148,13 +153,13 @@ export default function StoryOfMeSection({ userId, isOwnProfile = false }: Story
                         key={tab.key}
                         style={[
                             styles.periodTab,
-                            selectedPeriod === tab.key && styles.periodTabActive,
+                            selectedPeriod === tab.key && { backgroundColor: accentLight },
                         ]}
                         onPress={() => handlePeriodChange(tab.key)}
                     >
                         <Text style={[
                             styles.periodTabText,
-                            selectedPeriod === tab.key && styles.periodTabTextActive,
+                            selectedPeriod === tab.key && { color: accentColor, fontWeight: '600' as const },
                         ]}>
                             {tab.label}
                         </Text>
@@ -164,12 +169,12 @@ export default function StoryOfMeSection({ userId, isOwnProfile = false }: Story
 
             {loading ? (
                 <View style={styles.cardLoading}>
-                    <ActivityIndicator size="small" color={ACCENT} />
+                    <ActivityIndicator size="small" color={accentColor} />
                 </View>
             ) : story && highlights.length > 0 ? (
                 <TouchableOpacity activeOpacity={0.85} onPress={() => setViewerVisible(true)}>
                     <LinearGradient
-                        colors={['#D97706', '#F59E0B', '#FBBF24']}
+                        colors={gradientColors}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
                         style={styles.storyCard}
@@ -245,7 +250,6 @@ const styles = StyleSheet.create({
         backgroundColor: '#F3F4F6',
     },
     periodTabActive: {
-        backgroundColor: ACCENT_LIGHT,
     },
     periodTabText: {
         fontSize: 13,
@@ -253,8 +257,6 @@ const styles = StyleSheet.create({
         color: '#6B7280',
     },
     periodTabTextActive: {
-        color: ACCENT,
-        fontWeight: '600',
     },
     cardLoading: {
         padding: 24,

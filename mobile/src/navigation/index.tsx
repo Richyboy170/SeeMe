@@ -27,6 +27,7 @@ import ProfileScreen from '../screens/main/ProfileScreen';
 import CommentsScreen from '../screens/main/CommentsScreen';
 import AvatarCustomizationScreen from '../screens/main/AvatarCustomizationScreen';
 import FollowRequestsScreen from '../screens/main/FollowRequestsScreen';
+import ArchivedPostsScreen from '../screens/main/ArchivedPostsScreen';
 import FullBodyAvatarScreen from '../screens/main/FullBodyAvatarScreen';
 import DraftsGalleryScreen from '../screens/main/DraftsGalleryScreen';
 import CoinsScreen from '../screens/coins/CoinsScreen';
@@ -38,14 +39,27 @@ import FriendshipDetailScreen from '../screens/coins/FriendshipDetailScreen';
 // Topic screens (used by DiscoverNavigator)
 import TopicPageScreen from '../screens/topics/TopicPageScreen';
 import CreateTopicScreen from '../screens/topics/CreateTopicScreen';
+import PendingRequestsScreen from '../screens/topics/PendingRequestsScreen';
+import BroadcasterManagementScreen from '../screens/topics/BroadcasterManagementScreen';
 
 // Chat screens
 import ConversationsScreen from '../screens/chat/ConversationsScreen';
 import ChatScreen from '../screens/chat/ChatScreen';
 
+// Friendship Meetup screens
+import FriendshipHomeScreen from '../screens/friendship/FriendshipHomeScreen';
+import CreateSessionScreen from '../screens/friendship/CreateSessionScreen';
+import JoinSessionScreen from '../screens/friendship/JoinSessionScreen';
+import PhotoBoothScreen from '../screens/friendship/PhotoBoothScreen';
+import PhotoStripScreen from '../screens/friendship/PhotoStripScreen';
+import MeetupDetailScreen from '../screens/friendship/MeetupDetailScreen';
+
 
 // Welcome motto
 import { useWelcomeMotto } from '../contexts/WelcomeMottoContext';
+
+// Bot coin toast
+import { useBotCoinToast } from '../contexts/BotCoinToastContext';
 
 // Socket service
 import { socketService } from '../services/socket';
@@ -66,6 +80,7 @@ import {
   ProfileStackParamList,
   CreatePostStackParamList,
   TopicsStackParamList,
+  FriendshipMeetupStackParamList,
   MainTabParamList,
 } from './types';
 
@@ -81,6 +96,7 @@ export {
   ProfileStackParamList,
   CreatePostStackParamList,
   TopicsStackParamList,
+  FriendshipMeetupStackParamList,
   MainTabParamList,
 } from './types';
 
@@ -90,6 +106,7 @@ const DiscoverStack = createStackNavigator<DiscoverStackParamList>();
 const FeedStack = createStackNavigator<FeedStackParamList>();
 const ProfileStack = createStackNavigator<ProfileStackParamList>();
 const CreatePostStack = createStackNavigator<CreatePostStackParamList>();
+const FriendshipStack = createStackNavigator<FriendshipMeetupStackParamList>();
 const MainTab = createBottomTabNavigator<MainTabParamList>();
 
 function AuthNavigator() {
@@ -215,6 +232,22 @@ function DiscoverNavigator() {
           headerBackTitle: 'Back'
         })}
       />
+      <DiscoverStack.Screen
+        name="PendingRequests"
+        component={PendingRequestsScreen}
+        options={{
+          title: 'Pending Requests',
+          headerBackTitle: 'Back'
+        }}
+      />
+      <DiscoverStack.Screen
+        name="BroadcasterManagement"
+        component={BroadcasterManagementScreen}
+        options={{
+          title: 'Manage Broadcasters',
+          headerBackTitle: 'Back'
+        }}
+      />
     </DiscoverStack.Navigator>
   );
 }
@@ -329,6 +362,74 @@ function CreatePostNavigator() {
   );
 }
 
+function FriendshipMeetupNavigator() {
+  const { colors } = useTheme();
+  return (
+    <FriendshipStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.background },
+        headerTintColor: colors.text.primary,
+        headerTitleStyle: { color: colors.text.primary },
+      }}
+    >
+      <FriendshipStack.Screen
+        name="FriendshipHome"
+        component={FriendshipHomeScreen}
+        options={{
+          title: 'Friendship',
+          headerShown: true
+        }}
+      />
+      <FriendshipStack.Screen
+        name="CreateSession"
+        component={CreateSessionScreen}
+        options={{
+          title: 'Start Meetup',
+          headerBackTitle: 'Back'
+        }}
+      />
+      <FriendshipStack.Screen
+        name="JoinSession"
+        component={JoinSessionScreen}
+        options={{
+          title: 'Join Meetup',
+          headerBackTitle: 'Back'
+        }}
+      />
+      <FriendshipStack.Screen
+        name="PhotoBooth"
+        component={PhotoBoothScreen}
+        options={{
+          headerShown: false,
+          gestureEnabled: false
+        }}
+      />
+      <FriendshipStack.Screen
+        name="PhotoStrip"
+        component={PhotoStripScreen}
+        options={{
+          title: 'Photo Strip',
+          headerLeft: () => null,
+          gestureEnabled: false
+        }}
+      />
+      <FriendshipStack.Screen
+        name="MeetupDetail"
+        component={MeetupDetailScreen}
+        options={{ title: 'Meetup Photos' }}
+      />
+      <FriendshipStack.Screen
+        name="FriendshipDetail"
+        component={FriendshipDetailScreen}
+        options={({ route }) => ({
+          title: `@${route.params.otherUsername}`,
+          headerBackTitle: 'Back'
+        })}
+      />
+    </FriendshipStack.Navigator>
+  );
+}
+
 function ProfileNavigator() {
   const { colors } = useTheme();
   return (
@@ -363,6 +464,14 @@ function ProfileNavigator() {
           headerBackTitle: 'Back'
         }}
       />
+      <ProfileStack.Screen
+        name="ArchivedPosts"
+        component={ArchivedPostsScreen}
+        options={{
+          title: 'Archive',
+          headerBackTitle: 'Back'
+        }}
+      />
     </ProfileStack.Navigator>
   );
 }
@@ -381,6 +490,8 @@ function MainNavigator() {
             iconName = focused ? 'compass' : 'compass-outline';
           } else if (route.name === 'CreatePost') {
             iconName = focused ? 'add-circle' : 'add-circle-outline';
+          } else if (route.name === 'Friendship') {
+            iconName = focused ? 'people' : 'people-outline';
           } else if (route.name === 'Coins') {
             iconName = focused ? 'heart' : 'heart-outline';
           } else if (route.name === 'Profile') {
@@ -405,6 +516,11 @@ function MainNavigator() {
         options={{ headerShown: false }}
       />
       <MainTab.Screen name="CreatePost" component={CreatePostNavigator} options={{ headerShown: false }} />
+      <MainTab.Screen
+        name="Friendship"
+        component={FriendshipMeetupNavigator}
+        options={{ headerShown: false }}
+      />
       <MainTab.Screen
         name="Coins"
         component={CoinsNavigator}
@@ -434,6 +550,7 @@ function RootNavigatorContent() {
   // Track the account ID before adding new account
   const previousAccountIdRef = useRef<string | null>(null);
   const { triggerWelcomeMotto } = useWelcomeMotto();
+  const { showBotCoinToast } = useBotCoinToast();
   const {
     showAccountSwitcher,
     setShowAccountSwitcher,
@@ -574,6 +691,47 @@ function RootNavigatorContent() {
       }
     };
   }, [isAuthenticated, refreshUnreadCount]);
+
+  // Listen for bot coin gifts to show toast notifications
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const handleBotCoins = (data: { botUsername: string; amount: number; message: string }) => {
+      if (data && data.botUsername && data.amount) {
+        showBotCoinToast(data.botUsername, data.amount, data.message || 'You received coins!');
+      }
+    };
+
+    const setupBotCoinListener = () => {
+      const socket = socketService.getSocket();
+      if (socket) {
+        socket.on('bot:coins_received', handleBotCoins);
+        return true;
+      }
+      return false;
+    };
+
+    if (!setupBotCoinListener()) {
+      const retryTimeout = setTimeout(() => {
+        setupBotCoinListener();
+      }, 1000);
+
+      return () => {
+        clearTimeout(retryTimeout);
+        const socket = socketService.getSocket();
+        if (socket) {
+          socket.off('bot:coins_received', handleBotCoins);
+        }
+      };
+    }
+
+    return () => {
+      const socket = socketService.getSocket();
+      if (socket) {
+        socket.off('bot:coins_received', handleBotCoins);
+      }
+    };
+  }, [isAuthenticated, showBotCoinToast]);
 
   async function checkAuth() {
     try {

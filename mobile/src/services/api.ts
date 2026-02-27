@@ -105,8 +105,20 @@ class ApiClient {
         if (error.response?.status === 401 || error.response?.status === 403) {
           const errorData = error.response?.data as any;
           const errorMsg = errorData?.error || errorData?.message || '';
-          // Check if it's an invalid/expired token error or user not found
-          if (
+          const accountStatus = errorData?.accountStatus;
+
+          // Handle banned/suspended users detected mid-session
+          if (accountStatus === 'banned' || accountStatus === 'suspended') {
+            // Store the account status info so the login screen can display it
+            await AsyncStorage.setItem('account_action', JSON.stringify({
+              accountStatus,
+              reason: errorData?.reason,
+              suspendedUntil: errorData?.suspendedUntil,
+            }));
+            // Clear token to force re-login
+            await AsyncStorage.removeItem('auth_token');
+            console.log(`Account ${accountStatus} - cleared auth token.`);
+          } else if (
             errorMsg.includes('token') ||
             errorMsg.includes('Token') ||
             errorMsg.includes('User not found') ||
@@ -420,6 +432,16 @@ class ApiClient {
     return response.data;
   }
 
+  async getMissions() {
+    const response = await this.client.get('/coins/missions');
+    return response.data;
+  }
+
+  async claimMission(missionId: string) {
+    const response = await this.client.post(`/coins/missions/${missionId}/claim`);
+    return response.data;
+  }
+
   // Chat methods
   async getConversations() {
     const response = await this.client.get('/messages/conversations');
@@ -630,6 +652,11 @@ class ApiClient {
     return response.data;
   }
 
+  async getArchivedPosts(page: number = 1) {
+    const response = await this.client.get(`/posts/me/posts?archived=true&page=${page}`);
+    return response.data;
+  }
+
   // Avatar methods
   async getMyAvatars() {
     const response = await this.client.get('/avatars/me');
@@ -704,10 +731,11 @@ class ApiClient {
   }
 
   // Topics/Communities methods
-  async getTopics(category?: string, search?: string) {
+  async getTopics(category?: string, search?: string, type?: string) {
     const params = new URLSearchParams();
     if (category) params.append('category', category);
     if (search) params.append('search', search);
+    if (type) params.append('type', type);
     const response = await this.client.get(`/topics?${params.toString()}`);
     return response.data;
   }
@@ -734,6 +762,7 @@ class ApiClient {
     iconImageUrl?: string;
     category: string;
     adminIds?: string[];
+    type?: 'community' | 'private' | 'broadcast';
   }) {
     const response = await this.client.post('/topics', data);
     return response.data;
@@ -825,6 +854,38 @@ class ApiClient {
 
   async removeTopicAdmin(topicId: string, userId: string) {
     const response = await this.client.delete(`/topics/${topicId}/admins/${userId}`);
+    return response.data;
+  }
+
+  // Private group methods
+  async requestToJoinTopic(topicId: string) {
+    const response = await this.client.post(`/topics/${topicId}/request-join`);
+    return response.data;
+  }
+
+  async getPendingRequests(topicId: string) {
+    const response = await this.client.get(`/topics/${topicId}/pending-requests`);
+    return response.data;
+  }
+
+  async handleMemberRequest(topicId: string, userId: string, action: 'approve' | 'reject') {
+    const response = await this.client.post(`/topics/${topicId}/handle-request`, { userId, action });
+    return response.data;
+  }
+
+  // Broadcaster methods
+  async getBroadcasters(topicId: string) {
+    const response = await this.client.get(`/topics/${topicId}/broadcasters`);
+    return response.data;
+  }
+
+  async addBroadcaster(topicId: string, userId: string) {
+    const response = await this.client.post(`/topics/${topicId}/broadcasters`, { userId });
+    return response.data;
+  }
+
+  async removeBroadcaster(topicId: string, userId: string) {
+    const response = await this.client.delete(`/topics/${topicId}/broadcasters/${userId}`);
     return response.data;
   }
 
@@ -943,6 +1004,37 @@ class ApiClient {
     return response.data;
   }
 
+  // Corner Icon methods
+  async getMyCornerIcons() {
+    const response = await this.client.get('/corner-icons/mine');
+    return response.data;
+  }
+
+  async purchaseCornerIcon(iconFamily: string, iconName: string) {
+    const response = await this.client.post('/corner-icons/purchase', { iconFamily, iconName });
+    return response.data;
+  }
+
+  async placeCornerIcon(position: string, iconFamily: string, iconName: string, color: string) {
+    const response = await this.client.put('/corner-icons/place', { position, iconFamily, iconName, color });
+    return response.data;
+  }
+
+  async removeCornerIcon(position: string) {
+    const response = await this.client.delete(`/corner-icons/place/${position}`);
+    return response.data;
+  }
+
+  async updateCornerIconColor(position: string, color: string) {
+    const response = await this.client.patch(`/corner-icons/place/${position}/color`, { color });
+    return response.data;
+  }
+
+  async getUserCornerIcons(userId: string) {
+    const response = await this.client.get(`/corner-icons/user/${userId}`);
+    return response.data;
+  }
+
   // Generic HTTP methods for flexibility
   async get(endpoint: string) {
     const response = await this.client.get(endpoint);
@@ -967,6 +1059,101 @@ class ApiClient {
   async delete(endpoint: string) {
     const response = await this.client.delete(endpoint);
     return response;
+  }
+
+  // ===== FRIENDSHIP MEETUP METHODS =====
+
+  async createFriendshipSession(lat?: number, lng?: number) {
+    const response = await this.client.post('/friendship-meetup/sessions', { lat, lng });
+    return response.data;
+  }
+
+  async joinFriendshipSession(code: string, lat?: number, lng?: number) {
+    const response = await this.client.post('/friendship-meetup/sessions/join', { code, lat, lng });
+    return response.data;
+  }
+
+  async getFriendshipSession(sessionId: string) {
+    const response = await this.client.get(`/friendship-meetup/sessions/${sessionId}`);
+    return response.data;
+  }
+
+
+
+  async validateFriendshipPose(sessionId: string, photoUri: string, poseName: string, minPeople: number = 2) {
+    const formData = new FormData();
+    formData.append('image', {
+      uri: photoUri,
+      type: 'image/jpeg',
+      name: 'frame.jpg',
+    } as any);
+    formData.append('poseName', poseName);
+    formData.append('minPeople', String(minPeople));
+
+    const response = await this.client.post(
+      `/friendship-meetup/sessions/${sessionId}/validate-pose`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 5000 }
+    );
+    return response.data;
+  }
+
+  async submitFriendshipPhoto(sessionId: string, photoUri: string, poseIndex: number, poseName: string) {
+    const formData = new FormData();
+    formData.append('photo', {
+      uri: photoUri,
+      type: 'image/jpeg',
+      name: `pose_${poseIndex}.jpg`,
+    } as any);
+    formData.append('poseIndex', String(poseIndex));
+    formData.append('poseName', poseName);
+
+    const response = await this.client.post(
+      `/friendship-meetup/sessions/${sessionId}/photos`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+    return response.data;
+  }
+
+  async getSessionPhotos(sessionId: string) {
+    const response = await this.client.get(`/friendship-meetup/sessions/${sessionId}/photos`);
+    return response.data;
+  }
+
+  async completeFriendshipMeetup(sessionId: string) {
+    const response = await this.client.post(`/friendship-meetup/sessions/${sessionId}/complete`);
+    return response.data;
+  }
+
+  async saveDecoratedStrip(sessionId: string, imageUri: string) {
+    const formData = new FormData();
+    formData.append('image', {
+      uri: imageUri,
+      type: 'image/jpeg',
+      name: 'decorated-strip.jpg',
+    } as any);
+    const response = await this.client.post(
+      `/friendship-meetup/sessions/${sessionId}/decorated-strip`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+    return response.data;
+  }
+
+  async cancelFriendshipSession(sessionId: string) {
+    const response = await this.client.post(`/friendship-meetup/sessions/${sessionId}/cancel`);
+    return response.data;
+  }
+
+  async getFriendshipMeetupHistory(page: number = 1, limit: number = 20) {
+    const response = await this.client.get(`/friendship-meetup/history?page=${page}&limit=${limit}`);
+    return response.data;
+  }
+
+  async checkFriendshipDailyLimit(partnerId: string) {
+    const response = await this.client.get(`/friendship-meetup/daily-check/${partnerId}`);
+    return response.data;
   }
 }
 

@@ -33,6 +33,18 @@ import { PostDecoration } from './PostDecoration';
 import { UserDecoration } from './UserDecoration';
 import { UserActiveDecoration } from './UserActiveDecoration';
 
+// Friendship Meetup imports
+import { FriendshipSession } from './FriendshipSession';
+import { FriendshipMeetup } from './FriendshipMeetup';
+import { FriendshipPhoto } from './FriendshipPhoto';
+
+// Corner Icon imports
+import { CornerIconPurchase } from './CornerIconPurchase';
+import { CornerIconPlacement } from './CornerIconPlacement';
+
+// Admin imports
+import { AuditLog } from './AuditLog';
+
 /**
  * Set up model associations
  * This file should be imported after all models are defined
@@ -779,5 +791,54 @@ export const setupAssociations = () => {
   UserActiveDecoration.belongsTo(PostDecoration, {
     foreignKey: 'iconColorId',
     as: 'iconColor'
+  });
+
+  // ===== FRIENDSHIP MEETUP ASSOCIATIONS =====
+
+  // FriendshipSession -> User (host)
+  FriendshipSession.belongsTo(User, { foreignKey: 'hostUserId', as: 'host' });
+  User.hasMany(FriendshipSession, { foreignKey: 'hostUserId', as: 'hostedSessions', onDelete: 'CASCADE' });
+
+  // FriendshipSession -> User (guest)
+  FriendshipSession.belongsTo(User, { foreignKey: 'guestUserId', as: 'guest' });
+  User.hasMany(FriendshipSession, { foreignKey: 'guestUserId', as: 'joinedSessions', onDelete: 'SET NULL' });
+
+  // FriendshipMeetup -> FriendshipSession
+  FriendshipMeetup.belongsTo(FriendshipSession, { foreignKey: 'sessionId', as: 'session' });
+  FriendshipSession.hasOne(FriendshipMeetup, { foreignKey: 'sessionId', as: 'meetup', onDelete: 'CASCADE' });
+
+  // FriendshipMeetup -> User (userA and userB)
+  FriendshipMeetup.belongsTo(User, { foreignKey: 'userAId', as: 'userA' });
+  FriendshipMeetup.belongsTo(User, { foreignKey: 'userBId', as: 'userB' });
+  User.hasMany(FriendshipMeetup, { foreignKey: 'userAId', as: 'meetupsAsA', onDelete: 'CASCADE' });
+  User.hasMany(FriendshipMeetup, { foreignKey: 'userBId', as: 'meetupsAsB', onDelete: 'CASCADE' });
+
+  // FriendshipPhoto -> FriendshipMeetup
+  FriendshipPhoto.belongsTo(FriendshipMeetup, { foreignKey: 'meetupId', as: 'meetup' });
+  FriendshipMeetup.hasMany(FriendshipPhoto, { foreignKey: 'meetupId', as: 'photos', onDelete: 'CASCADE' });
+
+  // ===== CORNER ICON ASSOCIATIONS =====
+
+  // User -> CornerIconPurchase: One-to-Many
+  User.hasMany(CornerIconPurchase, { foreignKey: 'userId', as: 'cornerIconPurchases', onDelete: 'CASCADE' });
+  CornerIconPurchase.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+  // User -> CornerIconPlacement: One-to-Many
+  User.hasMany(CornerIconPlacement, { foreignKey: 'userId', as: 'cornerIconPlacements', onDelete: 'CASCADE' });
+  CornerIconPlacement.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+  // ===== ADMIN AUDIT LOG ASSOCIATIONS =====
+
+  // AuditLog -> User (admin who performed the action)
+  AuditLog.belongsTo(User, {
+    foreignKey: 'adminUserId',
+    as: 'adminUser'
+  });
+
+  // User -> AuditLog: One-to-Many
+  User.hasMany(AuditLog, {
+    foreignKey: 'adminUserId',
+    as: 'auditLogs',
+    onDelete: 'CASCADE'
   });
 };

@@ -44,11 +44,30 @@ export interface DecorationStyleIconColors {
   giftColor: string;
 }
 
+export type CornerPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+
+export interface CornerIconPlacement {
+  position: CornerPosition;
+  iconFamily: 'MaterialCommunityIcons' | 'Ionicons';
+  iconName: string;
+  color: string;
+}
+
+export interface CornerIconPurchase {
+  id: string;
+  userId: string;
+  iconFamily: string;
+  iconName: string;
+  pricePaid: number;
+  purchasedAt: string;
+}
+
 export interface ResolvedDecoration {
   lightBackground: DecorationStyleBackground | null;
   darkBackground: DecorationStyleBackground | null;
   frame: DecorationStyleFrame | null;
   iconColors: DecorationStyleIconColors | null;
+  cornerIcons: CornerIconPlacement[] | null;
 }
 
 export interface StoreDecoration {

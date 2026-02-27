@@ -1,6 +1,8 @@
 import { Model, DataTypes, Optional } from 'sequelize';
 import { sequelize } from '../config/database';
 
+export type TopicType = 'community' | 'private' | 'broadcast';
+
 export interface TopicAttributes {
     id: string;
     name: string;
@@ -12,6 +14,9 @@ export interface TopicAttributes {
     creatorId: string | null;
     inviteCode: string;
     category: string;
+    type: TopicType;
+    requireApproval: boolean;
+    memberCount: number;
     followerCount: number;
     postCount: number;
     weeklyPostCount: number;
@@ -28,6 +33,7 @@ export interface TopicAttributes {
 
 export interface TopicCreationAttributes extends Optional<TopicAttributes,
     'id' | 'description' | 'iconEmoji' | 'iconImageUrl' | 'coverImageUrl' | 'creatorId' |
+    'type' | 'requireApproval' | 'memberCount' |
     'followerCount' | 'postCount' | 'weeklyPostCount' | 'isOfficial' |
     'isActive' | 'isDiscoverable' | 'searchKeywords' | 'minAge' | 'beginnerBoostEnabled' |
     'encouragementMultiplier' | 'createdAt' | 'updatedAt'> {}
@@ -43,6 +49,9 @@ export class Topic extends Model<TopicAttributes, TopicCreationAttributes> imple
     public creatorId!: string | null;
     public inviteCode!: string;
     public category!: string;
+    public type!: TopicType;
+    public requireApproval!: boolean;
+    public memberCount!: number;
     public followerCount!: number;
     public postCount!: number;
     public weeklyPostCount!: number;
@@ -59,6 +68,11 @@ export class Topic extends Model<TopicAttributes, TopicCreationAttributes> imple
     // Associations
     public readonly creator?: any;
     public readonly followers?: any[];
+
+    // Helper methods
+    public isPrivate(): boolean { return this.type === 'private'; }
+    public isBroadcast(): boolean { return this.type === 'broadcast'; }
+    public isCommunity(): boolean { return this.type === 'community'; }
 
     // Helper to generate slug from name
     public static generateSlug(name: string): string {
@@ -126,6 +140,19 @@ Topic.init(
         category: {
             type: DataTypes.STRING(50),
             allowNull: false,
+        },
+        type: {
+            type: DataTypes.STRING(20),
+            allowNull: false,
+            defaultValue: 'community',
+        },
+        requireApproval: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: false,
+        },
+        memberCount: {
+            type: DataTypes.INTEGER,
+            defaultValue: 0,
         },
         followerCount: {
             type: DataTypes.INTEGER,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity, ScrollView,
     TextInput, Alert, Share, ActivityIndicator, Image,
@@ -28,6 +28,9 @@ export default function CreateTopicScreen({ navigation }: any) {
     const { colors, isDark } = useTheme();
     const { activeAccount } = useAccountContext();
 
+    // Type state
+    const [topicType, setTopicType] = useState<'community' | 'private' | 'broadcast'>('community');
+
     // Form state
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
@@ -43,6 +46,9 @@ export default function CreateTopicScreen({ navigation }: any) {
     const [friends, setFriends] = useState<any[]>([]);
     const [selectedAdminIds, setSelectedAdminIds] = useState<string[]>([]);
     const [loadingFriends, setLoadingFriends] = useState(false);
+
+    // Refs
+    const descriptionRef = useRef<TextInput>(null);
 
     // General state
     const [loading, setLoading] = useState(false);
@@ -133,6 +139,7 @@ export default function CreateTopicScreen({ navigation }: any) {
                 name,
                 description,
                 category: selectedCategory,
+                type: topicType,
             };
 
             if (iconMode === 'photo' && iconImageUrl) {
@@ -203,7 +210,11 @@ export default function CreateTopicScreen({ navigation }: any) {
                 <View style={[styles.successIconWrap, { backgroundColor: isDark ? Colors.dark.surfaceVariant : '#EDE9FE' }]}>
                     {renderTopicIcon(successIconEmoji, successImageUrl, 100)}
                 </View>
-                <Text style={[styles.successTitle, { color: colors.text.primary }]}>Community Created!</Text>
+                <Text style={[styles.successTitle, { color: colors.text.primary }]}>
+                    {createdTopic.type === 'private' ? 'Private Group Created!' :
+                     createdTopic.type === 'broadcast' ? 'Channel Created!' :
+                     'Community Created!'}
+                </Text>
                 <Text style={[styles.successName, { color: Colors.brand.primary }]}>{createdTopic.name}</Text>
                 <Text style={[styles.successSubtitle, { color: colors.text.secondary }]}>
                     Your community is ready. Share it with friends!
@@ -255,10 +266,59 @@ export default function CreateTopicScreen({ navigation }: any) {
             contentContainerStyle={styles.content}
             keyboardShouldPersistTaps="handled"
         >
-            <Text style={[styles.title, { color: colors.text.primary }]}>Create Community</Text>
-            <Text style={[styles.subtitle, { color: colors.text.secondary }]}>
-                Start a new community around something you love
+            <Text style={[styles.title, { color: colors.text.primary }]}>
+                {topicType === 'private' ? 'Create Private Group' :
+                 topicType === 'broadcast' ? 'Create Channel' :
+                 'Create Community'}
             </Text>
+            <Text style={[styles.subtitle, { color: colors.text.secondary }]}>
+                {topicType === 'private' ? 'A private space for approved members only' :
+                 topicType === 'broadcast' ? 'A channel where only designated broadcasters post' :
+                 'Start a new community around something you love'}
+            </Text>
+
+            {/* Type Selector */}
+            <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Text style={[styles.cardLabel, { color: colors.text.primary }]}>Type</Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {([
+                        { key: 'community' as const, label: 'Community', icon: 'people-outline', desc: 'Open to all' },
+                        { key: 'private' as const, label: 'Private Group', icon: 'lock-closed-outline', desc: 'Approval required' },
+                        { key: 'broadcast' as const, label: 'Channel', icon: 'megaphone-outline', desc: 'Broadcasters post' },
+                    ]).map(t => (
+                        <TouchableOpacity
+                            key={t.key}
+                            style={[
+                                styles.typeCard,
+                                {
+                                    backgroundColor: topicType === t.key
+                                        ? (isDark ? 'rgba(139,92,246,0.2)' : '#EDE9FE')
+                                        : colors.surfaceVariant,
+                                    borderColor: topicType === t.key ? Colors.brand.primary : colors.border,
+                                    borderWidth: topicType === t.key ? 2 : 1,
+                                    flex: 1,
+                                }
+                            ]}
+                            onPress={() => setTopicType(t.key)}
+                        >
+                            <Ionicons
+                                name={t.icon as any}
+                                size={22}
+                                color={topicType === t.key ? Colors.brand.primary : colors.text.secondary}
+                            />
+                            <Text style={[
+                                styles.typeLabel,
+                                { color: topicType === t.key ? Colors.brand.primary : colors.text.primary }
+                            ]}>
+                                {t.label}
+                            </Text>
+                            <Text style={[styles.typeDesc, { color: colors.text.secondary }]} numberOfLines={1}>
+                                {t.desc}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </View>
+            </View>
 
             {/* Section 1: Community Icon */}
             <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -425,6 +485,9 @@ export default function CreateTopicScreen({ navigation }: any) {
                     value={name}
                     onChangeText={setName}
                     maxLength={50}
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => descriptionRef.current?.focus()}
                 />
                 <Text style={[styles.charCount, { color: colors.text.tertiary }]}>{name.length}/50</Text>
 
@@ -432,6 +495,7 @@ export default function CreateTopicScreen({ navigation }: any) {
                     Description (Optional)
                 </Text>
                 <TextInput
+                    ref={descriptionRef}
                     style={[styles.input, styles.textArea, {
                         backgroundColor: colors.surfaceVariant,
                         color: colors.text.primary,
@@ -652,6 +716,26 @@ const styles = StyleSheet.create({
     subtitle: {
         fontSize: 16,
         marginBottom: 20,
+    },
+
+    // Type selector
+    typeCard: {
+        alignItems: 'center',
+        padding: 10,
+        borderRadius: 12,
+        minHeight: 80,
+        justifyContent: 'center',
+    },
+    typeLabel: {
+        fontSize: 11,
+        fontWeight: '600',
+        marginTop: 4,
+        textAlign: 'center',
+    },
+    typeDesc: {
+        fontSize: 9,
+        marginTop: 2,
+        textAlign: 'center',
     },
 
     // Card container

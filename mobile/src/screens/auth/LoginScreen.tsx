@@ -11,6 +11,7 @@ import {
   Dimensions,
   KeyboardAvoidingView,
   Platform,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -21,6 +22,12 @@ import { useTheme } from '../../theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+interface AccountStatusInfo {
+  accountStatus: 'banned' | 'suspended';
+  reason?: string;
+  suspendedUntil?: string;
+}
+
 export default function LoginScreen({ navigation }: any) {
   const { colors, isDark } = useTheme();
   const [email, setEmail] = useState('');
@@ -28,6 +35,7 @@ export default function LoginScreen({ navigation }: any) {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [isAddingAccount, setIsAddingAccount] = useState(false);
+  const [accountStatus, setAccountStatus] = useState<AccountStatusInfo | null>(null);
 
   // Entrance animations
   const logoScale = useRef(new Animated.Value(0)).current;
@@ -196,6 +204,21 @@ export default function LoginScreen({ navigation }: any) {
     checkAddingAccount();
   }, []);
 
+  // Check if user was redirected here due to mid-session ban/suspend
+  useEffect(() => {
+    const checkAccountAction = async () => {
+      const stored = await AsyncStorage.getItem('account_action');
+      if (stored) {
+        try {
+          const info = JSON.parse(stored) as AccountStatusInfo;
+          setAccountStatus(info);
+        } catch {}
+        await AsyncStorage.removeItem('account_action');
+      }
+    };
+    checkAccountAction();
+  }, []);
+
   // Cancel adding account — go back to the app
   const handleCancelAddAccount = async () => {
     await AsyncStorage.setItem('cancel_add_account', 'true');
@@ -245,10 +268,19 @@ export default function LoginScreen({ navigation }: any) {
         }
         // Auth state will be automatically detected by polling in RootNavigator
       } catch (error: any) {
-        const errorMessage = error.response?.data?.error ||
-                            error.response?.data?.message ||
-                            'Google sign-in failed. Please try again.';
-        Alert.alert('Error', errorMessage);
+        const errorData = error.response?.data;
+        if (errorData?.accountStatus) {
+          setAccountStatus({
+            accountStatus: errorData.accountStatus,
+            reason: errorData.reason,
+            suspendedUntil: errorData.suspendedUntil,
+          });
+        } else {
+          const errorMessage = errorData?.error ||
+                              errorData?.message ||
+                              'Google sign-in failed. Please try again.';
+          Alert.alert('Error', errorMessage);
+        }
       } finally {
         setGoogleLoading(false);
       }
@@ -293,11 +325,19 @@ export default function LoginScreen({ navigation }: any) {
       }
       // Auth state will be automatically detected by polling in RootNavigator
     } catch (error: any) {
-      // Extract error message from backend response
-      const errorMessage = error.response?.data?.error ||
-                          error.response?.data?.message ||
-                          'Login failed. Please check your credentials.';
-      Alert.alert('Error', errorMessage);
+      const errorData = error.response?.data;
+      if (errorData?.accountStatus) {
+        setAccountStatus({
+          accountStatus: errorData.accountStatus,
+          reason: errorData.reason,
+          suspendedUntil: errorData.suspendedUntil,
+        });
+      } else {
+        const errorMessage = errorData?.error ||
+                            errorData?.message ||
+                            'Login failed. Please check your credentials.';
+        Alert.alert('Error', errorMessage);
+      }
     } finally {
       setLoading(false);
     }
@@ -432,6 +472,91 @@ export default function LoginScreen({ navigation }: any) {
           <Text style={[styles.link, { color: colors.text.link }]}>Don't have an account? Register</Text>
         </TouchableOpacity>
       </Animated.View>
+
+      {/* Account Status Modal (Banned/Suspended) */}
+      <Modal
+        visible={accountStatus !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAccountStatus(null)}
+      >
+        <View style={statusStyles.overlay}>
+          <View style={[statusStyles.card, { backgroundColor: colors.card }]}>
+            {/* Icon */}
+            <View style={[
+              statusStyles.iconCircle,
+              { backgroundColor: accountStatus?.accountStatus === 'banned' ? 'rgba(239,68,68,0.12)' : 'rgba(251,191,36,0.12)' }
+            ]}>
+              <Ionicons
+                name={accountStatus?.accountStatus === 'banned' ? 'ban' : 'time'}
+                size={48}
+                color={accountStatus?.accountStatus === 'banned' ? '#EF4444' : '#F59E0B'}
+              />
+            </View>
+
+            {/* Title */}
+            <Text style={[statusStyles.title, { color: colors.text.primary }]}>
+              {accountStatus?.accountStatus === 'banned'
+                ? 'Account Banned'
+                : 'Account Suspended'}
+            </Text>
+
+            {/* Description */}
+            <Text style={[statusStyles.description, { color: colors.text.secondary }]}>
+              {accountStatus?.accountStatus === 'banned'
+                ? 'Your account has been permanently banned from SeeMe.'
+                : 'Your account has been temporarily suspended.'}
+            </Text>
+
+            {/* Reason */}
+            {accountStatus?.reason ? (
+              <View style={[statusStyles.reasonBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)' }]}>
+                <Text style={[statusStyles.reasonLabel, { color: colors.text.tertiary }]}>Reason</Text>
+                <Text style={[statusStyles.reasonText, { color: colors.text.primary }]}>
+                  {accountStatus.reason}
+                </Text>
+              </View>
+            ) : null}
+
+            {/* Suspension expiry */}
+            {accountStatus?.accountStatus === 'suspended' && accountStatus?.suspendedUntil ? (
+              <View style={[statusStyles.expiryBox, { backgroundColor: isDark ? 'rgba(251,191,36,0.08)' : 'rgba(251,191,36,0.06)' }]}>
+                <Ionicons name="calendar-outline" size={16} color="#F59E0B" />
+                <Text style={[statusStyles.expiryText, { color: colors.text.secondary }]}>
+                  Suspended until{' '}
+                  <Text style={{ fontWeight: '600', color: colors.text.primary }}>
+                    {new Date(accountStatus.suspendedUntil).toLocaleDateString(undefined, {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </Text>
+                </Text>
+              </View>
+            ) : null}
+
+            {/* Help text */}
+            <Text style={[statusStyles.helpText, { color: colors.text.tertiary }]}>
+              If you believe this is a mistake, please contact support.
+            </Text>
+
+            {/* Dismiss button */}
+            <TouchableOpacity
+              style={[
+                statusStyles.dismissButton,
+                { backgroundColor: accountStatus?.accountStatus === 'banned' ? '#EF4444' : '#F59E0B' }
+              ]}
+              onPress={() => setAccountStatus(null)}
+              activeOpacity={0.8}
+            >
+              <Text style={statusStyles.dismissText}>I Understand</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -543,5 +668,94 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     fontSize: 16,
     fontWeight: '600',
+  },
+});
+
+const statusStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: 20,
+    padding: 28,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  iconCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  description: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 18,
+  },
+  reasonBox: {
+    width: '100%',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 14,
+  },
+  reasonLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  reasonText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  expiryBox: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 14,
+    gap: 8,
+  },
+  expiryText: {
+    fontSize: 13,
+    flex: 1,
+    lineHeight: 18,
+  },
+  helpText: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  dismissButton: {
+    width: '100%',
+    borderRadius: 12,
+    padding: 15,
+    alignItems: 'center',
+  },
+  dismissText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

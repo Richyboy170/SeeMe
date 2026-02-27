@@ -16,6 +16,7 @@ export interface PositivityCoinsAttributes {
   coinsFromComments: number;
   coinsFromAds: number;
   coinsFromCooldown: number;
+  coinsFromMeetups: number;
   coinsFromOther: number;
   skyCoins: number;
   lifetimeSkyCoinsEarned: number;
@@ -38,6 +39,7 @@ interface PositivityCoinsCreationAttributes extends Optional<
   | 'coinsFromComments'
   | 'coinsFromAds'
   | 'coinsFromCooldown'
+  | 'coinsFromMeetups'
   | 'coinsFromOther'
   | 'skyCoins'
   | 'lifetimeSkyCoinsEarned'
@@ -61,6 +63,7 @@ export class PositivityCoins extends Model<PositivityCoinsAttributes, Positivity
   public coinsFromComments!: number;
   public coinsFromAds!: number;
   public coinsFromCooldown!: number;
+  public coinsFromMeetups!: number;
   public coinsFromOther!: number;
   public skyCoins!: number;
   public lifetimeSkyCoinsEarned!: number;
@@ -165,6 +168,12 @@ PositivityCoins.init(
       defaultValue: 0,
       allowNull: false,
       comment: 'Coins claimed from cooldown system'
+    },
+    coinsFromMeetups: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: false,
+      comment: 'Coins earned from friendship meetups'
     },
     coinsFromOther: {
       type: DataTypes.INTEGER,

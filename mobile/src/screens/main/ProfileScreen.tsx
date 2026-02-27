@@ -42,12 +42,13 @@ const getRankInfo = (rank: string) => {
   const rankData: { [key: string]: {
     color: string;
     ringColor: string;
+    gradient: [string, string, string];
   } } = {
-    beginner: { color: '#9CA3AF', ringColor: '#9CA3AF' },
-    kind: { color: '#60A5FA', ringColor: '#60A5FA' },
-    generous: { color: '#A78BFA', ringColor: '#A78BFA' },
-    inspirational: { color: '#F59E0B', ringColor: '#F59E0B' },
-    legend: { color: '#EF4444', ringColor: '#EF4444' },
+    beginner: { color: '#9CA3AF', ringColor: '#9CA3AF', gradient: ['#9CA3AF', '#6B7280', '#4B5563'] },
+    kind: { color: '#60A5FA', ringColor: '#60A5FA', gradient: ['#60A5FA', '#3B82F6', '#2563EB'] },
+    generous: { color: '#A78BFA', ringColor: '#A78BFA', gradient: ['#A78BFA', '#8B5CF6', '#7C3AED'] },
+    inspirational: { color: '#F59E0B', ringColor: '#F59E0B', gradient: ['#F59E0B', '#D97706', '#B45309'] },
+    legend: { color: '#EF4444', ringColor: '#EF4444', gradient: ['#EF4444', '#DC2626', '#B91C1C'] },
   };
   return rankData[rank] || rankData.beginner;
 };
@@ -97,6 +98,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
   const [shareCardVisible, setShareCardVisible] = useState(false);
   const [savingCard, setSavingCard] = useState(false);
   const [setupBannerDismissed, setSetupBannerDismissed] = useState(false);
+  const [avatarViewerVisible, setAvatarViewerVisible] = useState(false);
   const shareCardRef = useRef<ViewShot>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -145,6 +147,29 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
       setSavedPosts([]);
     } finally {
       setLoadingSaved(false);
+    }
+  };
+
+  const handleArchivePost = async (postId: string) => {
+    try {
+      await api.archivePost(postId);
+      setPosts((prev: any[]) => prev.filter((p: any) => p.id !== postId));
+      closePost();
+    } catch (error) {
+      console.error('Error archiving post:', error);
+      Alert.alert('Error', 'Failed to archive post');
+    }
+  };
+
+  const handleDeletePost = async (postId: string) => {
+    try {
+      await api.deletePost(postId);
+      setPosts((prev: any[]) => prev.filter((p: any) => p.id !== postId));
+      setSavedPosts((prev: any[]) => prev.filter((p: any) => p.id !== postId));
+      closePost();
+    } catch (error) {
+      console.error('Error deleting post:', error);
+      Alert.alert('Error', 'Failed to delete post');
     }
   };
 
@@ -630,7 +655,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
 
           {/* Avatar with rank-colored ring */}
           <View style={styles.avatarSection}>
-            <View style={styles.avatarOuter}>
+            <TouchableOpacity style={styles.avatarOuter} activeOpacity={0.8} onPress={() => setAvatarViewerVisible(true)}>
               <View style={[styles.avatarRing, { borderColor: rankInfo.ringColor, backgroundColor: colors.surface }]}>
                 <Avatar
                   size={84}
@@ -641,7 +666,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
                   avatarStyle={activeAvatar?.style}
                 />
               </View>
-            </View>
+            </TouchableOpacity>
           </View>
 
           {/* Bio */}
@@ -801,7 +826,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
         <ProfileMedalsSection userId={user.id} isOwnProfile={isOwnProfile} />
 
         {/* Story of Me Section */}
-        <StoryOfMeSection userId={user.id} isOwnProfile={isOwnProfile} />
+        <StoryOfMeSection userId={user.id} isOwnProfile={isOwnProfile} rankGradient={rankInfo.gradient} rankColor={rankInfo.color} />
 
         {/* Grid/Tabs Header */}
         <View style={[styles.tabsContainer, { backgroundColor: colors.background, borderBottomColor: colors.borderLight }]}>
@@ -827,9 +852,9 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
             <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
               <ActivityIndicator size="small" color={colors.text.tertiary} />
             </View>
-          ) : posts.length > 0 ? (
+          ) : posts.filter((p: any) => !p.isArchived).length > 0 ? (
             <View style={[styles.gridContainer, { backgroundColor: colors.background }]}>
-              {posts.map((item, index) => (
+              {posts.filter((p: any) => !p.isArchived).map((item, index) => (
                 <View key={item.id}>
                   {renderGridItem({ item, index })}
                 </View>
@@ -846,7 +871,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
               </Text>
             </View>
           )
-        ) : (
+        ) : activeTab === 'saved' ? (
           /* Saved Posts Tab */
           loadingSaved ? (
             <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
@@ -871,7 +896,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
               </Text>
             </View>
           )
-        )}
+        ) : null}
 
       </ScrollView>
 
@@ -891,7 +916,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
       {/* Post Viewer Modal - Uses shared component for all post interactions */}
       <PostViewerModal
         visible={!!selectedPost}
-        posts={posts.map(post => ({
+        posts={(activeTab === 'saved' ? savedPosts : posts.filter((p: any) => !p.isArchived)).map(post => ({
           ...post,
           user: {
             id: user.id,
@@ -911,6 +936,9 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
           closePost();
           navigation.navigate('UserProfile', { userId, username });
         }}
+        isOwnProfile={isOwnProfile}
+        onArchivePost={handleArchivePost}
+        onDeletePost={handleDeletePost}
       />
 
       {/* Edit Profile Modal */}
@@ -1134,6 +1162,20 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
               <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
             </TouchableOpacity>
 
+            <TouchableOpacity
+              style={styles.settingsItem}
+              onPress={() => {
+                setSettingsMenuVisible(false);
+                navigation.navigate('ArchivedPosts');
+              }}
+            >
+              <View style={styles.settingsItemIcon}>
+                <Ionicons name="archive-outline" size={22} color="#262626" />
+              </View>
+              <Text style={styles.settingsItemText}>Archived Posts</Text>
+              <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
+            </TouchableOpacity>
+
             {followRequestCount > 0 && (
               <TouchableOpacity
                 style={styles.settingsItem}
@@ -1326,6 +1368,51 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
               </TouchableOpacity>
             </View>
           </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Avatar Full View Modal */}
+      <Modal
+        visible={avatarViewerVisible}
+        animationType="fade"
+        transparent={true}
+        statusBarTranslucent={true}
+        onRequestClose={() => setAvatarViewerVisible(false)}
+      >
+        <View style={styles.avatarViewerOverlay}>
+          <TouchableOpacity
+            style={styles.avatarViewerClose}
+            onPress={() => setAvatarViewerVisible(false)}
+          >
+            <Ionicons name="close" size={28} color="#FFF" />
+          </TouchableOpacity>
+          <View style={styles.avatarViewerContent}>
+            <View style={[styles.avatarViewerRing, { borderColor: rankInfo.ringColor }]}>
+              {activeAvatar ? (
+                <View style={styles.avatarViewerInner}>
+                  <Avatar
+                    size={width * 0.7}
+                    customizations={activeAvatar.customizations}
+                    avatarStyle={activeAvatar.style}
+                    showBorder={false}
+                  />
+                </View>
+              ) : user?.avatarUrl ? (
+                <Image
+                  source={{ uri: getImageUrl(user.avatarUrl)! }}
+                  style={styles.avatarViewerImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={[styles.avatarViewerInner, { backgroundColor: '#374151' }]}>
+                  <Text style={styles.avatarViewerInitial}>
+                    {user?.username?.charAt(0).toUpperCase() || '?'}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.avatarViewerUsername}>@{user?.username}</Text>
+          </View>
         </View>
       </Modal>
     </View>
@@ -2352,6 +2439,59 @@ const styles = StyleSheet.create({
     borderRadius: 11,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+
+  // Avatar Viewer Modal
+  avatarViewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarViewerClose: {
+    position: 'absolute',
+    top: 54,
+    right: 20,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarViewerContent: {
+    alignItems: 'center',
+    gap: 20,
+  },
+  avatarViewerRing: {
+    borderWidth: 3,
+    borderRadius: width * 0.4,
+    padding: 4,
+    backgroundColor: 'transparent',
+  },
+  avatarViewerImage: {
+    width: width * 0.7,
+    height: width * 0.7,
+    borderRadius: width * 0.35,
+  },
+  avatarViewerInner: {
+    width: width * 0.7,
+    height: width * 0.7,
+    borderRadius: width * 0.35,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarViewerInitial: {
+    fontSize: width * 0.3,
+    fontWeight: '700',
+    color: '#9CA3AF',
+  },
+  avatarViewerUsername: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#FFF',
   },
 
 });

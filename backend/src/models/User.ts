@@ -19,6 +19,12 @@ export interface UserAttributes {
   fcmToken: string | null;
   chatNotificationsEnabled: boolean;
   isPrivate: boolean;
+  isBot: boolean;
+  role: 'user' | 'admin' | 'super_admin';
+  status: 'active' | 'suspended' | 'banned';
+  suspendedUntil: Date | null;
+  banReason: string | null;
+  suspendReason: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -26,7 +32,7 @@ export interface UserAttributes {
 /**
  * Optional attributes for user creation
  */
-interface UserCreationAttributes extends Optional<UserAttributes, 'id' | 'ageVerified' | 'avatarUrl' | 'activeAvatarId' | 'positivityGiveCounter' | 'positivityRank' | 'fcmToken' | 'chatNotificationsEnabled' | 'isPrivate' | 'createdAt' | 'updatedAt' | 'passwordHash' | 'googleId' | 'authProvider'> {}
+interface UserCreationAttributes extends Optional<UserAttributes, 'id' | 'ageVerified' | 'avatarUrl' | 'activeAvatarId' | 'positivityGiveCounter' | 'positivityRank' | 'fcmToken' | 'chatNotificationsEnabled' | 'isPrivate' | 'isBot' | 'role' | 'status' | 'suspendedUntil' | 'banReason' | 'suspendReason' | 'createdAt' | 'updatedAt' | 'passwordHash' | 'googleId' | 'authProvider'> {}
 
 /**
  * User model representing registered users in the platform
@@ -46,13 +52,22 @@ export class User extends Model<UserAttributes, UserCreationAttributes> implemen
   public fcmToken!: string | null;
   public chatNotificationsEnabled!: boolean;
   public isPrivate!: boolean;
+  public isBot!: boolean;
+  public role!: 'user' | 'admin' | 'super_admin';
+  public status!: 'active' | 'suspended' | 'banned';
+  public suspendedUntil!: Date | null;
+  public banReason!: string | null;
+  public suspendReason!: string | null;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 
-  // Override toJSON to exclude passwordHash
+  // Override toJSON to exclude sensitive fields
   toJSON(): any {
     const values: any = Object.assign({}, this.get());
     delete values.passwordHash;
+    delete values.banReason;
+    delete values.suspendReason;
+    delete values.suspendedUntil;
     return values;
   }
 }
@@ -169,6 +184,54 @@ User.init(
       defaultValue: false,
       allowNull: false,
       comment: 'Whether the user account is private (requires follow approval)'
+    },
+    isBot: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+      comment: 'Whether this is a bot account'
+    },
+    role: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+      defaultValue: 'user',
+      validate: {
+        isIn: {
+          args: [['user', 'admin', 'super_admin']],
+          msg: 'Invalid role'
+        }
+      },
+      comment: 'User role: user, admin, or super_admin'
+    },
+    status: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+      defaultValue: 'active',
+      validate: {
+        isIn: {
+          args: [['active', 'suspended', 'banned']],
+          msg: 'Invalid status'
+        }
+      },
+      comment: 'Account status: active, suspended, or banned'
+    },
+    suspendedUntil: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+      comment: 'When the suspension expires'
+    },
+    banReason: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+      comment: 'Reason for permanent ban'
+    },
+    suspendReason: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+      comment: 'Reason for temporary suspension'
     },
     createdAt: {
       type: DataTypes.DATE,

@@ -406,13 +406,6 @@ const decorationItems = [
       shadowColor: '#EC4899',
       shadowOpacity: 0.3,
       shadowRadius: 10,
-      cornerDecorations: {
-        iconFamily: 'MaterialCommunityIcons',
-        iconName: 'flower',
-        size: 18,
-        color: '#EC4899',
-        opacity: 0.75,
-      },
     }),
     isActive: true,
   },
@@ -519,13 +512,6 @@ const decorationItems = [
       shadowColor: '#22C55E',
       shadowOpacity: 0.3,
       shadowRadius: 10,
-      cornerDecorations: {
-        iconFamily: 'MaterialCommunityIcons',
-        iconName: 'leaf',
-        size: 18,
-        color: '#22C55E',
-        opacity: 0.75,
-      },
     }),
     isActive: true,
   },
@@ -632,13 +618,6 @@ const decorationItems = [
       shadowColor: '#7C3AED',
       shadowOpacity: 0.35,
       shadowRadius: 12,
-      cornerDecorations: {
-        iconFamily: 'MaterialCommunityIcons',
-        iconName: 'star-four-points',
-        size: 16,
-        color: '#A78BFA',
-        opacity: 0.8,
-      },
     }),
     isActive: true,
   },
@@ -745,13 +724,6 @@ const decorationItems = [
       shadowColor: '#D97706',
       shadowOpacity: 0.3,
       shadowRadius: 10,
-      cornerDecorations: {
-        iconFamily: 'MaterialCommunityIcons',
-        iconName: 'leaf-maple',
-        size: 18,
-        color: '#D97706',
-        opacity: 0.75,
-      },
     }),
     isActive: true,
   },
@@ -858,13 +830,6 @@ const decorationItems = [
       shadowColor: '#14B8A6',
       shadowOpacity: 0.3,
       shadowRadius: 10,
-      cornerDecorations: {
-        iconFamily: 'MaterialCommunityIcons',
-        iconName: 'flower-tulip',
-        size: 18,
-        color: '#14B8A6',
-        opacity: 0.75,
-      },
     }),
     isActive: true,
   },
@@ -1034,6 +999,23 @@ export async function seedDecorations(): Promise<void> {
       logger.info(`Added ${addedCount} new decoration store items`);
     } else {
       logger.info(`${existingCount} decorations already exist, no new items to add`);
+    }
+
+    // Strip cornerDecorations from all frames (corners now handled by per-corner icon system)
+    const frames = await PostDecoration.findAll({ where: { category: 'frame' } });
+    let strippedCount = 0;
+    for (const frame of frames) {
+      try {
+        const style = JSON.parse(frame.styleData);
+        if (style.cornerDecorations) {
+          delete style.cornerDecorations;
+          await frame.update({ styleData: JSON.stringify(style) });
+          strippedCount++;
+        }
+      } catch { /* skip unparseable */ }
+    }
+    if (strippedCount > 0) {
+      logger.info(`Stripped cornerDecorations from ${strippedCount} frame(s)`);
     }
   } catch (error) {
     logger.error('Failed to seed decorations', { error });

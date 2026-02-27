@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { CoinsService } from '../services/CoinsService';
+import { MissionsService } from '../services/MissionsService';
 import { AuthRequest } from '../middleware/auth';
 import { CoinGivingActivity } from '../models/CoinGivingActivity';
 import { User } from '../models/User';
@@ -331,6 +332,43 @@ export class CoinsController {
     } catch (error) {
       logger.error('Error getting user coins', { error, userId: req.params.userId });
       res.status(500).json({ error: 'Failed to get user coins' });
+    }
+  }
+
+  /**
+   * Get onboarding missions status
+   * @route GET /api/coins/missions
+   * @access Private
+   */
+  static async getMissions(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.id;
+      const missions = await MissionsService.getMissions(userId);
+      res.json({ missions });
+    } catch (error) {
+      logger.error('Error getting missions', { error, userId: req.user?.id });
+      res.status(500).json({ error: 'Failed to get missions' });
+    }
+  }
+
+  /**
+   * Claim a mission reward
+   * @route POST /api/coins/missions/:missionId/claim
+   * @access Private
+   */
+  static async claimMissionReward(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.id;
+      const { missionId } = req.params;
+      const result = await MissionsService.claimMissionReward(userId, missionId);
+      res.json(result);
+    } catch (error) {
+      logger.error('Error claiming mission reward', { error, userId: req.user?.id });
+      if (error instanceof Error) {
+        res.status(400).json({ error: error.message });
+      } else {
+        res.status(500).json({ error: 'Failed to claim mission reward' });
+      }
     }
   }
 }

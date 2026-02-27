@@ -50,3 +50,15 @@ export { UserActiveDecoration } from './UserActiveDecoration';
 
 // Story of Me Models
 export { StoryOfMe } from './StoryOfMe';
+
+// Friendship Meetup Models
+export { FriendshipSession } from './FriendshipSession';
+export { FriendshipMeetup } from './FriendshipMeetup';
+export { FriendshipPhoto } from './FriendshipPhoto';
+
+// Corner Icon Models
+export { CornerIconPurchase } from './CornerIconPurchase';
+export { CornerIconPlacement } from './CornerIconPlacement';
+
+// Admin Models
+export { AuditLog } from './AuditLog';

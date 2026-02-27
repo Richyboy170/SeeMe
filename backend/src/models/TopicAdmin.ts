@@ -5,7 +5,7 @@ export interface TopicAdminAttributes {
     id: string;
     topicId: string;
     userId: string;
-    role: 'creator' | 'admin';
+    role: 'creator' | 'admin' | 'broadcaster';
     createdAt: Date;
     updatedAt: Date;
 }

@@ -10,10 +10,12 @@ import {
   StatusBar,
   Pressable,
   Animated,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import GiveCoinsModal from './coins/GiveCoinsModal';
 import SharePostModal from './SharePostModal';
+import SharePostExternalModal from './SharePostExternalModal';
 import PostActionsBar from './PostActionsBar';
 import Avatar from './Avatar';
 import { AvatarCustomizations } from './AvatarRenderer';
@@ -21,7 +23,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { getImageUrl, api } from '../services/api';
 import { formatTimeAgo, getPostImageUrl } from '../utils/postHelpers';
 import { useTheme } from '../theme';
-import { ResolvedDecoration, DecorationStyleBackground, DecorationStyleFrame, DecorationStyleIconColors, CornerDecorationConfig } from '../types/decorations';
+import { ResolvedDecoration, DecorationStyleBackground, DecorationStyleFrame, DecorationStyleIconColors, CornerDecorationConfig, CornerIconPlacement } from '../types/decorations';
 import CornerDecorations from './CornerDecorations';
 
 const TABLET_BREAKPOINT = 600;
@@ -68,6 +70,14 @@ interface PostCardProps {
     photoTakenAt?: string | null;
     // Decoration data
     decoration?: ResolvedDecoration | null;
+    // Topic data
+    topics?: Array<{
+      id: string;
+      name: string;
+      slug: string;
+      iconEmoji?: string;
+      type?: 'community' | 'private' | 'broadcast';
+    }>;
     // Repost-specific fields
     isRepost?: boolean;
     repostedBy?: RepostedByUser;
@@ -80,8 +90,11 @@ interface PostCardProps {
   onUserPress?: (userId: string) => void;
   onSave?: (postId: string) => void;
   onShare?: (postId: string) => void;
+  onArchive?: (postId: string) => void;
+  onDelete?: (postId: string) => void;
   showShareButton?: boolean;
   showSaveButton?: boolean;
+  currentUserId?: string;
 }
 
 export default function PostCard({
@@ -91,8 +104,11 @@ export default function PostCard({
   onUserPress,
   onSave,
   onShare,
+  onArchive,
+  onDelete,
   showShareButton = true,
   showSaveButton = true,
+  currentUserId,
 }: PostCardProps) {
   const { width } = useWindowDimensions();
   const isTablet = width >= TABLET_BREAKPOINT;
@@ -103,6 +119,7 @@ export default function PostCard({
   const [saved, setSaved] = useState(post.savedByMe || false);
   const [giveModalVisible, setGiveModalVisible] = useState(false);
   const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [externalShareVisible, setExternalShareVisible] = useState(false);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [showHeartOverlay, setShowHeartOverlay] = useState(false);
   const [repostExpanded, setRepostExpanded] = useState(false);
@@ -182,6 +199,37 @@ export default function PostCard({
     });
   };
 
+  const isOwnPost = currentUserId && post.user.id === currentUserId;
+
+  const handlePostOptions = () => {
+    const options: { text: string; style?: 'destructive' | 'cancel'; onPress?: () => void }[] = [];
+
+    options.push({
+      text: 'Archive Post',
+      onPress: () => {
+        Alert.alert('Archive Post', 'This post will be hidden from your profile but not deleted.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Archive', onPress: () => onArchive?.(post.id) },
+        ]);
+      },
+    });
+
+    options.push({
+      text: 'Delete Post',
+      style: 'destructive',
+      onPress: () => {
+        Alert.alert('Delete Post', 'This post will be permanently deleted. This cannot be undone.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: () => onDelete?.(post.id) },
+        ]);
+      },
+    });
+
+    options.push({ text: 'Cancel', style: 'cancel' });
+
+    Alert.alert('Post Options', undefined, options);
+  };
+
   const handleDoubleTap = () => {
     const now = Date.now();
     const DOUBLE_TAP_DELAY = 300;
@@ -217,6 +265,7 @@ export default function PostCard({
   const frameCornerConfig: CornerDecorationConfig | null = frameDecoration?.cornerDecorations || null;
   const bgCornerConfig: CornerDecorationConfig | null = bgDecoration?.cornerDecorations || null;
   const iconDecoration: DecorationStyleIconColors | null = (decoration?.iconColors as DecorationStyleIconColors | null) || null;
+  const perCornerIcons: CornerIconPlacement[] | null = (decoration?.cornerIcons as CornerIconPlacement[] | null) || null;
 
   // Text colors: use decoration override or default theme colors
   const decorTextColor = bgDecoration?.textColor || colors.text.primary;
@@ -384,11 +433,19 @@ export default function PostCard({
 
   const renderActions = () => (
     <View style={[styles.actions, isTablet && styles.tabletActions]}>
-      <View style={styles.leftActions}>
+      {/* Group 1: Comment, Heart, Gift */}
+      <View style={styles.actionGroup}>
+        <TouchableOpacity onPress={handleComment} style={styles.actionButton}>
+          <Ionicons name="chatbubble-outline" size={isTablet ? 22 : 24} color={commentIconColor} />
+          {post.commentsCount > 0 && (
+            <Text style={[styles.actionCount, { color: decorTextColor }]}>{post.commentsCount}</Text>
+          )}
+        </TouchableOpacity>
+
         <TouchableOpacity onPress={handleLike} style={styles.actionButton}>
           <Ionicons
             name={liked ? 'heart' : 'heart-outline'}
-            size={isTablet ? 24 : 28}
+            size={isTablet ? 22 : 24}
             color={likeIconColor(liked)}
           />
           {likesCount > 0 && (
@@ -396,18 +453,24 @@ export default function PostCard({
           )}
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={handleComment} style={styles.actionButton}>
-          <Ionicons name="chatbubble-outline" size={isTablet ? 22 : 26} color={commentIconColor} />
-          {post.commentsCount > 0 && (
-            <Text style={[styles.actionCount, { color: decorTextColor }]}>{post.commentsCount}</Text>
-          )}
+        <TouchableOpacity
+          onPress={() => setGiveModalVisible(true)}
+          style={styles.actionButton}
+        >
+          <Ionicons name="gift" size={isTablet ? 22 : 24} color={giftIconColor} />
         </TouchableOpacity>
+      </View>
 
+      {/* Divider */}
+      <View style={[styles.actionDivider, { backgroundColor: colors.separator || '#E5E7EB' }]} />
+
+      {/* Group 2: Repost, Share */}
+      <View style={styles.actionGroup}>
         {showShareButton && (
           <TouchableOpacity onPress={handleShare} style={styles.actionButton}>
             <Ionicons
               name={post.repostedByMe ? 'repeat' : 'repeat-outline'}
-              size={isTablet ? 22 : 26}
+              size={isTablet ? 22 : 24}
               color={post.repostedByMe ? '#10B981' : shareIconColor}
             />
             {(post.repostCount || 0) > 0 && (
@@ -419,22 +482,16 @@ export default function PostCard({
         )}
 
         <TouchableOpacity
-          onPress={() => setGiveModalVisible(true)}
+          onPress={() => setExternalShareVisible(true)}
           style={styles.actionButton}
         >
-          <Ionicons name="gift" size={isTablet ? 22 : 26} color={giftIconColor} />
-        </TouchableOpacity>
-      </View>
-
-      {showSaveButton && (
-        <TouchableOpacity onPress={handleSave} style={styles.saveButton}>
           <Ionicons
-            name={saved ? 'bookmark' : 'bookmark-outline'}
-            size={isTablet ? 24 : 26}
-            color={saved ? saveIconColor : saveIconColor}
+            name="share-outline"
+            size={isTablet ? 22 : 24}
+            color={shareIconColor}
           />
         </TouchableOpacity>
-      )}
+      </View>
     </View>
   );
 
@@ -559,6 +616,12 @@ export default function PostCard({
           onSuccess={() => setShareModalVisible(false)}
         />
 
+        <SharePostExternalModal
+          visible={externalShareVisible}
+          onClose={() => setExternalShareVisible(false)}
+          post={post}
+        />
+
         {renderImageViewer()}
       </View>
     );
@@ -625,6 +688,12 @@ export default function PostCard({
           onSuccess={() => setShareModalVisible(false)}
         />
 
+        <SharePostExternalModal
+          visible={externalShareVisible}
+          onClose={() => setExternalShareVisible(false)}
+          post={post}
+        />
+
         {renderImageViewer()}
       </View>
     );
@@ -683,13 +752,20 @@ export default function PostCard({
           onSuccess={() => setGiveModalVisible(false)}
         />
 
-        {/* Share Post Modal */}
+        {/* Share Post Modal (in-app) */}
         <SharePostModal
           visible={shareModalVisible}
           postId={post.id}
           postImageUrl={imageUri}
           onClose={() => setShareModalVisible(false)}
           onSuccess={() => setShareModalVisible(false)}
+        />
+
+        {/* External Share Modal (Instagram, etc.) */}
+        <SharePostExternalModal
+          visible={externalShareVisible}
+          onClose={() => setExternalShareVisible(false)}
+          post={post}
         />
 
         {renderImageViewer()}
@@ -702,20 +778,41 @@ export default function PostCard({
   const postContent = (
     <>
       {/* Header */}
-      <TouchableOpacity style={styles.header} onPress={handleUserPress}>
-        <Avatar
-          size={40}
-          avatarUrl={!post.user.activeAvatar ? post.user.avatarUrl : undefined}
-          username={post.user.username}
-          style={styles.userAvatar}
-          customizations={post.user.activeAvatar?.customizations}
-          avatarStyle={post.user.activeAvatar?.style}
-        />
-        <View style={styles.userInfo}>
-          <Text style={[styles.username, { color: decorTextColor }]}>@{post.user.username}</Text>
-          <Text style={[styles.timestamp, { color: decorCaptionColor }]}>{formatTimeAgo(post.createdAt)}</Text>
-        </View>
-      </TouchableOpacity>
+      <View style={styles.header}>
+        <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }} onPress={handleUserPress}>
+          <Avatar
+            size={40}
+            avatarUrl={!post.user.activeAvatar ? post.user.avatarUrl : undefined}
+            username={post.user.username}
+            style={styles.userAvatar}
+            customizations={post.user.activeAvatar?.customizations}
+            avatarStyle={post.user.activeAvatar?.style}
+          />
+          <View style={styles.userInfo}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={[styles.username, { color: decorTextColor }]}>@{post.user.username}</Text>
+              {post.topics && post.topics.length > 0 && post.topics[0].type && post.topics[0].type !== 'community' && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: 'rgba(124,58,237,0.1)', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                  <Ionicons
+                    name={post.topics[0].type === 'private' ? 'lock-closed' : 'megaphone'}
+                    size={10}
+                    color={post.topics[0].type === 'private' ? '#EF4444' : '#F59E0B'}
+                  />
+                  <Text style={{ fontSize: 10, color: post.topics[0].type === 'private' ? '#EF4444' : '#F59E0B', fontWeight: '600' }}>
+                    {post.topics[0].name}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Text style={[styles.timestamp, { color: decorCaptionColor }]}>{formatTimeAgo(post.createdAt)}</Text>
+          </View>
+        </TouchableOpacity>
+        {isOwnPost && (onArchive || onDelete) && (
+          <TouchableOpacity onPress={handlePostOptions} style={{ padding: 8 }}>
+            <Ionicons name="ellipsis-horizontal" size={20} color={decorTextColor} />
+          </TouchableOpacity>
+        )}
+      </View>
 
       {/* Caption - Above image */}
       {post.caption && (
@@ -727,7 +824,7 @@ export default function PostCard({
       {/* Image with padding and optional frame */}
       <View style={[styles.imageWrapper, frameStyle]}>
         {renderImage()}
-        {frameCornerConfig && <CornerDecorations config={frameCornerConfig} />}
+        {(frameCornerConfig || perCornerIcons) && <CornerDecorations config={frameCornerConfig || undefined} cornerIcons={perCornerIcons} />}
       </View>
 
       {/* Location & photo time — half-half below image, tap to expand */}
@@ -776,13 +873,20 @@ export default function PostCard({
         onSuccess={() => setGiveModalVisible(false)}
       />
 
-      {/* Share Post Modal */}
+      {/* Share Post Modal (in-app) */}
       <SharePostModal
         visible={shareModalVisible}
         postId={post.id}
         postImageUrl={imageUri}
         onClose={() => setShareModalVisible(false)}
         onSuccess={() => setShareModalVisible(false)}
+      />
+
+      {/* External Share Modal (Instagram, etc.) */}
+      <SharePostExternalModal
+        visible={externalShareVisible}
+        onClose={() => setExternalShareVisible(false)}
+        post={post}
       />
 
       {renderImageViewer()}
@@ -919,14 +1023,24 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 12,
     paddingTop: 8,
     paddingBottom: 8,
+    gap: 12,
   },
-  leftActions: {
+  actionGroup: {
+    flex: 1,
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 16,
+  },
+  actionDivider: {
+    width: 1,
+    height: 22,
+    borderRadius: 1,
   },
   actionButton: {
     flexDirection: 'row',

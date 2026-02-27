@@ -32,6 +32,12 @@ import repostsRoutes from './routes/reposts';
 import trustRoutes from './routes/trust';
 // Decoration Store routes
 import decorationsRoutes from './routes/decorations';
+// Admin routes
+import adminRoutes from './routes/admin';
+// Friendship Meetup routes
+import friendshipMeetupRoutes from './routes/friendshipMeetup';
+// Corner Icon routes
+import cornerIconsRoutes from './routes/cornerIcons';
 
 const app = express();
 
@@ -100,6 +106,15 @@ app.use('/api/trust', trustRoutes);
 
 // Decoration Store routes
 app.use('/api/decorations', decorationsRoutes);
+
+// Admin API routes
+app.use('/api/admin', adminRoutes);
+
+// Friendship Meetup routes
+app.use('/api/friendship-meetup', friendshipMeetupRoutes);
+
+// Corner Icon routes
+app.use('/api/corner-icons', cornerIconsRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response) => {

@@ -26,10 +26,9 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ResolvedDecoration, DecorationStyleBackground, DecorationStyleFrame, DecorationStyleIconColors, CornerDecorationConfig } from '../../types/decorations';
+import { ResolvedDecoration, DecorationStyleBackground, DecorationStyleFrame, DecorationStyleIconColors, CornerDecorationConfig, CornerIconPlacement } from '../../types/decorations';
 import CornerDecorations from '../../components/CornerDecorations';
 import Avatar from '../../components/Avatar';
-import GiveCoinsModal from '../../components/coins/GiveCoinsModal';
 import CoinCelebration from '../../components/coins/CoinCelebration';
 import { CommentPreview } from '../../components/feed/CommentPreview';
 import { RepostOptionsModal } from '../../components/feed/RepostOptionsModal';
@@ -50,7 +49,7 @@ type FeedScreenNavigationProp = StackNavigationProp<FeedStackParamList, 'FeedHom
 
 const TABLET_BREAKPOINT = 600;
 const MAX_CONTENT_WIDTH = 600;
-const SEEN_POSTS_STORAGE_KEY = '@seeme_seen_post_ids';
+const SEEN_POSTS_STORAGE_KEY_PREFIX = '@seeme_seen_post_ids_';
 const SEEN_POSTS_MAX_STORED = 500;
 
 /**
@@ -161,7 +160,7 @@ interface Post {
   repostComment?: string | null;
   repostCreatedAt?: string;
   // Topic data from backend
-  topics?: Array<{ id: string; name: string; slug: string; iconEmoji: string | null }>;
+  topics?: Array<{ id: string; name: string; slug: string; iconEmoji: string | null; iconImageUrl: string | null }>;
 }
 
 // --- Seen-post / "Caught Up" types ---
@@ -223,13 +222,40 @@ function CaughtUpCard({ colors, filtered }: { colors: FeedColors; filtered?: boo
   );
 }
 
+const ENCOURAGING_MESSAGES = [
+  "You're awesome!",
+  "Keep shining!",
+  "You inspire me!",
+  "Stay amazing!",
+  "You made my day!",
+  "Love your energy!",
+  "You're a star!",
+  "Keep being you!",
+  "So proud of you!",
+  "You're incredible!",
+  "Thanks for being you!",
+  "You rock!",
+  "Spreading positivity!",
+  "You're the best!",
+  "Keep up the great work!",
+  "You brighten my day!",
+  "Sending good vibes!",
+  "You're appreciated!",
+  "Stay wonderful!",
+  "You make a difference!",
+  "Keep doing great things!",
+  "You're a legend!",
+  "Much love!",
+  "You're unstoppable!",
+  "Stay blessed!",
+];
+
 // Twitter-style Tweet Card Component
-function TweetCard({
+const TweetCard = React.memo(function TweetCard({
   post,
   onLike,
   onComment,
   onUserPress,
-  onGiveCoins,
   onQuickGiveCoins,
   onImagePress,
   onRepost,
@@ -245,8 +271,7 @@ function TweetCard({
   onLike: (postId: string) => void;
   onComment: (postId: string) => void;
   onUserPress: (userId: string) => void;
-  onGiveCoins: (post: Post) => void;
-  onQuickGiveCoins: (post: Post, amount: number) => Promise<string | null>;
+  onQuickGiveCoins: (post: Post, amount: number, message?: string) => Promise<string | null>;
   onImagePress: (post: Post) => void;
   onRepost: (post: Post) => void;
   onShare: (post: Post) => void;
@@ -281,6 +306,8 @@ function TweetCard({
   const bgCornerConfig: CornerDecorationConfig | null = bgDecoration?.cornerDecorations ?? null;
   const iconDecoration: DecorationStyleIconColors | null =
     (decoration?.iconColors as DecorationStyleIconColors | null) ?? null;
+  const perCornerIcons: CornerIconPlacement[] | null =
+    (decoration?.cornerIcons as CornerIconPlacement[] | null) ?? null;
 
   // Feed uses muted backgrounds, so text stays with theme defaults for readability
   const dTextColor = colors.text;
@@ -320,10 +347,31 @@ function TweetCard({
   const [sentCoinAmount, setSentCoinAmount] = React.useState(0);
   const [showCelebration, setShowCelebration] = React.useState(false);
   const [isLongPress, setIsLongPress] = React.useState(false);
+  const [openedByTap, setOpenedByTap] = React.useState(false);
   const longPressTimeout = React.useRef<NodeJS.Timeout | null>(null);
   const startTouchY = React.useRef(0);
   const startTouchX = React.useRef(0);
   const touchMoved = React.useRef(false);
+  // Refs for PanResponder (avoid stale closures — PanResponder is created once)
+  const showCoinPickerRef = React.useRef(false);
+  const isLongPressRef = React.useRef(false);
+  const touchMovedRef = React.useRef(false);
+  const onCoinPickerChangeRef = React.useRef(onCoinPickerChange);
+  onCoinPickerChangeRef.current = onCoinPickerChange;
+  const openMessageOverlayRef = React.useRef<(amount: number) => void>(() => {});
+
+  // Message overlay state
+  const [showMessageOverlay, setShowMessageOverlay] = React.useState(false);
+  const [pendingCoinAmount, setPendingCoinAmount] = React.useState(0);
+  const [coinMessage, setCoinMessage] = React.useState('');
+  const [isSendingCoins, setIsSendingCoins] = React.useState(false);
+
+  // Envelope animation refs
+  const envelopeScale = React.useRef(new Animated.Value(0)).current;
+  const envelopeTranslateY = React.useRef(new Animated.Value(100)).current;
+  const overlayOpacity = React.useRef(new Animated.Value(0)).current;
+  const messageInputOpacity = React.useRef(new Animated.Value(0)).current;
+  const flapRotate = React.useRef(new Animated.Value(0)).current;
 
   // Check if this is user's own post
   const isOwnPost = post.user.id === currentUserId || (post.isRepost && post.repostedBy?.id === currentUserId);
@@ -426,103 +474,162 @@ function TweetCard({
   const coinAmounts = [1, 5, 10, 25, 50, 100];
   const LONG_PRESS_DELAY = 250; // ms to trigger long press
 
-  // Handle touch start on gift icon - start long press timer
-  const handleGiftTouchStart = (event: any) => {
-    const { pageY, pageX } = event.nativeEvent;
-    startTouchY.current = pageY;
-    startTouchX.current = pageX;
-    touchMoved.current = false;
-    setIsLongPress(false);
+  // Ref to store latest hoveredCoinIndex for use in PanResponder release handler
+  const hoveredCoinIndexRef = React.useRef(-1);
+  React.useEffect(() => { hoveredCoinIndexRef.current = hoveredCoinIndex; }, [hoveredCoinIndex]);
 
-    // Start long press timer
-    if (longPressTimeout.current) clearTimeout(longPressTimeout.current);
-    longPressTimeout.current = setTimeout(() => {
-      setIsLongPress(true);
-      setShowCoinPicker(true);
-      onCoinPickerChange?.(true);
-      // Start with middle option pre-selected for easier access
-      setHoveredCoinIndex(2); // 10 coins
-    }, LONG_PRESS_DELAY);
+  // Show message overlay with envelope animation — everything runs in parallel for speed
+  const playEnvelopeAnimation = () => {
+    envelopeScale.setValue(0.5);
+    envelopeTranslateY.setValue(40);
+    overlayOpacity.setValue(0);
+    messageInputOpacity.setValue(0);
+    flapRotate.setValue(0);
+
+    Animated.parallel([
+      Animated.timing(overlayOpacity, { toValue: 1, duration: 150, useNativeDriver: true }),
+      Animated.spring(envelopeScale, { toValue: 1, friction: 7, tension: 120, useNativeDriver: true }),
+      Animated.spring(envelopeTranslateY, { toValue: 0, friction: 7, tension: 120, useNativeDriver: true }),
+      Animated.timing(flapRotate, { toValue: 1, duration: 250, useNativeDriver: true }),
+      Animated.sequence([
+        Animated.delay(120),
+        Animated.timing(messageInputOpacity, { toValue: 1, duration: 150, useNativeDriver: true }),
+      ]),
+    ]).start();
   };
 
-  // Handle touch move - track which coin option is being hovered
-  const handleGiftTouchMove = (event: any) => {
-    const { pageX, pageY } = event.nativeEvent;
-
-    // Check if finger moved significantly (cancel tap intent)
-    const deltaX = Math.abs(pageX - startTouchX.current);
-    const deltaY = Math.abs(pageY - startTouchY.current);
-    if (deltaX > 5 || deltaY > 5) {
-      touchMoved.current = true;
-    }
-
-    if (!showCoinPicker) return;
-
-    // Calculate which coin option based on horizontal drag from start position
-    // Super smooth: very low threshold for option changes
-    const deltaFromStart = pageX - startTouchX.current;
-
-    // High sensitivity: only ~20px per option change for smooth feel
-    const sensitivity = 20;
-    // Start from middle (index 2), move left/right based on drag
-    const baseIndex = 2;
-    const indexOffset = Math.round(deltaFromStart / sensitivity);
-    const index = Math.max(0, Math.min(coinAmounts.length - 1, baseIndex + indexOffset));
-
-    setHoveredCoinIndex(index);
+  const playDismissAnimation = (onComplete: () => void) => {
+    Animated.parallel([
+      Animated.timing(overlayOpacity, { toValue: 0, duration: 120, useNativeDriver: true }),
+      Animated.timing(envelopeScale, { toValue: 0.85, duration: 120, useNativeDriver: true }),
+      Animated.timing(envelopeTranslateY, { toValue: 30, duration: 120, useNativeDriver: true }),
+    ]).start(onComplete);
   };
 
-  // Handle touch end - either open modal (tap) or send coins (long press + select)
-  const handleGiftTouchEnd = async () => {
-    // Clear long press timer
-    if (longPressTimeout.current) {
-      clearTimeout(longPressTimeout.current);
-      longPressTimeout.current = null;
+  const handleSendWithMessage = async (message?: string) => {
+    setIsSendingCoins(true);
+    const amount = pendingCoinAmount;
+    setSentCoinAmount(amount);
+    const success = await onQuickGiveCoins(post, amount, message?.trim() || undefined);
+    setIsSendingCoins(false);
+    if (success) {
+      setShowMessageOverlay(false);
+      setCoinMessage('');
+      setPendingCoinAmount(0);
+      setShowCelebration(true);
     }
-
-    // If it was a quick tap (not long press and didn't move much), open the modal
-    if (!isLongPress && !touchMoved.current) {
-      onGiveCoins(post);
-      setIsLongPress(false);
-      return;
-    }
-
-    // If long press was active, handle coin picker
-    if (showCoinPicker) {
-      setShowCoinPicker(false);
-      onCoinPickerChange?.(false);
-
-      if (hoveredCoinIndex >= 0 && hoveredCoinIndex < coinAmounts.length) {
-        const amount = coinAmounts[hoveredCoinIndex];
-        setSentCoinAmount(amount);
-
-        // Send coins immediately
-        const success = await onQuickGiveCoins(post, amount);
-        if (success) {
-          // Show celebration animation (handled by CoinCelebration component)
-          setShowCelebration(true);
-        }
-      }
-
-      setHoveredCoinIndex(-1);
-    }
-
-    setIsLongPress(false);
   };
 
-  // Handle touch cancel (e.g., scroll interrupt)
-  const handleGiftTouchCancel = () => {
-    if (longPressTimeout.current) {
-      clearTimeout(longPressTimeout.current);
-      longPressTimeout.current = null;
-    }
-    if (showCoinPicker) {
-      onCoinPickerChange?.(false);
-    }
+  const openMessageOverlay = (amount: number) => {
+    setPendingCoinAmount(amount);
+    setCoinMessage('');
+    setShowMessageOverlay(true);
+    setTimeout(playEnvelopeAnimation, 16);
+  };
+  openMessageOverlayRef.current = openMessageOverlay;
+
+  const handleSelectCoinAmount = (amount: number) => {
     setShowCoinPicker(false);
+    showCoinPickerRef.current = false;
+    onCoinPickerChange?.(false);
+    setOpenedByTap(false);
     setHoveredCoinIndex(-1);
-    setIsLongPress(false);
+    openMessageOverlay(amount);
   };
+
+  // PanResponder for gift button — claims gesture globally once picker is open
+  const giftPanResponder = React.useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      // Once picker is open, aggressively claim the gesture so finger can roam anywhere
+      onMoveShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponderCapture: () => showCoinPickerRef.current,
+      onPanResponderGrant: (event) => {
+        const { pageX, pageY } = event.nativeEvent;
+        startTouchX.current = pageX;
+        startTouchY.current = pageY;
+        touchMoved.current = false;
+        touchMovedRef.current = false;
+        isLongPressRef.current = false;
+
+        if (longPressTimeout.current) clearTimeout(longPressTimeout.current);
+        longPressTimeout.current = setTimeout(() => {
+          isLongPressRef.current = true;
+          showCoinPickerRef.current = true;
+          setIsLongPress(true);
+          setShowCoinPicker(true);
+          onCoinPickerChangeRef.current?.(true);
+          setHoveredCoinIndex(2);
+        }, LONG_PRESS_DELAY);
+      },
+      onPanResponderMove: (event, gestureState) => {
+        const { pageX } = event.nativeEvent;
+
+        if (Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5) {
+          touchMoved.current = true;
+          touchMovedRef.current = true;
+        }
+
+        if (!showCoinPickerRef.current) return;
+
+        const deltaFromStart = pageX - startTouchX.current;
+        const sensitivity = 20;
+        const baseIndex = 2;
+        const indexOffset = Math.round(deltaFromStart / sensitivity);
+        const index = Math.max(-1, Math.min(coinAmounts.length - 1, baseIndex + indexOffset));
+        setHoveredCoinIndex(index);
+      },
+      onPanResponderRelease: () => {
+        if (longPressTimeout.current) {
+          clearTimeout(longPressTimeout.current);
+          longPressTimeout.current = null;
+        }
+
+        if (!isLongPressRef.current && !touchMovedRef.current) {
+          setOpenedByTap(true);
+          setShowCoinPicker(true);
+          showCoinPickerRef.current = true;
+          onCoinPickerChangeRef.current?.(true);
+          setHoveredCoinIndex(-1);
+          setIsLongPress(false);
+          return;
+        }
+
+        if (showCoinPickerRef.current) {
+          setShowCoinPicker(false);
+          showCoinPickerRef.current = false;
+          onCoinPickerChangeRef.current?.(false);
+
+          const idx = hoveredCoinIndexRef.current;
+          if (idx >= 0 && idx < coinAmounts.length) {
+            const amount = coinAmounts[idx];
+            setTimeout(() => openMessageOverlayRef.current(amount), 0);
+          }
+
+          setHoveredCoinIndex(-1);
+        }
+
+        setIsLongPress(false);
+        isLongPressRef.current = false;
+        setOpenedByTap(false);
+      },
+      onPanResponderTerminate: () => {
+        if (longPressTimeout.current) {
+          clearTimeout(longPressTimeout.current);
+          longPressTimeout.current = null;
+        }
+        if (showCoinPickerRef.current) {
+          onCoinPickerChangeRef.current?.(false);
+        }
+        showCoinPickerRef.current = false;
+        setShowCoinPicker(false);
+        setHoveredCoinIndex(-1);
+        setIsLongPress(false);
+        isLongPressRef.current = false;
+        setOpenedByTap(false);
+      },
+    })
+  ).current;
 
   // Cleanup timeouts
   React.useEffect(() => {
@@ -535,6 +642,248 @@ function TweetCard({
   // On large screens, account for sidebar; cap image at reasonable max
   const feedWidth = width >= TABLET_BREAKPOINT ? width - SIDEBAR_WIDTH : width;
   const imageWidth = Math.min(feedWidth - 82, 700);
+
+  const recipientUsername = post.isRepost && post.repostedBy ? post.repostedBy.username : post.user.username;
+
+  // Shared coin picker JSX
+  // Absolute-positioned picker for long-press drag mode (renders inside giftButtonContainer)
+  const renderCoinPicker = () => {
+    if (!showCoinPicker || openedByTap) return null;
+    const isCancelHovered = hoveredCoinIndex === -1;
+    return (
+      <View style={[styles.coinPickerOverlay, { backgroundColor: colors.cardBackground }]}>
+        <View style={styles.coinPickerRow}>
+          <Pressable
+            style={[
+              styles.coinPickerCancelZone,
+              isCancelHovered && styles.coinPickerCancelZoneActive,
+            ]}
+          >
+            <Ionicons name="close-circle" size={isCancelHovered ? 22 : 16} color={isCancelHovered ? '#FFF' : '#EF4444'} />
+            <Text style={[
+              styles.coinPickerCancelText,
+              isCancelHovered && styles.coinPickerCancelTextActive,
+            ]}>
+              {isCancelHovered ? 'Release' : 'Cancel'}
+            </Text>
+          </Pressable>
+          {coinAmounts.map((amount, index) => {
+            const isHovered = hoveredCoinIndex === index;
+            return (
+              <View
+                key={amount}
+                style={[
+                  styles.coinPickerOption,
+                  isHovered && styles.coinPickerOptionHovered,
+                ]}
+              >
+                <View style={[
+                  styles.artCoin,
+                  isHovered && styles.artCoinHovered,
+                ]}>
+                  <View style={[
+                    styles.artCoinInner,
+                    isHovered && styles.artCoinInnerHovered,
+                  ]}>
+                    <View style={styles.kindnessSymbol}>
+                      <Ionicons name="leaf" size={isHovered ? 6 : 4} color="rgba(255,255,255,0.8)" style={styles.pickerLeafLeft} />
+                      <Ionicons name="heart" size={isHovered ? 10 : 7} color="#FFF" />
+                      <Ionicons name="leaf" size={isHovered ? 6 : 4} color="rgba(255,255,255,0.8)" style={styles.pickerLeafRight} />
+                    </View>
+                  </View>
+                </View>
+                <Text style={[
+                  styles.coinPickerAmount,
+                  { color: isHovered ? '#FBBF24' : colors.textSecondary },
+                ]}>
+                  {amount}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+        <Text style={styles.coinPickerHint}>
+          {'← cancel | drag to select →'}
+        </Text>
+        <View style={styles.coinPickerArrow} />
+      </View>
+    );
+  };
+
+  // Inline card for tap mode (renders below the action bar, always fully visible)
+  const renderTapCoinCard = () => {
+    if (!showCoinPicker || !openedByTap) return null;
+    return (
+      <View style={[styles.tapCoinCard, { backgroundColor: colors.cardBackground, borderColor: 'rgba(251, 191, 36, 0.3)' }]}>
+        <View style={styles.tapCoinHeader}>
+          <Ionicons name="gift" size={16} color="#FBBF24" />
+          <Text style={[styles.tapCoinTitle, { color: colors.text }]}>Send Kindness Coins</Text>
+          <Pressable
+            onPress={() => {
+              setShowCoinPicker(false);
+              onCoinPickerChange?.(false);
+              setOpenedByTap(false);
+              setHoveredCoinIndex(-1);
+            }}
+            hitSlop={8}
+          >
+            <Ionicons name="close" size={18} color={colors.textSecondary} />
+          </Pressable>
+        </View>
+        <View style={styles.tapCoinRow}>
+          {coinAmounts.map((amount) => (
+            <Pressable
+              key={amount}
+              style={[styles.tapCoinOption, { borderColor: 'rgba(251, 191, 36, 0.2)' }]}
+              onPress={() => handleSelectCoinAmount(amount)}
+            >
+              <View style={styles.tapCoinIcon}>
+                <View style={styles.kindnessSymbol}>
+                  <Ionicons name="leaf" size={4} color="rgba(255,255,255,0.8)" style={styles.pickerLeafLeft} />
+                  <Ionicons name="heart" size={7} color="#FFF" />
+                  <Ionicons name="leaf" size={4} color="rgba(255,255,255,0.8)" style={styles.pickerLeafRight} />
+                </View>
+              </View>
+              <Text style={[styles.tapCoinAmount, { color: colors.text }]}>{amount}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    );
+  };
+
+  // Message overlay with envelope animation
+  const renderMessageOverlay = () => (
+    <Modal
+      visible={showMessageOverlay}
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={() => {
+        if (!isSendingCoins) {
+          playDismissAnimation(() => {
+            setShowMessageOverlay(false);
+            setCoinMessage('');
+            setPendingCoinAmount(0);
+          });
+        }
+      }}
+    >
+      <Animated.View style={[styles.messageOverlay, { opacity: overlayOpacity }]}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
+        >
+          <Animated.View style={[
+            styles.envelopeContainer,
+            {
+              backgroundColor: colors.cardBackground,
+              transform: [
+                { scale: envelopeScale },
+                { translateY: envelopeTranslateY },
+              ],
+            },
+          ]}>
+            {/* Envelope flap */}
+            <Animated.View style={[
+              styles.envelopeFlap,
+              {
+                transform: [{
+                  scaleY: flapRotate.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [1, 0],
+                  }),
+                }],
+              },
+            ]} />
+
+            {/* Amount badge */}
+            <View style={styles.envelopeAmountBadge}>
+              <Ionicons name="gift" size={16} color="#FBBF24" style={styles.envelopeCoinIcon} />
+              <Text style={styles.envelopeAmountText}>{pendingCoinAmount}</Text>
+            </View>
+
+            {/* Content */}
+            <Animated.View style={[styles.envelopeContent, { opacity: messageInputOpacity }]}>
+              <Text style={[styles.envelopeTitle, { color: colors.text }]}>Add a message?</Text>
+              <Text style={[styles.envelopeSubtitle, { color: colors.textSecondary }]}>
+                to @{recipientUsername}
+              </Text>
+
+              <View style={[styles.envelopeInputContainer, { borderColor: colors.border }]}>
+                <TextInput
+                  style={[styles.envelopeInput, { color: colors.text }]}
+                  placeholder="Write an encouraging message..."
+                  placeholderTextColor={colors.textSecondary}
+                  value={coinMessage}
+                  onChangeText={(text) => setCoinMessage(text.slice(0, 200))}
+                  maxLength={200}
+                  multiline
+                  numberOfLines={3}
+                />
+                <Text style={[styles.envelopeCharCount, { color: colors.textSecondary }]}>
+                  {coinMessage.length}/200
+                </Text>
+              </View>
+
+              {/* Random message button */}
+              <Pressable
+                style={styles.envelopeRandomButton}
+                onPress={() => {
+                  const msg = ENCOURAGING_MESSAGES[Math.floor(Math.random() * ENCOURAGING_MESSAGES.length)];
+                  setCoinMessage(msg);
+                }}
+              >
+                <Ionicons name="shuffle" size={16} color="#8B5CF6" />
+                <Text style={styles.envelopeRandomText}>Random</Text>
+              </Pressable>
+
+              {/* Action buttons */}
+              <View style={styles.envelopeActions}>
+                <Pressable
+                  style={styles.envelopeCancelButton}
+                  onPress={() => {
+                    playDismissAnimation(() => {
+                      setShowMessageOverlay(false);
+                      setCoinMessage('');
+                      setPendingCoinAmount(0);
+                    });
+                  }}
+                  disabled={isSendingCoins}
+                >
+                  <Text style={[styles.envelopeCancelButtonText, { color: colors.textSecondary }]}>Cancel</Text>
+                </Pressable>
+
+                <Pressable
+                  style={[styles.envelopeSkipButton, { borderColor: colors.border }]}
+                  onPress={() => handleSendWithMessage()}
+                  disabled={isSendingCoins}
+                >
+                  {isSendingCoins && !coinMessage.trim() ? (
+                    <ActivityIndicator size="small" color={colors.text} />
+                  ) : (
+                    <Text style={[styles.envelopeSkipButtonText, { color: colors.text }]}>Skip</Text>
+                  )}
+                </Pressable>
+
+                <Pressable
+                  style={[styles.envelopeSendButton, { opacity: coinMessage.trim() ? 1 : 0.5 }]}
+                  onPress={() => handleSendWithMessage(coinMessage)}
+                  disabled={isSendingCoins || !coinMessage.trim()}
+                >
+                  {isSendingCoins && coinMessage.trim() ? (
+                    <ActivityIndicator size="small" color="#FFF" />
+                  ) : (
+                    <Text style={styles.envelopeSendButtonText}>Send</Text>
+                  )}
+                </Pressable>
+              </View>
+            </Animated.View>
+          </Animated.View>
+        </KeyboardAvoidingView>
+      </Animated.View>
+    </Modal>
+  );
 
   // Muted decoration background (used for both reposts and regular posts)
   const mutedBg = (() => {
@@ -635,7 +984,11 @@ function TweetCard({
                       onPress={() => onTopicPress(topic.slug)}
                       activeOpacity={0.6}
                     >
-                      <Text style={styles.topicTagIcon}>{topic.iconEmoji || '#'}</Text>
+                      {topic.iconImageUrl ? (
+                        <Image source={{ uri: getImageUrl(topic.iconImageUrl) || topic.iconImageUrl }} style={styles.topicTagImage} />
+                      ) : (
+                        <Text style={styles.topicTagIcon}>{topic.iconEmoji || '#'}</Text>
+                      )}
                       {width >= TABLET_BREAKPOINT && (
                         <Text style={[styles.topicTagText, { color: colors.textSecondary }]} numberOfLines={1}>
                           {topic.name}
@@ -742,106 +1095,66 @@ function TweetCard({
 
             {/* Action Buttons */}
             <View style={styles.actionsRow}>
-              <TouchableOpacity style={styles.actionButton} onPress={() => onComment(post.id)}>
-                <Ionicons name="chatbubble-outline" size={18} color={dCommentColor} />
-                <Text style={[styles.actionCount, { color: colors.textSecondary }]}>
-                  {formatCount(post.commentsCount)}
-                </Text>
-              </TouchableOpacity>
+              {/* Group 1: Comment, Heart, Gift */}
+              <View style={styles.actionGroup}>
+                <TouchableOpacity style={styles.actionButton} onPress={() => onComment(post.id)}>
+                  <Ionicons name="chatbubble-outline" size={18} color={dCommentColor} />
+                  <Text style={[styles.actionCount, { color: colors.textSecondary }]}>
+                    {formatCount(post.commentsCount)}
+                  </Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity style={styles.actionButton} onPress={handleRepost}>
-                <Ionicons name="repeat-outline" size={20} color={dRepostColor(reposted)} />
-                <Text style={[styles.actionCount, { color: reposted ? '#00BA7C' : colors.textSecondary }]}>
-                  {formatCount(repostCount)}
-                </Text>
-              </TouchableOpacity>
+                <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
+                  <Ionicons name={liked ? 'heart' : 'heart-outline'} size={18} color={dLikeColor(liked)} />
+                  <Text style={[styles.actionCount, { color: liked ? colors.like : colors.textSecondary }]}>
+                    {formatCount(likesCount)}
+                  </Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
-                <Ionicons name={liked ? 'heart' : 'heart-outline'} size={18} color={dLikeColor(liked)} />
-                <Text style={[styles.actionCount, { color: liked ? colors.like : colors.textSecondary }]}>
-                  {formatCount(likesCount)}
-                </Text>
-              </TouchableOpacity>
-
-              {!isOwnPost && (
-                <View
-                  style={styles.giftButtonContainer}
-                  onTouchStart={handleGiftTouchStart}
-                  onTouchMove={handleGiftTouchMove}
-                  onTouchEnd={handleGiftTouchEnd}
-                  onTouchCancel={handleGiftTouchCancel}
-                >
-                  <TouchableOpacity
-                    style={[styles.actionButton, width >= TABLET_BREAKPOINT && styles.giftButtonLarge]}
-                    onPress={() => onGiveCoins(post)}
-                    activeOpacity={0.7}
+                {!isOwnPost && (
+                  <View
+                    style={styles.giftButtonContainer}
+                    {...giftPanResponder.panHandlers}
                   >
-                    <Ionicons name="gift" size={width >= TABLET_BREAKPOINT ? 20 : 18} color={dGiftColor} />
-                    {width >= TABLET_BREAKPOINT && (
-                      <Text style={[styles.giftButtonText, { color: colors.gift }]}>Send</Text>
-                    )}
-                  </TouchableOpacity>
-
-                  {/* Instagram-style Coin Picker - appears above when holding */}
-                  {showCoinPicker && (
-                    <View style={[styles.coinPickerOverlay, { backgroundColor: colors.cardBackground }]}>
-                      <View style={styles.coinPickerRow}>
-                        {coinAmounts.map((amount, index) => {
-                          const isHovered = hoveredCoinIndex === index;
-                          return (
-                            <View
-                              key={amount}
-                              style={[
-                                styles.coinPickerOption,
-                                isHovered && styles.coinPickerOptionHovered,
-                              ]}
-                            >
-                              <View style={[
-                                styles.artCoin,
-                                isHovered && styles.artCoinHovered,
-                              ]}>
-                                <View style={[
-                                  styles.artCoinInner,
-                                  isHovered && styles.artCoinInnerHovered,
-                                ]}>
-                                  <View style={styles.kindnessSymbol}>
-                                    <Ionicons name="leaf" size={isHovered ? 6 : 4} color="rgba(255,255,255,0.8)" style={styles.pickerLeafLeft} />
-                                    <Ionicons name="heart" size={isHovered ? 10 : 7} color="#FFF" />
-                                    <Ionicons name="leaf" size={isHovered ? 6 : 4} color="rgba(255,255,255,0.8)" style={styles.pickerLeafRight} />
-                                  </View>
-                                </View>
-                              </View>
-                              <Text style={[
-                                styles.coinPickerAmount,
-                                { color: isHovered ? '#FBBF24' : colors.textSecondary },
-                              ]}>
-                                {amount}
-                              </Text>
-                            </View>
-                          );
-                        })}
-                      </View>
-                      <Text style={styles.coinPickerHint}>← drag to select →</Text>
-                      <View style={styles.coinPickerArrow} />
+                    <View style={[styles.actionButton, width >= TABLET_BREAKPOINT && styles.giftButtonLarge]}>
+                      <Ionicons name="gift" size={width >= TABLET_BREAKPOINT ? 20 : 18} color={dGiftColor} />
+                      {width >= TABLET_BREAKPOINT && (
+                        <Text style={[styles.giftButtonText, { color: colors.gift }]}>Send</Text>
+                      )}
                     </View>
-                  )}
-                </View>
-              )}
+                    {renderCoinPicker()}
+                  </View>
+                )}
+              </View>
 
-              <TouchableOpacity style={styles.actionButton} onPress={() => onShare(post)}>
-                <Ionicons name="share-outline" size={18} color={dShareColor} />
-              </TouchableOpacity>
+              {/* Group 2: Repost, Share */}
+              <View style={styles.actionGroup}>
+                <TouchableOpacity style={styles.actionButton} onPress={handleRepost}>
+                  <Ionicons name="repeat-outline" size={20} color={dRepostColor(reposted)} />
+                  <Text style={[styles.actionCount, { color: reposted ? '#00BA7C' : colors.textSecondary }]}>
+                    {formatCount(repostCount)}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.actionButton} onPress={() => onShare(post)}>
+                  <Ionicons name="share-outline" size={18} color={dShareColor} />
+                </TouchableOpacity>
+              </View>
             </View>
 
-            {/* Celebration Animation - Shared Component (Modal style) */}
+            {/* Tap-to-send coin card (inline, always visible) */}
+            {renderTapCoinCard()}
+
+            {/* Celebration Animation */}
             <CoinCelebration
               visible={showCelebration}
               amount={sentCoinAmount}
               source="gift"
-              recipientUsername={post.isRepost && post.repostedBy ? post.repostedBy.username : post.user.username}
+              recipientUsername={recipientUsername}
               onClose={() => setShowCelebration(false)}
               asModal={true}
             />
+            {renderMessageOverlay()}
           </View>
         </View>
       </View>
@@ -897,7 +1210,11 @@ function TweetCard({
                     onPress={() => onTopicPress(topic.slug)}
                     activeOpacity={0.6}
                   >
-                    <Text style={styles.topicTagIcon}>{topic.iconEmoji || '#'}</Text>
+                    {topic.iconImageUrl ? (
+                      <Image source={{ uri: getImageUrl(topic.iconImageUrl) || topic.iconImageUrl }} style={styles.topicTagImage} />
+                    ) : (
+                      <Text style={styles.topicTagIcon}>{topic.iconEmoji || '#'}</Text>
+                    )}
                     {width >= TABLET_BREAKPOINT && (
                       <Text style={[styles.topicTagText, { color: dSecondaryColor }]} numberOfLines={1}>
                         {topic.name}
@@ -933,7 +1250,7 @@ function TweetCard({
                 style={[styles.mediaImage, { width: imageWidth, height: imageWidth * 0.75, backgroundColor: colors.mediaBackground }]}
                 resizeMode="cover"
               />
-              {frameCornerConfig && <CornerDecorations config={frameCornerConfig} muted />}
+              {(frameCornerConfig || perCornerIcons) && <CornerDecorations config={frameCornerConfig || undefined} cornerIcons={perCornerIcons} muted />}
               {/* Heart overlay animation */}
               {showHeartOverlay && (
                 <Animated.View
@@ -985,131 +1302,86 @@ function TweetCard({
 
           {/* Action Buttons */}
           <View style={styles.actionsRow}>
-            {/* Reply/Comment */}
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => onComment(post.id)}
-            >
-              <Ionicons name="chatbubble-outline" size={18} color={dCommentColor} />
-              <Text style={[styles.actionCount, { color: dSecondaryColor }]}>
-                {formatCount(post.commentsCount)}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Repost */}
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={handleRepost}
-            >
-              <Ionicons
-                name="repeat-outline"
-                size={20}
-                color={dRepostColor(reposted)}
-              />
-              <Text style={[styles.actionCount, { color: reposted ? dRepostColor(true) : dSecondaryColor }]}>
-                {formatCount(repostCount)}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Like */}
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={handleLike}
-            >
-              <Ionicons
-                name={liked ? 'heart' : 'heart-outline'}
-                size={18}
-                color={dLikeColor(liked)}
-              />
-              <Text style={[styles.actionCount, { color: liked ? dLikeColor(true) : dSecondaryColor }]}>
-                {formatCount(likesCount)}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Gift/Coins - Hidden for own posts */}
-            {!isOwnPost && (
-              <View
-                style={styles.giftButtonContainer}
-                onTouchStart={handleGiftTouchStart}
-                onTouchMove={handleGiftTouchMove}
-                onTouchEnd={handleGiftTouchEnd}
-                onTouchCancel={handleGiftTouchCancel}
+            {/* Group 1: Comment, Heart, Gift */}
+            <View style={styles.actionGroup}>
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={() => onComment(post.id)}
               >
-                <TouchableOpacity
-                  style={[styles.actionButton, width >= TABLET_BREAKPOINT && styles.giftButtonLarge]}
-                  onPress={() => onGiveCoins(post)}
-                  activeOpacity={0.7}
+                <Ionicons name="chatbubble-outline" size={18} color={dCommentColor} />
+                <Text style={[styles.actionCount, { color: dSecondaryColor }]}>
+                  {formatCount(post.commentsCount)}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={handleLike}
+              >
+                <Ionicons
+                  name={liked ? 'heart' : 'heart-outline'}
+                  size={18}
+                  color={dLikeColor(liked)}
+                />
+                <Text style={[styles.actionCount, { color: liked ? dLikeColor(true) : dSecondaryColor }]}>
+                  {formatCount(likesCount)}
+                </Text>
+              </TouchableOpacity>
+
+              {!isOwnPost && (
+                <View
+                  style={styles.giftButtonContainer}
+                  {...giftPanResponder.panHandlers}
                 >
-                  <Ionicons name="gift" size={width >= TABLET_BREAKPOINT ? 20 : 18} color={dGiftColor} />
-                  {width >= TABLET_BREAKPOINT && (
-                    <Text style={[styles.giftButtonText, { color: dGiftColor }]}>Send</Text>
-                  )}
-                </TouchableOpacity>
-
-                {/* Instagram-style Coin Picker - appears above when holding */}
-                {showCoinPicker && (
-                  <View style={[styles.coinPickerOverlay, { backgroundColor: colors.cardBackground }]}>
-                    <View style={styles.coinPickerRow}>
-                      {coinAmounts.map((amount, index) => {
-                        const isHovered = hoveredCoinIndex === index;
-                        return (
-                          <View
-                            key={amount}
-                            style={[
-                              styles.coinPickerOption,
-                              isHovered && styles.coinPickerOptionHovered,
-                            ]}
-                          >
-                            <View style={[
-                              styles.artCoin,
-                              isHovered && styles.artCoinHovered,
-                            ]}>
-                              <View style={[
-                                styles.artCoinInner,
-                                isHovered && styles.artCoinInnerHovered,
-                              ]}>
-                                <View style={styles.kindnessSymbol}>
-                                  <Ionicons name="leaf" size={isHovered ? 6 : 4} color="rgba(255,255,255,0.8)" style={styles.pickerLeafLeft} />
-                                  <Ionicons name="heart" size={isHovered ? 10 : 7} color="#FFF" />
-                                  <Ionicons name="leaf" size={isHovered ? 6 : 4} color="rgba(255,255,255,0.8)" style={styles.pickerLeafRight} />
-                                </View>
-                              </View>
-                            </View>
-                            <Text style={[
-                              styles.coinPickerAmount,
-                              { color: isHovered ? '#FBBF24' : colors.textSecondary },
-                            ]}>
-                              {amount}
-                            </Text>
-                          </View>
-                        );
-                      })}
-                    </View>
-                    <Text style={styles.coinPickerHint}>← drag to select →</Text>
-                    <View style={styles.coinPickerArrow} />
+                  <View style={[styles.actionButton, width >= TABLET_BREAKPOINT && styles.giftButtonLarge]}>
+                    <Ionicons name="gift" size={width >= TABLET_BREAKPOINT ? 20 : 18} color={dGiftColor} />
+                    {width >= TABLET_BREAKPOINT && (
+                      <Text style={[styles.giftButtonText, { color: dGiftColor }]}>Send</Text>
+                    )}
                   </View>
-                )}
-              </View>
-            )}
+                  {renderCoinPicker()}
+                </View>
+              )}
+            </View>
 
-            {/* Share */}
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => onShare(post)}
-            >
-              <Ionicons name="share-outline" size={18} color={dShareColor} />
-            </TouchableOpacity>
+            {/* Group 2: Repost, Share */}
+            <View style={styles.actionGroup}>
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={handleRepost}
+              >
+                <Ionicons
+                  name="repeat-outline"
+                  size={20}
+                  color={dRepostColor(reposted)}
+                />
+                <Text style={[styles.actionCount, { color: reposted ? dRepostColor(true) : dSecondaryColor }]}>
+                  {formatCount(repostCount)}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={() => onShare(post)}
+              >
+                <Ionicons name="share-outline" size={18} color={dShareColor} />
+              </TouchableOpacity>
+            </View>
           </View>
 
-          {/* Celebration Animation - Shared Component (Modal style) */}
+          {/* Tap-to-send coin card (inline, always visible) */}
+          {renderTapCoinCard()}
+
+          {/* Celebration Animation */}
           <CoinCelebration
             visible={showCelebration}
             amount={sentCoinAmount}
             source="gift"
-            recipientUsername={post.user.username}
+            recipientUsername={recipientUsername}
             onClose={() => setShowCelebration(false)}
             asModal={true}
           />
+          {renderMessageOverlay()}
 
           {/* Comment Preview */}
           {post.recentComments && post.recentComments.length > 0 && (
@@ -1137,7 +1409,12 @@ function TweetCard({
   );
 
   return cardContent;
-}
+}, (prev, next) => {
+  // Only re-render if the post data or currentUserId changed
+  return prev.post === next.post
+    && prev.currentUserId === next.currentUserId
+    && prev.colors === next.colors;
+});
 
 // Full-screen single-post Image Viewer
 function ImageViewerModal({
@@ -1149,7 +1426,6 @@ function ImageViewerModal({
   onUserPress,
   onRepost,
   onShare,
-  onGiveCoins,
 }: {
   visible: boolean;
   post: Post | null;
@@ -1159,7 +1435,6 @@ function ImageViewerModal({
   onUserPress: (userId: string) => void;
   onRepost: (post: Post) => void;
   onShare: (post: Post) => void;
-  onGiveCoins: (post: Post) => void;
 }) {
   const insets = useSafeAreaInsets();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -1366,21 +1641,6 @@ function ImageViewerModal({
             </View>
           </TouchableOpacity>
 
-          {/* Give Coins */}
-          <TouchableOpacity
-            onPress={() => onGiveCoins(post)}
-            style={{ alignItems: 'center' }}
-          >
-            <View style={{
-              width: 46, height: 46, borderRadius: 23,
-              backgroundColor: 'rgba(0,0,0,0.35)',
-              justifyContent: 'center', alignItems: 'center',
-              borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
-            }}>
-              <Ionicons name="gift" size={22} color="#FBBF24" />
-            </View>
-          </TouchableOpacity>
-
           {/* Share */}
           <TouchableOpacity
             onPress={() => onShare(post)}
@@ -1455,9 +1715,13 @@ function ImageViewerModal({
                   backgroundColor: 'rgba(255,255,255,0.1)',
                   borderRadius: 10,
                   paddingHorizontal: 8, paddingVertical: 2,
+                  flexDirection: 'row', alignItems: 'center', gap: 4,
                 }}>
+                  {t.iconImageUrl ? (
+                    <Image source={{ uri: getImageUrl(t.iconImageUrl) || t.iconImageUrl }} style={{ width: 18, height: 18, borderRadius: 9 }} />
+                  ) : null}
                   <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>
-                    {t.iconEmoji ? `${t.iconEmoji} ` : '#'}{t.name}
+                    {!t.iconImageUrl ? (t.iconEmoji ? `${t.iconEmoji} ` : '#') : ''}{t.name}
                   </Text>
                 </View>
               ))}
@@ -1490,6 +1754,7 @@ interface CommunityEntry {
   topicId: string;
   name: string;
   iconEmoji: string | null;
+  iconImageUrl: string | null;
   totalPosts: number;
   seenPosts: number;
   firstUnseenPostId: string | null;
@@ -1641,9 +1906,13 @@ function FeedSidebar({
                   )}
                   activeOpacity={0.7}
                 >
-                  <View style={sidebarStyles.emojiContainer}>
-                    <Text style={sidebarStyles.emojiText}>{entry.iconEmoji || '#'}</Text>
-                  </View>
+                  {entry.iconImageUrl ? (
+                    <Image source={{ uri: getImageUrl(entry.iconImageUrl) || entry.iconImageUrl }} style={{ width: 32, height: 32, borderRadius: 16 }} />
+                  ) : (
+                    <View style={sidebarStyles.emojiContainer}>
+                      <Text style={sidebarStyles.emojiText}>{entry.iconEmoji || '#'}</Text>
+                    </View>
+                  )}
                   <Text
                     style={[
                       sidebarStyles.username,
@@ -2056,9 +2325,13 @@ function FeedFloatingBar({
                 ]}>
                   {isSelected && <Ionicons name="checkmark" size={13} color="#FFF" />}
                 </View>
-                <View style={floatingBarStyles.emojiContainer}>
-                  <Text style={floatingBarStyles.emojiText}>{entry.iconEmoji || '#'}</Text>
-                </View>
+                {entry.iconImageUrl ? (
+                  <Image source={{ uri: getImageUrl(entry.iconImageUrl) || entry.iconImageUrl }} style={{ width: 32, height: 32, borderRadius: 16 }} />
+                ) : (
+                  <View style={floatingBarStyles.emojiContainer}>
+                    <Text style={floatingBarStyles.emojiText}>{entry.iconEmoji || '#'}</Text>
+                  </View>
+                )}
                 <Text
                   style={[floatingBarStyles.rowLabel, { color: colors.text }]}
                   numberOfLines={1}
@@ -2312,8 +2585,6 @@ export default function FeedScreen() {
   const [refreshing, setRefreshing] = React.useState(false);
   const [posts, setPosts] = React.useState<Post[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [giveModalVisible, setGiveModalVisible] = React.useState(false);
-  const [selectedPost, setSelectedPost] = React.useState<Post | null>(null);
   const [imageViewerPost, setImageViewerPost] = React.useState<Post | null>(null);
   const [imageViewerVisible, setImageViewerVisible] = React.useState(false);
   const [repostModalVisible, setRepostModalVisible] = React.useState(false);
@@ -2349,11 +2620,14 @@ export default function FeedScreen() {
   const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [feedSeenSnapshot, setFeedSeenSnapshot] = useState<Set<string>>(new Set());
 
-  // Load seen post IDs from AsyncStorage on mount
+  // Load seen post IDs from AsyncStorage when currentUserId is known/changes (account switch)
   useEffect(() => {
+    if (!currentUserId) return;
+    seenPostIdsRef.current = new Set();
+    seenPostIdsLoadedRef.current = false;
     (async () => {
       try {
-        const stored = await AsyncStorage.getItem(SEEN_POSTS_STORAGE_KEY);
+        const stored = await AsyncStorage.getItem(SEEN_POSTS_STORAGE_KEY_PREFIX + currentUserId);
         if (stored) {
           const arr: string[] = JSON.parse(stored);
           seenPostIdsRef.current = new Set(arr);
@@ -2362,20 +2636,26 @@ export default function FeedScreen() {
         console.error('Error loading seen post IDs:', e);
       } finally {
         seenPostIdsLoadedRef.current = true;
+        // Re-snapshot so feedItems recomputes with the correct seen set
+        setFeedSeenSnapshot(new Set(seenPostIdsRef.current));
       }
     })();
     return () => {
       if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
     };
-  }, []);
+  }, [currentUserId]);
 
   // Debounced save helper — stored in a ref so the frozen onViewableItemsChanged can call it
+  const currentUserIdRef = useRef(currentUserId);
+  currentUserIdRef.current = currentUserId;
   const saveSeenPostIdsRef = useRef(() => {});
   saveSeenPostIdsRef.current = () => {
     if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
     saveDebounceRef.current = setTimeout(() => {
+      const uid = currentUserIdRef.current;
+      if (!uid) return;
       const arr = Array.from(seenPostIdsRef.current).slice(-SEEN_POSTS_MAX_STORED);
-      AsyncStorage.setItem(SEEN_POSTS_STORAGE_KEY, JSON.stringify(arr)).catch(console.error);
+      AsyncStorage.setItem(SEEN_POSTS_STORAGE_KEY_PREFIX + uid, JSON.stringify(arr)).catch(console.error);
     }, 2000);
   };
 
@@ -2478,6 +2758,7 @@ export default function FeedScreen() {
             topicId: topic.id,
             name: topic.name,
             iconEmoji: topic.iconEmoji,
+            iconImageUrl: topic.iconImageUrl || null,
             totalPosts: 1,
             seenPosts: isSeen ? 1 : 0,
             firstUnseenPostId: isSeen ? null : postKey,
@@ -2563,12 +2844,22 @@ export default function FeedScreen() {
         unseen.push(p);
       }
     }
-    // All unseen (new user / fresh feed) — no card needed
-    if (seen.length === 0) return filteredPosts;
-    // Mix or all-seen: insert caught-up card between unseen and seen
     const caughtUpCard: CaughtUpItem = { _type: 'caught_up', id: '__caught_up__' };
-    return [...unseen, caughtUpCard, ...seen];
-  }, [filteredPosts, feedSeenSnapshot]);
+
+    if (seen.length > 0) {
+      // Mix of new + old posts — insert divider between unseen and seen
+      return [...unseen, caughtUpCard, ...seen];
+    }
+
+    // All posts are new (fresh account / no history) — show card at bottom
+    // only once the user has scrolled through and viewed all of them
+    const allViewedThisSession = unseen.every(p => viewedPostIds.has(p.feedItemId || p.id));
+    if (allViewedThisSession) {
+      return [...filteredPosts, caughtUpCard];
+    }
+
+    return filteredPosts;
+  }, [filteredPosts, feedSeenSnapshot, viewedPostIds]);
 
   // Scroll to a specific post (used by sidebar)
   const scrollToPost = React.useCallback((postId: string) => {
@@ -2577,7 +2868,9 @@ export default function FeedScreen() {
       return (item.feedItemId || item.id) === postId;
     });
     if (index >= 0 && flatListRef.current) {
-      flatListRef.current.scrollToIndex({ index, animated: true, viewPosition: 0.1 });
+      try {
+        flatListRef.current.scrollToIndex({ index, animated: true, viewPosition: 0.1 });
+      } catch {}
     }
   }, [feedItems]);
 
@@ -2589,8 +2882,9 @@ export default function FeedScreen() {
 
   // Ref to ChatDrawer for triggering fast animations
   const chatDrawerRef = useRef<ChatDrawerRef>(null);
-  // Track if any coin picker is active (to block page swipe)
+  // Track if any coin picker is active (to block page swipe + add scroll friction)
   const coinPickerActiveRef = useRef(false);
+  const [coinPickerActive, setCoinPickerActive] = React.useState(false);
 
   // Listen to pageAnim changes to track position
   React.useEffect(() => {
@@ -2824,62 +3118,55 @@ export default function FeedScreen() {
     }
   }, [loadingMore, hasMore, currentPage]);
 
-  const handleLike = async (postId: string) => {
+  const handleLike = useCallback(async (postId: string) => {
     try {
       await api.post(`/posts/${postId}/like`);
       await api.trackInteraction(postId, 'like');
     } catch (error) {
       console.error('Error liking post:', error);
     }
-  };
+  }, []);
 
-  const handleComment = (postId: string) => {
+  const handleComment = useCallback((postId: string) => {
     navigation.navigate('Comments', { postId });
     api.trackInteraction(postId, 'comment_view').catch(console.error);
-  };
+  }, [navigation]);
 
-  const handleUserPress = (userId: string) => {
+  const handleUserPress = useCallback((userId: string) => {
     api.trackInteraction(userId, 'profile_view').catch(console.error);
-    console.log('View user profile:', userId);
-  };
+  }, []);
 
-  const handleGiveCoins = (post: Post) => {
-    setSelectedPost(post);
-    setGiveModalVisible(true);
-  };
-
-  // Quick give coins without modal - returns success flag
-  const handleQuickGiveCoins = async (post: Post, amount: number): Promise<string | null> => {
+  // Quick give coins - returns success flag
+  const handleQuickGiveCoins = useCallback(async (post: Post, amount: number, message?: string): Promise<string | null> => {
     try {
       const toUserId = post.isRepost && post.repostedBy ? post.repostedBy.id : post.user.id;
       const response = await api.giveCoins({
         toUserId,
         amount,
+        message: message || undefined,
         contextType: 'post',
         contextId: post.id,
       });
       return response.transactionId || response.id || 'success';
     } catch (error: any) {
       console.error('Error giving coins:', error);
-      // Extract error message from API response
       const errorMessage = error?.response?.data?.error ||
                           error?.message ||
                           'Failed to send coins. Please try again.';
       Alert.alert('Could not send coins', errorMessage);
       return null;
     }
-  };
+  }, []);
 
-  const handleImagePress = (post: Post) => {
+  const handleImagePress = useCallback((post: Post) => {
     setImageViewerPost(post);
     setImageViewerVisible(true);
-  };
+  }, []);
 
-  const handleRepost = (post: Post) => {
-    // Show the repost options modal
+  const handleRepost = useCallback((post: Post) => {
     setRepostModalPost(post);
     setRepostModalVisible(true);
-  };
+  }, []);
 
   const handleRepostSuccess = (reposted: boolean, type?: RepostType) => {
     if (repostModalPost) {
@@ -2915,7 +3202,7 @@ export default function FeedScreen() {
     }
   };
 
-  const handleShare = async (post: Post) => {
+  const handleShare = useCallback(async (post: Post) => {
     try {
       const shareablePost: ShareablePost = {
         id: post.id,
@@ -2929,22 +3216,21 @@ export default function FeedScreen() {
       const result = await sharePost(shareablePost);
 
       if (result.success && result.action === 'sharedAction') {
-        // Track the share interaction
         trackShare(post.id);
       }
     } catch (error) {
       console.error('Error sharing post:', error);
     }
-  };
+  }, []);
 
-  const handleNavigateToProfile = (userId: string, username: string) => {
+  const handleNavigateToProfile = useCallback((userId: string, username: string) => {
     navigateToUserProfile(navigation, userId, username);
-  };
+  }, [navigation]);
 
-  const handleMorePress = (post: Post) => {
+  const handleMorePress = useCallback((post: Post) => {
     setPostOptionsPost(post);
     setPostOptionsVisible(true);
-  };
+  }, []);
 
   const handleEditPost = () => {
     if (!postOptionsPost) return;
@@ -3040,7 +3326,16 @@ export default function FeedScreen() {
     });
   };
 
-  const renderFeedItem = ({ item }: { item: FeedItem }) => {
+  const handleTopicPress = useCallback((topicSlug: string) => {
+    navigation.navigate('TopicPage', { topicSlug });
+  }, [navigation]);
+
+  const handleCoinPickerChange = useCallback((active: boolean) => {
+    coinPickerActiveRef.current = active;
+    setCoinPickerActive(active);
+  }, []);
+
+  const renderFeedItem = useCallback(({ item }: { item: FeedItem }) => {
     if (isCaughtUpItem(item)) {
       return <CaughtUpCard colors={colors} filtered={isFilterActive} />;
     }
@@ -3050,24 +3345,84 @@ export default function FeedScreen() {
         onLike={handleLike}
         onComment={handleComment}
         onUserPress={handleUserPress}
-        onGiveCoins={handleGiveCoins}
         onQuickGiveCoins={handleQuickGiveCoins}
         onImagePress={handleImagePress}
         onRepost={handleRepost}
         onShare={handleShare}
         onNavigateToProfile={handleNavigateToProfile}
-        onTopicPress={(slug: string) => navigation.navigate('TopicPage', { topicSlug: slug })}
+        onTopicPress={handleTopicPress}
         onMorePress={handleMorePress}
-        onCoinPickerChange={(active: boolean) => { coinPickerActiveRef.current = active; }}
+        onCoinPickerChange={handleCoinPickerChange}
         currentUserId={currentUserId}
         colors={colors}
       />
     );
-  };
+  }, [colors, isFilterActive, currentUserId, handleLike, handleComment, handleUserPress, handleQuickGiveCoins, handleImagePress, handleRepost, handleShare, handleNavigateToProfile, handleTopicPress, handleMorePress, handleCoinPickerChange]);
 
-  const renderSeparator = () => (
+  const renderSeparator = useCallback(() => (
     <View style={[styles.separator, { backgroundColor: colors.separator }]} />
-  );
+  ), [colors.separator]);
+
+  // Stable keyExtractor
+  const keyExtractor = useCallback((item: FeedItem) =>
+    isCaughtUpItem(item) ? item.id : (item.feedItemId || item.id), []);
+
+  // Stable onScrollToIndexFailed
+  const onScrollToIndexFailed = useCallback((info: { averageItemLength: number; index: number }) => {
+    flatListRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
+  }, []);
+
+  // Stable ListHeaderComponent
+  const listHeader = useMemo(() =>
+    followingCount === 0 ? (
+      <TouchableOpacity
+        style={[styles.findFriendsBanner, { backgroundColor: colors.cardBackground, borderBottomColor: colors.separator }]}
+        onPress={navigateToFindFriends}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="people-outline" size={22} color={colors.accent} />
+        <View style={styles.findFriendsBannerText}>
+          <Text style={[styles.findFriendsBannerTitle, { color: colors.text }]}>
+            Connect with friends
+          </Text>
+          <Text style={[styles.findFriendsBannerSubtitle, { color: colors.textSecondary }]}>
+            Find people you know and grow your community
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+      </TouchableOpacity>
+    ) : null, [followingCount, colors]);
+
+  // Stable ListFooterComponent
+  const listFooter = useMemo(() =>
+    loadingMore ? (
+      <View style={{ paddingVertical: 20 }}>
+        <ActivityIndicator size="small" color={colors.accent} />
+      </View>
+    ) : null, [loadingMore, colors.accent]);
+
+  // Stable ListEmptyComponent
+  const listEmpty = useMemo(() => (
+    <View style={[styles.empty, isFilterActive && { paddingBottom: 300 }]}>
+      <View style={[styles.emptyIconContainer, { backgroundColor: isFilterActive ? themeColors.text.link + '15' : colors.emptyIconBg }]}>
+        <Ionicons
+          name={isFilterActive ? 'funnel-outline' : 'newspaper-outline'}
+          size={48}
+          color={isFilterActive ? themeColors.text.link : colors.accent}
+        />
+      </View>
+      <Text style={[styles.emptyTitle, { color: colors.text }]}>
+        {isFilterActive ? 'Select who to see' : 'Your feed is empty'}
+      </Text>
+      <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
+        {isFilterActive
+          ? 'Pick friends or communities from the filter below to show their posts'
+          : 'Follow people to see their posts here. Start by finding friends!'}
+      </Text>
+    </View>
+  ), [isFilterActive, colors, themeColors]);
+
+  const flexGrowStyle = useMemo(() => ({ flexGrow: 1 } as const), []);
 
   if (loading) {
     return (
@@ -3156,12 +3511,14 @@ export default function FeedScreen() {
           <FlatList
             ref={flatListRef}
             data={feedItems}
-            keyExtractor={(item) => isCaughtUpItem(item) ? item.id : (item.feedItemId || item.id)}
+            keyExtractor={keyExtractor}
             renderItem={renderFeedItem}
             ItemSeparatorComponent={renderSeparator}
             showsVerticalScrollIndicator={false}
             onScroll={handleScroll}
             scrollEventThrottle={16}
+            decelerationRate={coinPickerActive ? 0.001 : 'normal'}
+            scrollEnabled={!coinPickerActive}
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}
             refreshControl={
@@ -3172,55 +3529,19 @@ export default function FeedScreen() {
                 colors={[colors.accent]}
               />
             }
-            ListHeaderComponent={
-              followingCount === 0 ? (
-                <TouchableOpacity
-                  style={[styles.findFriendsBanner, { backgroundColor: colors.cardBackground, borderBottomColor: colors.separator }]}
-                  onPress={navigateToFindFriends}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="people-outline" size={22} color={colors.accent} />
-                  <View style={styles.findFriendsBannerText}>
-                    <Text style={[styles.findFriendsBannerTitle, { color: colors.text }]}>
-                      Connect with friends
-                    </Text>
-                    <Text style={[styles.findFriendsBannerSubtitle, { color: colors.textSecondary }]}>
-                      Find people you know and grow your community
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-                </TouchableOpacity>
-              ) : null
-            }
+            ListHeaderComponent={listHeader}
+            onScrollToIndexFailed={onScrollToIndexFailed}
             onEndReached={loadMore}
             onEndReachedThreshold={0.5}
-            ListFooterComponent={
-              loadingMore ? (
-                <View style={{ paddingVertical: 20 }}>
-                  <ActivityIndicator size="small" color={colors.accent} />
-                </View>
-              ) : null
-            }
-            ListEmptyComponent={
-              <View style={[styles.empty, isFilterActive && { paddingBottom: 300 }]}>
-                <View style={[styles.emptyIconContainer, { backgroundColor: isFilterActive ? themeColors.text.link + '15' : colors.emptyIconBg }]}>
-                  <Ionicons
-                    name={isFilterActive ? 'funnel-outline' : 'newspaper-outline'}
-                    size={48}
-                    color={isFilterActive ? themeColors.text.link : colors.accent}
-                  />
-                </View>
-                <Text style={[styles.emptyTitle, { color: colors.text }]}>
-                  {isFilterActive ? 'Select who to see' : 'Your feed is empty'}
-                </Text>
-                <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
-                  {isFilterActive
-                    ? 'Pick friends or communities from the filter below to show their posts'
-                    : 'Follow people to see their posts here. Start by finding friends!'}
-                </Text>
-              </View>
-            }
-            contentContainerStyle={feedItems.length === 0 ? { flexGrow: 1 } : undefined}
+            ListFooterComponent={listFooter}
+            ListEmptyComponent={listEmpty}
+            contentContainerStyle={feedItems.length === 0 ? flexGrowStyle : undefined}
+            // Performance optimizations
+            removeClippedSubviews={Platform.OS !== 'web'}
+            maxToRenderPerBatch={5}
+            windowSize={7}
+            initialNumToRender={5}
+            updateCellsBatchingPeriod={100}
           />
         </View>
 
@@ -3269,27 +3590,7 @@ export default function FeedScreen() {
         onUserPress={handleUserPress}
         onRepost={handleRepost}
         onShare={handleShare}
-        onGiveCoins={handleGiveCoins}
       />
-
-      {/* Give Coins Modal */}
-      {selectedPost && (
-        <GiveCoinsModal
-          visible={giveModalVisible}
-          recipientId={selectedPost.user.id}
-          recipientUsername={selectedPost.user.username}
-          contextType="post"
-          contextId={selectedPost.id}
-          onClose={() => {
-            setGiveModalVisible(false);
-            setSelectedPost(null);
-          }}
-          onSuccess={() => {
-            setGiveModalVisible(false);
-            setSelectedPost(null);
-          }}
-        />
-      )}
 
       {/* Repost Options Modal */}
       {repostModalPost && (
@@ -3701,6 +4002,11 @@ const styles = StyleSheet.create({
   topicTagIcon: {
     fontSize: 14,
   },
+  topicTagImage: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+  },
   topicTagText: {
     fontSize: 12,
     fontWeight: '600',
@@ -3753,8 +4059,14 @@ const styles = StyleSheet.create({
   actionsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     marginTop: 12,
     paddingRight: 24,
+  },
+  actionGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
   },
   actionButton: {
     flexDirection: 'row',
@@ -3837,8 +4149,8 @@ const styles = StyleSheet.create({
   coinPickerOverlay: {
     position: 'absolute',
     bottom: 45,
-    right: -20,
-    width: 220,
+    left: -100,
+    width: 260,
     borderRadius: 20,
     paddingVertical: 12,
     paddingHorizontal: 8,
@@ -3925,7 +4237,7 @@ const styles = StyleSheet.create({
   coinPickerArrow: {
     position: 'absolute',
     bottom: -10,
-    right: 30,
+    left: 110,
     width: 0,
     height: 0,
     borderLeftWidth: 10,
@@ -3940,6 +4252,226 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.6)',
     textAlign: 'center',
     marginTop: 6,
+  },
+
+  // Cancel zone in coin picker — always visible
+  coinPickerCancelZone: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 4,
+    borderRadius: 12,
+    width: 36,
+    height: 50,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  coinPickerCancelZoneActive: {
+    backgroundColor: 'rgba(239, 68, 68, 0.6)',
+    borderColor: '#EF4444',
+    transform: [{ scale: 1.25 }],
+  },
+  coinPickerCancelText: {
+    fontSize: 7,
+    fontWeight: '700',
+    color: '#EF4444',
+    marginTop: 2,
+  },
+  coinPickerCancelTextActive: {
+    color: '#FFF',
+    fontSize: 7,
+  },
+  coinPickerTapCancel: {
+    alignItems: 'center',
+    paddingVertical: 4,
+    marginTop: 2,
+  },
+  coinPickerTapCancelText: {
+    fontSize: 10,
+    color: 'rgba(239, 68, 68, 0.8)',
+    fontWeight: '600',
+  },
+
+  // Inline tap-to-send coin card
+  tapCoinCard: {
+    marginTop: 8,
+    marginHorizontal: 0,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  tapCoinHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+  tapCoinTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
+  },
+  tapCoinRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  tapCoinOption: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 4,
+  },
+  tapCoinIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FBBF24',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tapCoinAmount: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  // Message overlay with envelope animation
+  messageOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  envelopeContainer: {
+    width: 300,
+    borderRadius: 20,
+    paddingTop: 30,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 20,
+    overflow: 'hidden',
+  },
+  envelopeFlap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 30,
+    backgroundColor: 'rgba(251, 191, 36, 0.15)',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  envelopeAmountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(251, 191, 36, 0.15)',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    alignSelf: 'center',
+    marginBottom: 16,
+    gap: 6,
+  },
+  envelopeCoinIcon: {
+    marginRight: 2,
+  },
+  envelopeAmountText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FBBF24',
+  },
+  envelopeContent: {
+    alignItems: 'center',
+  },
+  envelopeTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  envelopeSubtitle: {
+    fontSize: 13,
+    marginBottom: 16,
+  },
+  envelopeInputContainer: {
+    width: '100%',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    minHeight: 80,
+  },
+  envelopeInput: {
+    fontSize: 15,
+    lineHeight: 20,
+    textAlignVertical: 'top',
+    minHeight: 54,
+  },
+  envelopeCharCount: {
+    fontSize: 11,
+    textAlign: 'right',
+    marginTop: 4,
+  },
+  envelopeRandomButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: 'rgba(139, 92, 246, 0.12)',
+    marginBottom: 16,
+  },
+  envelopeRandomText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#8B5CF6',
+  },
+  envelopeActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    gap: 8,
+  },
+  envelopeCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  envelopeCancelButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  envelopeSkipButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  envelopeSkipButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  envelopeSendButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#8B5CF6',
+    alignItems: 'center',
+  },
+  envelopeSendButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 
   // Separator

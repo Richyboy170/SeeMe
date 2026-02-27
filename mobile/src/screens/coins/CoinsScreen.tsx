@@ -14,13 +14,13 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { CommonActions } from '@react-navigation/native';
 import { api } from '../../services/api';
-import TrustConnectionItem from '../../components/TrustConnectionItem';
 import { useCoinCelebration } from '../../contexts/CoinCelebrationContext';
 import { Ionicons } from '@expo/vector-icons';
 import KindnessCoin from '../../components/coins/KindnessCoin';
 import SkyCoinIcon, { SKY_COIN_COLORS } from '../../components/coins/SkyCoinIcon';
 import EncouragementModal from '../../components/coins/EncouragementModal';
 import DecorationStoreContent from '../../components/DecorationStoreContent';
+import OnboardingMissions from '../../components/coins/OnboardingMissions';
 import { AvatarCustomizations } from '../../components/AvatarRenderer';
 import { useTheme } from '../../theme';
 
@@ -46,21 +46,6 @@ interface ReceivedCoin {
     } | null;
 }
 
-interface TrustConnection {
-    id: string;
-    otherUser: {
-        id: string;
-        username: string;
-        avatarUrl?: string;
-    };
-    trustScore: number;
-    currentStreak: number;
-    longestStreak: number;
-    isMutualFollow: boolean;
-    totalExchangeDays: number;
-    lastExchangeDate: string;
-}
-
 export default function CoinsScreen({ navigation }: any) {
     const { colors, isDark } = useTheme();
     const [loading, setLoading] = useState(true);
@@ -81,8 +66,6 @@ export default function CoinsScreen({ navigation }: any) {
     const [receivedCoins, setReceivedCoins] = useState<ReceivedCoin[]>([]);
     const [uncollectedCoins, setUncollectedCoins] = useState<ReceivedCoin[]>([]);
     const [uncollectedCount, setUncollectedCount] = useState(0);
-    const [trustConnections, setTrustConnections] = useState<TrustConnection[]>([]);
-    const [showAllTrust, setShowAllTrust] = useState(false);
     const [showEncouragement, setShowEncouragement] = useState(false);
     const [activeTab, setActiveTab] = useState<'wallet' | 'store'>('wallet');
 
@@ -175,11 +158,33 @@ export default function CoinsScreen({ navigation }: any) {
 
     // Animations for hero section
     const coinPulse = useRef(new Animated.Value(1)).current;
+
+    // Sky panel playful animations
+    const skyCloud1X = useRef(new Animated.Value(-20)).current;
+    const skyCloud2X = useRef(new Animated.Value(15)).current;
+    const skySparkle1 = useRef(new Animated.Value(0.2)).current;
+    const skySparkle2 = useRef(new Animated.Value(0.6)).current;
+
+    // Hero section decorative animations
+    const heroHeart1Y = useRef(new Animated.Value(0)).current;
+    const heroHeart1Opacity = useRef(new Animated.Value(0)).current;
+    const heroHeart2Y = useRef(new Animated.Value(0)).current;
+    const heroHeart2Opacity = useRef(new Animated.Value(0)).current;
+    const heroSparkle1 = useRef(new Animated.Value(0.15)).current;
+    const heroSparkle2 = useRef(new Animated.Value(0.4)).current;
+    const heroRingScale = useRef(new Animated.Value(1)).current;
+    const heroRingOpacity = useRef(new Animated.Value(0.3)).current;
+    const heroStarRotate = useRef(new Animated.Value(0)).current;
+
+    // Free Coins card animations
+    const freeGiftBounce = useRef(new Animated.Value(0)).current;
+    const freeShimmerX = useRef(new Animated.Value(-60)).current;
+    const freeSparkleOpacity = useRef(new Animated.Value(0)).current;
+    const freeSlotGlow = useRef(new Animated.Value(1)).current;
     useEffect(() => {
         loadCoins();
         loadReceivedCoins();
         loadUncollectedCoins();
-        loadTrustConnections();
 
         // Refresh every minute to update cooldown timer
         const interval = setInterval(loadCoins, 60000);
@@ -205,6 +210,239 @@ export default function CoinsScreen({ navigation }: any) {
             ])
         ).start();
 
+        // Hero floating hearts — rise up and fade out
+        Animated.loop(
+            Animated.sequence([
+                // Reset
+                Animated.parallel([
+                    Animated.timing(heroHeart1Y, { toValue: 0, duration: 1, useNativeDriver: true }),
+                    Animated.timing(heroHeart1Opacity, { toValue: 0, duration: 1, useNativeDriver: true }),
+                ]),
+                // Float up and fade in then out
+                Animated.parallel([
+                    Animated.timing(heroHeart1Y, { toValue: -30, duration: 2500, useNativeDriver: true }),
+                    Animated.sequence([
+                        Animated.timing(heroHeart1Opacity, { toValue: 0.6, duration: 600, useNativeDriver: true }),
+                        Animated.timing(heroHeart1Opacity, { toValue: 0.6, duration: 1000, useNativeDriver: true }),
+                        Animated.timing(heroHeart1Opacity, { toValue: 0, duration: 900, useNativeDriver: true }),
+                    ]),
+                ]),
+                // Rest
+                Animated.timing(heroHeart1Y, { toValue: -30, duration: 3000, useNativeDriver: true }),
+            ])
+        ).start();
+
+        Animated.loop(
+            Animated.sequence([
+                // Offset start
+                Animated.timing(heroHeart2Y, { toValue: 0, duration: 2000, useNativeDriver: true }),
+                // Reset
+                Animated.parallel([
+                    Animated.timing(heroHeart2Y, { toValue: 0, duration: 1, useNativeDriver: true }),
+                    Animated.timing(heroHeart2Opacity, { toValue: 0, duration: 1, useNativeDriver: true }),
+                ]),
+                // Float up
+                Animated.parallel([
+                    Animated.timing(heroHeart2Y, { toValue: -25, duration: 2200, useNativeDriver: true }),
+                    Animated.sequence([
+                        Animated.timing(heroHeart2Opacity, { toValue: 0.5, duration: 500, useNativeDriver: true }),
+                        Animated.timing(heroHeart2Opacity, { toValue: 0.5, duration: 900, useNativeDriver: true }),
+                        Animated.timing(heroHeart2Opacity, { toValue: 0, duration: 800, useNativeDriver: true }),
+                    ]),
+                ]),
+                // Rest
+                Animated.timing(heroHeart2Y, { toValue: -25, duration: 2500, useNativeDriver: true }),
+            ])
+        ).start();
+
+        // Hero sparkle twinkles
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(heroSparkle1, { toValue: 0.7, duration: 1000, useNativeDriver: true }),
+                Animated.timing(heroSparkle1, { toValue: 0.1, duration: 1000, useNativeDriver: true }),
+                Animated.timing(heroSparkle1, { toValue: 0.1, duration: 1500, useNativeDriver: true }),
+            ])
+        ).start();
+
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(heroSparkle2, { toValue: 0.8, duration: 1300, useNativeDriver: true }),
+                Animated.timing(heroSparkle2, { toValue: 0.15, duration: 1300, useNativeDriver: true }),
+                Animated.timing(heroSparkle2, { toValue: 0.15, duration: 2000, useNativeDriver: true }),
+            ])
+        ).start();
+
+        // Hero ring pulse behind the coin
+        Animated.loop(
+            Animated.sequence([
+                Animated.parallel([
+                    Animated.timing(heroRingScale, { toValue: 1.35, duration: 2000, useNativeDriver: true }),
+                    Animated.timing(heroRingOpacity, { toValue: 0, duration: 2000, useNativeDriver: true }),
+                ]),
+                // Reset
+                Animated.parallel([
+                    Animated.timing(heroRingScale, { toValue: 1, duration: 1, useNativeDriver: true }),
+                    Animated.timing(heroRingOpacity, { toValue: 0.3, duration: 1, useNativeDriver: true }),
+                ]),
+                // Pause
+                Animated.timing(heroRingScale, { toValue: 1, duration: 2500, useNativeDriver: true }),
+            ])
+        ).start();
+
+        // Hero decorative star slow rotation
+        Animated.loop(
+            Animated.timing(heroStarRotate, {
+                toValue: 1,
+                duration: 12000,
+                useNativeDriver: true,
+            })
+        ).start();
+
+        // Sky panel cloud drift animations
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(skyCloud1X, {
+                    toValue: 20,
+                    duration: 4000,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(skyCloud1X, {
+                    toValue: -20,
+                    duration: 4000,
+                    useNativeDriver: true,
+                }),
+            ])
+        ).start();
+
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(skyCloud2X, {
+                    toValue: -18,
+                    duration: 5500,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(skyCloud2X, {
+                    toValue: 15,
+                    duration: 5500,
+                    useNativeDriver: true,
+                }),
+            ])
+        ).start();
+
+        // Sky panel sparkle twinkle animations
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(skySparkle1, {
+                    toValue: 0.8,
+                    duration: 1200,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(skySparkle1, {
+                    toValue: 0.15,
+                    duration: 1200,
+                    useNativeDriver: true,
+                }),
+            ])
+        ).start();
+
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(skySparkle2, {
+                    toValue: 0.9,
+                    duration: 1800,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(skySparkle2, {
+                    toValue: 0.2,
+                    duration: 1800,
+                    useNativeDriver: true,
+                }),
+            ])
+        ).start();
+
+        // Free Coins gift icon — single bounce then long rest
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(freeGiftBounce, {
+                    toValue: -5,
+                    duration: 300,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(freeGiftBounce, {
+                    toValue: 0,
+                    duration: 400,
+                    useNativeDriver: true,
+                }),
+                // Rest for ~4 seconds before next bounce
+                Animated.timing(freeGiftBounce, {
+                    toValue: 0,
+                    duration: 4000,
+                    useNativeDriver: true,
+                }),
+            ])
+        ).start();
+
+        // Free Coins shimmer sweep
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(freeShimmerX, {
+                    toValue: SCREEN_WIDTH + 60,
+                    duration: 2500,
+                    useNativeDriver: true,
+                }),
+                // Pause before next sweep
+                Animated.timing(freeShimmerX, {
+                    toValue: SCREEN_WIDTH + 60,
+                    duration: 3000,
+                    useNativeDriver: true,
+                }),
+                // Snap back
+                Animated.timing(freeShimmerX, {
+                    toValue: -60,
+                    duration: 1,
+                    useNativeDriver: true,
+                }),
+            ])
+        ).start();
+
+        // Free Coins sparkle pop
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(freeSparkleOpacity, {
+                    toValue: 1,
+                    duration: 400,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(freeSparkleOpacity, {
+                    toValue: 0,
+                    duration: 400,
+                    useNativeDriver: true,
+                }),
+                // Rest
+                Animated.timing(freeSparkleOpacity, {
+                    toValue: 0,
+                    duration: 3000,
+                    useNativeDriver: true,
+                }),
+            ])
+        ).start();
+
+        // Coin slot glow pulse
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(freeSlotGlow, {
+                    toValue: 1.25,
+                    duration: 900,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(freeSlotGlow, {
+                    toValue: 1,
+                    duration: 900,
+                    useNativeDriver: true,
+                }),
+            ])
+        ).start();
+
     }, []);
 
     const loadReceivedCoins = async () => {
@@ -222,15 +460,6 @@ export default function CoinsScreen({ navigation }: any) {
             setUncollectedCoins(response.received || []);
         } catch (error) {
             console.error('Error loading uncollected coins:', error);
-        }
-    };
-
-    const loadTrustConnections = async () => {
-        try {
-            const response = await api.getTrustConnections(1, 10, 'score');
-            setTrustConnections(response.connections || []);
-        } catch (error) {
-            console.error('Error loading trust connections:', error);
         }
     };
 
@@ -284,7 +513,6 @@ export default function CoinsScreen({ navigation }: any) {
         loadCoins();
         loadReceivedCoins();
         loadUncollectedCoins();
-        loadTrustConnections();
     };
 
     const handleEncouragementClose = () => {
@@ -293,47 +521,6 @@ export default function CoinsScreen({ navigation }: any) {
         loadCoins();
         loadUncollectedCoins();
         loadReceivedCoins();
-    };
-
-    const handleTrustConnectionPress = (connection: TrustConnection) => {
-        navigation.navigate('FriendshipDetail', {
-            otherUserId: connection.otherUser.id,
-            otherUsername: connection.otherUser.username,
-            otherAvatarUrl: connection.otherUser.avatarUrl,
-        });
-    };
-
-    const handleProfilePress = (connection: TrustConnection) => {
-        // Navigate to Feed stack's UserProfile screen
-        navigation.dispatch(
-            CommonActions.navigate({
-                name: 'Feed',
-                params: {
-                    screen: 'UserProfile',
-                    params: {
-                        userId: connection.otherUser.id,
-                        username: connection.otherUser.username,
-                    },
-                },
-            })
-        );
-    };
-
-    const handleMessagePress = (connection: TrustConnection) => {
-        // Navigate to Messages tab and open chat with this user
-        navigation.dispatch(
-            CommonActions.navigate({
-                name: 'Messages',
-                params: {
-                    screen: 'Chat',
-                    params: {
-                        recipientId: connection.otherUser.id,
-                        recipientUsername: connection.otherUser.username,
-                        recipientAvatarUrl: connection.otherUser.avatarUrl,
-                    },
-                },
-            })
-        );
     };
 
     const getRankInfo = (rank: string) => {
@@ -458,8 +645,36 @@ export default function CoinsScreen({ navigation }: any) {
                     style={styles.heroArc}
                 />
 
+                {/* Decorative floating hearts */}
+                <Animated.View style={[styles.heroFloatHeart1, { transform: [{ translateY: heroHeart1Y }], opacity: heroHeart1Opacity }]} pointerEvents="none">
+                    <Ionicons name="heart" size={14} color={rankInfo.heroGradient[1]} />
+                </Animated.View>
+                <Animated.View style={[styles.heroFloatHeart2, { transform: [{ translateY: heroHeart2Y }], opacity: heroHeart2Opacity }]} pointerEvents="none">
+                    <Ionicons name="heart" size={10} color={rankInfo.heroGradient[0]} />
+                </Animated.View>
+
+                {/* Twinkling sparkles */}
+                <Animated.View style={[styles.heroSparkle1, { opacity: heroSparkle1 }]} pointerEvents="none">
+                    <Ionicons name="sparkles" size={14} color={rankInfo.heroGradient[1]} />
+                </Animated.View>
+                <Animated.View style={[styles.heroSparkle2, { opacity: heroSparkle2 }]} pointerEvents="none">
+                    <Ionicons name="star" size={10} color={rankInfo.heroGradient[0]} />
+                </Animated.View>
+
+                {/* Slowly rotating decorative star */}
+                <Animated.View style={[styles.heroRotatingStar, { transform: [{ rotate: heroStarRotate.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }]} pointerEvents="none">
+                    <Ionicons name="star-outline" size={18} color={rankInfo.heroGradient[2] + '20'} />
+                </Animated.View>
+
                 {/* Main Balance */}
                 <View style={styles.heroContent}>
+                    {/* Expanding ring pulse behind coin */}
+                    <Animated.View style={[styles.heroRingPulse, {
+                        borderColor: rankInfo.heroGradient[1],
+                        transform: [{ scale: heroRingScale }],
+                        opacity: heroRingOpacity,
+                    }]} pointerEvents="none" />
+
                     <Animated.View style={[styles.coinContainer, { transform: [{ scale: coinPulse }] }]}>
                         <KindnessCoin
                             size={72}
@@ -473,10 +688,9 @@ export default function CoinsScreen({ navigation }: any) {
                     </Text>
                     <Text style={[styles.balanceLabel, { color: colors.text.secondary }]}>Positivity Coins</Text>
                 </View>
-            </View>
 
-            {/* ============ COINS GIVEN & SKY COINS — SIDE BY SIDE ============ */}
-            <View style={styles.panelsRow}>
+                {/* ============ COINS GIVEN & SKY COINS — SIDE BY SIDE ============ */}
+                <View style={styles.panelsRow}>
                 {/* Coins Given Panel */}
                 <View style={styles.panelCard}>
                     <LinearGradient
@@ -610,34 +824,43 @@ export default function CoinsScreen({ navigation }: any) {
                             </Text>
                         </View>
 
-                        {/* Slot 5: Footer pill */}
-                        <View style={styles.panelFooterSlot}>
-                            <View style={styles.panelStatPill}>
-                                <Ionicons name="storefront-outline" size={10} color="rgba(255,255,255,0.8)" />
-                                <Text style={styles.panelStatText}>Use in Store</Text>
-                            </View>
-                        </View>
-
-                        {/* Slot 6: CTA */}
-                        <View style={styles.panelCTA}>
-                            {uncollectedCount > 0 ? (
-                                <>
+                        {/* Slot 5+6: Animated sky scene or Collect CTA */}
+                        {uncollectedCount > 0 ? (
+                            <View style={{ marginTop: 4 }}>
+                                <View style={styles.panelCTA}>
                                     <Ionicons name="sparkles" size={13} color={SKY_COIN_COLORS.cardGradient[1]} />
                                     <Text style={[styles.panelCTAText, { color: SKY_COIN_COLORS.cardGradient[1] }]}>
                                         Collect {uncollectedCount}
                                     </Text>
-                                </>
-                            ) : (
-                                <>
-                                    <Ionicons name="basket-outline" size={13} color={SKY_COIN_COLORS.cardGradient[1]} />
-                                    <Text style={[styles.panelCTAText, { color: SKY_COIN_COLORS.cardGradient[1] }]}>
-                                        Store
-                                    </Text>
-                                </>
-                            )}
-                        </View>
+                                </View>
+                            </View>
+                        ) : (
+                            <View style={styles.skyAnimContainer}>
+                                <View style={styles.skyAnimScene}>
+                                    {/* Floating clouds */}
+                                    <Animated.View style={[styles.skyCloudLeft, { transform: [{ translateX: skyCloud1X }] }]}>
+                                        <Ionicons name="cloud" size={18} color="rgba(255,255,255,0.25)" />
+                                    </Animated.View>
+                                    <Animated.View style={[styles.skyCloudRight, { transform: [{ translateX: skyCloud2X }] }]}>
+                                        <Ionicons name="cloud" size={13} color="rgba(255,255,255,0.18)" />
+                                    </Animated.View>
+                                    {/* Twinkling sparkles */}
+                                    <Animated.View style={[styles.skyStar1, { opacity: skySparkle1 }]}>
+                                        <Ionicons name="sparkles" size={10} color="rgba(255,255,255,0.6)" />
+                                    </Animated.View>
+                                    <Animated.View style={[styles.skyStar2, { opacity: skySparkle2 }]}>
+                                        <Ionicons name="star" size={8} color="rgba(255,255,255,0.5)" />
+                                    </Animated.View>
+                                </View>
+                                <Text style={styles.skyAnimText}>Kindness fills your sky</Text>
+                            </View>
+                        )}
                     </LinearGradient>
                 </TouchableOpacity>
+                </View>
+
+                {/* ============ ONBOARDING MISSIONS (inside hero) ============ */}
+                <OnboardingMissions onClaimed={() => loadCoins()} />
             </View>
 
             {/* ============ GET MORE COINS - UNIFIED SECTION ============ */}
@@ -650,10 +873,21 @@ export default function CoinsScreen({ navigation }: any) {
                         end={{ x: 1, y: 0 }}
                         style={styles.freeCoinsGradient}
                     >
+                        {/* Shimmer sweep overlay */}
+                        <Animated.View
+                            style={[styles.freeShimmer, { transform: [{ translateX: freeShimmerX }] }]}
+                            pointerEvents="none"
+                        />
+
+                        {/* Floating sparkle accent */}
+                        <Animated.View style={[styles.freeFloatingSparkle, { opacity: freeSparkleOpacity }]} pointerEvents="none">
+                            <Ionicons name="sparkles" size={16} color="#6EE7B7" />
+                        </Animated.View>
+
                         <View style={styles.freeCoinsLeft}>
-                            <View style={[styles.freeCoinsBadge, { backgroundColor: colors.background }]}>
+                            <Animated.View style={[styles.freeCoinsBadge, { backgroundColor: colors.background, transform: [{ translateY: freeGiftBounce }] }]}>
                                 <Ionicons name="gift" size={20} color="#10B981" />
-                            </View>
+                            </Animated.View>
                             <View style={styles.freeCoinsInfo}>
                                 <Text style={styles.freeCoinsTitle}>Free Coins</Text>
                                 <Text style={styles.freeCoinsSubtitle}>
@@ -686,18 +920,19 @@ export default function CoinsScreen({ navigation }: any) {
                     {/* Coin slots indicator */}
                     <View style={[styles.coinSlots, { backgroundColor: colors.surface }]}>
                         {[0, 1, 2].map((i) => (
-                            <View
+                            <Animated.View
                                 key={i}
                                 style={[
                                     styles.coinSlot,
                                     { backgroundColor: colors.border, borderColor: colors.border },
-                                    i < coinsData.cooldownCoinsAvailable && styles.coinSlotFilled
+                                    i < coinsData.cooldownCoinsAvailable && styles.coinSlotFilled,
+                                    i < coinsData.cooldownCoinsAvailable && { transform: [{ scale: freeSlotGlow }] }
                                 ]}
                             >
                                 {i < coinsData.cooldownCoinsAvailable && (
                                     <Ionicons name="checkmark" size={10} color="#FFF" />
                                 )}
-                            </View>
+                            </Animated.View>
                         ))}
                     </View>
                 </View>
@@ -739,37 +974,6 @@ export default function CoinsScreen({ navigation }: any) {
                 </View>
             </View>
 
-            {/* ============ FRIENDSHIP BONDS ============ */}
-            {trustConnections.length > 0 && (
-                <View style={styles.trustSection}>
-                    {/* Compact inline label row */}
-                    <View style={styles.trustLabelRow}>
-                        <View style={styles.trustLabelAccent} />
-                        <Ionicons name="people" size={13} color="#8B5CF6" />
-                        <Text style={[styles.trustLabelText, { color: colors.text.secondary }]}>Bonds</Text>
-                        {trustConnections.length > 3 && (
-                            <TouchableOpacity
-                                style={[styles.seeAllBtn, { backgroundColor: colors.surfaceVariant }]}
-                                onPress={() => setShowAllTrust(!showAllTrust)}
-                            >
-                                <Text style={styles.seeAllText}>
-                                    {showAllTrust ? 'Less' : `All (${trustConnections.length})`}
-                                </Text>
-                            </TouchableOpacity>
-                        )}
-                    </View>
-                    {(showAllTrust ? trustConnections : trustConnections.slice(0, 3)).map((connection) => (
-                        <TrustConnectionItem
-                            key={connection.id}
-                            connection={connection}
-                            onPress={handleTrustConnectionPress}
-                            onMessagePress={handleMessagePress}
-                            onProfilePress={handleProfilePress}
-                        />
-                    ))}
-                </View>
-            )}
-
             {/* ============ VIEW ALL ACTIVITY — BOTTOM ============ */}
             <TouchableOpacity
                 style={[styles.viewAllActivityBottom, { backgroundColor: colors.background, borderColor: colors.border }]}
@@ -803,7 +1007,7 @@ export default function CoinsScreen({ navigation }: any) {
     );
 }
 
-// Earn Chip Component with press animation
+// Earn Chip Component with wiggle + glow animations
 function EarnChip({ icon, iconColor, iconBg, label, reward, disabled, onPress, colors }: {
     icon: keyof typeof Ionicons.glyphMap;
     iconColor: string;
@@ -815,6 +1019,65 @@ function EarnChip({ icon, iconColor, iconBg, label, reward, disabled, onPress, c
     colors: any;
 }) {
     const scale = React.useRef(new Animated.Value(1)).current;
+    const iconRotate = React.useRef(new Animated.Value(0)).current;
+    const iconGlow = React.useRef(new Animated.Value(1)).current;
+
+    React.useEffect(() => {
+        if (!disabled) {
+            // Icon wiggle: tilt left, tilt right, settle — then rest
+            Animated.loop(
+                Animated.sequence([
+                    Animated.timing(iconRotate, {
+                        toValue: 1,
+                        duration: 150,
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(iconRotate, {
+                        toValue: -1,
+                        duration: 150,
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(iconRotate, {
+                        toValue: 0.5,
+                        duration: 100,
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(iconRotate, {
+                        toValue: 0,
+                        duration: 100,
+                        useNativeDriver: true,
+                    }),
+                    // Rest
+                    Animated.timing(iconRotate, {
+                        toValue: 0,
+                        duration: 3500,
+                        useNativeDriver: true,
+                    }),
+                ])
+            ).start();
+
+            // Icon background glow pulse
+            Animated.loop(
+                Animated.sequence([
+                    Animated.timing(iconGlow, {
+                        toValue: 1.15,
+                        duration: 1400,
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(iconGlow, {
+                        toValue: 1,
+                        duration: 1400,
+                        useNativeDriver: true,
+                    }),
+                ])
+            ).start();
+        }
+    }, []);
+
+    const spin = iconRotate.interpolate({
+        inputRange: [-1, 0, 1],
+        outputRange: ['-12deg', '0deg', '12deg'],
+    });
 
     const handlePressIn = () => {
         Animated.spring(scale, {
@@ -843,9 +1106,13 @@ function EarnChip({ icon, iconColor, iconBg, label, reward, disabled, onPress, c
                 onPressOut={handlePressOut}
                 activeOpacity={1}
             >
-                <View style={[styles.earnChipIcon, { backgroundColor: iconBg }]}>
+                <Animated.View style={[
+                    styles.earnChipIcon,
+                    { backgroundColor: iconBg },
+                    !disabled && { transform: [{ rotate: spin }, { scale: iconGlow }] }
+                ]}>
                     <Ionicons name={icon} size={15} color={iconColor} />
-                </View>
+                </Animated.View>
                 <Text style={[styles.earnChipLabel, { color: colors.text.primary }]}>{label}</Text>
                 <View style={[styles.earnChipBadge, disabled && [styles.earnChipBadgeDisabled, { backgroundColor: colors.surface }]]}>
                     <Text style={[styles.earnChipReward, disabled && [styles.earnChipRewardDisabled, { color: colors.text.secondary }]]}>{reward}</Text>
@@ -959,22 +1226,56 @@ const styles = StyleSheet.create({
     // ============ HERO SECTION ============
     heroWrapper: {
         paddingBottom: 8,
-        paddingHorizontal: 20,
         alignItems: 'center',
+        overflow: 'hidden',
     },
     heroArc: {
         position: 'absolute',
         top: 0,
-        left: -SCREEN_WIDTH * 0.25,
-        width: SCREEN_WIDTH * 1.5,
-        height: SCREEN_WIDTH * 0.6,
-        borderBottomLeftRadius: SCREEN_WIDTH * 0.6,
-        borderBottomRightRadius: SCREEN_WIDTH * 0.6,
+        left: -SCREEN_WIDTH * 0.35,
+        width: SCREEN_WIDTH * 1.7,
+        height: SCREEN_WIDTH * 1.6,
+        borderBottomLeftRadius: SCREEN_WIDTH * 0.85,
+        borderBottomRightRadius: SCREEN_WIDTH * 0.85,
         opacity: 0.12,
+    },
+    heroFloatHeart1: {
+        position: 'absolute',
+        top: 38,
+        left: '18%',
+    },
+    heroFloatHeart2: {
+        position: 'absolute',
+        top: 48,
+        right: '16%',
+    },
+    heroSparkle1: {
+        position: 'absolute',
+        top: 22,
+        right: '22%',
+    },
+    heroSparkle2: {
+        position: 'absolute',
+        top: 60,
+        left: '24%',
+    },
+    heroRotatingStar: {
+        position: 'absolute',
+        top: 16,
+        left: '12%',
+    },
+    heroRingPulse: {
+        position: 'absolute',
+        top: 32,
+        width: 76,
+        height: 76,
+        borderRadius: 38,
+        borderWidth: 2,
     },
     heroContent: {
         alignItems: 'center',
         paddingTop: 32,
+        paddingHorizontal: 20,
     },
     coinContainer: {
         marginBottom: 10,
@@ -1147,6 +1448,47 @@ const styles = StyleSheet.create({
         fontWeight: '800',
         color: '#FFF',
     },
+    // Sky panel playful animation
+    skyAnimContainer: {
+        height: 56,
+        marginTop: 4,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    skyAnimScene: {
+        width: '100%',
+        height: 28,
+        position: 'relative',
+        overflow: 'hidden',
+    },
+    skyCloudLeft: {
+        position: 'absolute',
+        top: 2,
+        left: '15%',
+    },
+    skyCloudRight: {
+        position: 'absolute',
+        top: 10,
+        right: '18%',
+    },
+    skyStar1: {
+        position: 'absolute',
+        top: 0,
+        right: '30%',
+    },
+    skyStar2: {
+        position: 'absolute',
+        top: 14,
+        left: '38%',
+    },
+    skyAnimText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: 'rgba(255,255,255,0.55)',
+        fontStyle: 'italic',
+        letterSpacing: 0.3,
+        marginTop: 2,
+    },
     // ============ SECTION STYLES ============
     sectionHeader: {
         flexDirection: 'row',
@@ -1166,17 +1508,6 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: '700',
     },
-    seeAllBtn: {
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 12
-    },
-    seeAllText: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: '#3B82F6'
-    },
-
     // ============ GET MORE COINS SECTION ============
     getCoinsSection: {
         marginTop: 0,
@@ -1195,7 +1526,8 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: 12
+        padding: 12,
+        overflow: 'hidden',
     },
     freeCoinsLeft: {
         flexDirection: 'row',
@@ -1222,6 +1554,22 @@ const styles = StyleSheet.create({
     freeCoinsSubtitle: {
         fontSize: 12,
         color: 'rgba(255,255,255,0.85)'
+    },
+    freeShimmer: {
+        position: 'absolute',
+        top: -10,
+        left: 0,
+        width: 50,
+        height: 80,
+        backgroundColor: 'rgba(110,231,183,0.3)',
+        borderRadius: 25,
+        zIndex: 1,
+    },
+    freeFloatingSparkle: {
+        position: 'absolute',
+        top: 6,
+        right: '38%',
+        zIndex: 2,
     },
     claimButton: {
         flexDirection: 'row',
@@ -1337,29 +1685,6 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '600',
         color: '#6366F1',
-    },
-
-    // ============ TRUST SECTION ============
-    trustSection: {
-        marginTop: 14,
-        marginHorizontal: 16,
-    },
-    trustLabelRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 8,
-        gap: 5,
-    },
-    trustLabelAccent: {
-        width: 3,
-        height: 14,
-        borderRadius: 1.5,
-        backgroundColor: '#8B5CF6',
-    },
-    trustLabelText: {
-        fontSize: 13,
-        fontWeight: '600',
-        flex: 1,
     },
 
     bottomSpacer: {

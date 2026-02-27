@@ -5,6 +5,7 @@ import { UserDecoration } from '../models/UserDecoration';
 import { UserActiveDecoration } from '../models/UserActiveDecoration';
 import { PositivityCoins } from '../models/PositivityCoins';
 import { logger } from '../utils/logger';
+import { CornerIconService, CornerIconPlacementData } from './CornerIconService';
 
 /**
  * Resolved decoration style data for a single user.
@@ -15,6 +16,7 @@ interface ResolvedDecoration {
   darkBackground: Record<string, unknown> | null;
   frame: Record<string, unknown> | null;
   iconColors: Record<string, unknown> | null;
+  cornerIcons: CornerIconPlacementData[] | null;
 }
 
 /**
@@ -300,29 +302,32 @@ export class DecorationService {
         return new Map();
       }
 
-      const activeDecorations = await UserActiveDecoration.findAll({
-        where: {
-          userId: { [Op.in]: userIds }
-        },
-        include: [
-          {
-            model: PostDecoration,
-            as: 'lightBackground'
+      const [activeDecorations, cornerIconsMap] = await Promise.all([
+        UserActiveDecoration.findAll({
+          where: {
+            userId: { [Op.in]: userIds }
           },
-          {
-            model: PostDecoration,
-            as: 'darkBackground'
-          },
-          {
-            model: PostDecoration,
-            as: 'frame'
-          },
-          {
-            model: PostDecoration,
-            as: 'iconColor'
-          }
-        ]
-      });
+          include: [
+            {
+              model: PostDecoration,
+              as: 'lightBackground'
+            },
+            {
+              model: PostDecoration,
+              as: 'darkBackground'
+            },
+            {
+              model: PostDecoration,
+              as: 'frame'
+            },
+            {
+              model: PostDecoration,
+              as: 'iconColor'
+            }
+          ]
+        }),
+        CornerIconService.batchResolveCornerIcons(userIds)
+      ]);
 
       const result = new Map<string, ResolvedDecoration>();
 
@@ -331,13 +336,28 @@ export class DecorationService {
         const darkBg = active.get('darkBackground') as PostDecoration | null;
         const frame = active.get('frame') as PostDecoration | null;
         const iconColor = active.get('iconColor') as PostDecoration | null;
+        const corners = cornerIconsMap.get(active.userId) || null;
 
         result.set(active.userId, {
           lightBackground: lightBg ? JSON.parse(lightBg.styleData) : null,
           darkBackground: darkBg ? JSON.parse(darkBg.styleData) : null,
           frame: frame ? JSON.parse(frame.styleData) : null,
-          iconColors: iconColor ? JSON.parse(iconColor.styleData) : null
+          iconColors: iconColor ? JSON.parse(iconColor.styleData) : null,
+          cornerIcons: corners && corners.length > 0 ? corners : null
         });
+      }
+
+      // Also add entries for users who have corner icons but no active decoration
+      for (const [userId, corners] of cornerIconsMap) {
+        if (!result.has(userId) && corners.length > 0) {
+          result.set(userId, {
+            lightBackground: null,
+            darkBackground: null,
+            frame: null,
+            iconColors: null,
+            cornerIcons: corners
+          });
+        }
       }
 
       logger.info('Batch decorations resolved', {

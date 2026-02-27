@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SeeMe Admin - User Details</title>
+  <link rel="stylesheet" href="/admin/css/admin.css">
+</head>
+<body>
+  <div class="app-layout">
+    <aside class="sidebar">
+      <div class="brand">SeeMe</div>
+      <div class="brand-sub">Admin Dashboard</div>
+      <nav>
+        <a href="/admin/dashboard.html" data-page="dashboard">Dashboard</a>
+        <a href="/admin/users.html" data-page="users" class="active">Users</a>
+        <a href="/admin/posts.html" data-page="posts">Posts</a>
+        <a href="/admin/audit-log.html" data-page="audit">Audit Log</a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="admin-info">Signed in as <span class="admin-name"></span></div>
+        <button class="btn btn-sm btn-danger" onclick="logout()">Sign Out</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <div class="page-header">
+        <h1 id="page-title">User Details</h1>
+        <p><a href="/admin/users.html">Users</a> &gt; <span id="breadcrumb-name">Loading...</span></p>
+      </div>
+
+      <div id="alert-area"></div>
+
+      <div id="actions-bar" class="actions-bar"></div>
+
+      <div class="detail-grid">
+        <div class="detail-card" id="user-info">
+          <h2>Account Information</h2>
+          <div class="loading">Loading...</div>
+        </div>
+        <div class="detail-card" id="user-stats">
+          <h2>Statistics</h2>
+          <div class="loading">Loading...</div>
+        </div>
+      </div>
+
+      <div class="table-container" style="margin-bottom:24px">
+        <div class="table-header"><h2>Recent Posts</h2></div>
+        <table>
+          <thead><tr><th>Caption</th><th>Likes</th><th>Comments</th><th>Created</th></tr></thead>
+          <tbody id="recent-posts"><tr><td colspan="4" class="loading">Loading...</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="table-container">
+        <div class="table-header"><h2>Admin Action History</h2></div>
+        <table>
+          <thead><tr><th>Action</th><th>Admin</th><th>Details</th><th>Date</th></tr></thead>
+          <tbody id="audit-history"><tr><td colspan="4" class="loading">Loading...</td></tr></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <!-- Suspend Modal -->
+  <div id="suspend-modal" class="modal-overlay">
+    <div class="modal">
+      <h3>Suspend User</h3>
+      <div class="form-group">
+        <label>Reason</label>
+        <textarea id="suspend-reason" rows="3" placeholder="Reason for suspension..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Duration (hours)</label>
+        <input type="number" id="suspend-duration" min="1" value="24" placeholder="Hours">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-sm" data-dismiss="suspend-modal">Cancel</button>
+        <button class="btn btn-warning btn-sm" id="confirm-suspend">Suspend</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ban Modal -->
+  <div id="ban-modal" class="modal-overlay">
+    <div class="modal">
+      <h3>Ban User Permanently</h3>
+      <div class="form-group">
+        <label>Reason</label>
+        <textarea id="ban-reason" rows="3" placeholder="Reason for permanent ban..."></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-sm" data-dismiss="ban-modal">Cancel</button>
+        <button class="btn btn-danger btn-sm" id="confirm-ban">Ban Permanently</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reset Password Modal -->
+  <div id="reset-modal" class="modal-overlay">
+    <div class="modal">
+      <h3>Reset User Password</h3>
+      <div class="form-group">
+        <label>New Password (min 8 characters)</label>
+        <input type="text" id="new-password" placeholder="New password...">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-sm" data-dismiss="reset-modal">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="confirm-reset">Reset Password</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/admin/js/api.js"></script>
+  <script src="/admin/js/auth.js"></script>
+  <script src="/admin/js/utils.js"></script>
+  <script src="/admin/js/user-detail.js"></script>
+</body>
+</html>

@@ -20,6 +20,7 @@ import {
   UserOwnedDecoration,
   ActiveDecorationConfig,
 } from '../types/decorations';
+import CornerIconsManager from './CornerIconsManager';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_GAP = 10;
@@ -30,12 +31,13 @@ interface DecorationStoreContentProps {
   onPurchase?: () => void;
 }
 
-type Category = 'background' | 'frame' | 'icon_color';
+type Category = 'background' | 'frame' | 'icon_color' | 'corners';
 
 const CATEGORIES: { key: Category; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'background', label: 'Backgrounds', icon: 'image-outline' },
   { key: 'frame', label: 'Frames', icon: 'square-outline' },
   { key: 'icon_color', label: 'Icons', icon: 'color-palette-outline' },
+  { key: 'corners', label: 'Corners', icon: 'grid-outline' },
 ];
 
 export default function DecorationStoreContent({ skyCoins, onPurchase }: DecorationStoreContentProps) {
@@ -52,6 +54,7 @@ export default function DecorationStoreContent({ skyCoins, onPurchase }: Decorat
   // ---- Data loading ----
 
   const loadStoreItems = useCallback(async () => {
+    if (activeCategory === 'corners') return; // Corners tab has its own data loading
     try {
       const response = await api.getDecorationStore(activeCategory);
       setStoreItems(response.items || []);
@@ -253,7 +256,6 @@ export default function DecorationStoreContent({ skyCoins, onPurchase }: Decorat
   const renderFramePreview = (item: StoreDecoration) => {
     try {
       const style = JSON.parse(item.styleData);
-      const corner = style.cornerDecorations;
       return (
         <View style={previewStyles.framePreviewContainer}>
           <View
@@ -266,15 +268,6 @@ export default function DecorationStoreContent({ skyCoins, onPurchase }: Decorat
               },
             ]}
           />
-          {corner && (
-            <View style={previewStyles.cornerIndicator}>
-              <MaterialCommunityIcons
-                name={corner.iconName}
-                size={14}
-                color={corner.color}
-              />
-            </View>
-          )}
         </View>
       );
     } catch {
@@ -489,8 +482,10 @@ export default function DecorationStoreContent({ skyCoins, onPurchase }: Decorat
         </View>
       )}
 
-      {/* Items Grid */}
-      {loading ? (
+      {/* Items Grid or Corners Manager */}
+      {activeCategory === 'corners' ? (
+        <CornerIconsManager skyCoins={skyCoins} onPurchase={onPurchase} />
+      ) : loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.text.secondary} />
         </View>

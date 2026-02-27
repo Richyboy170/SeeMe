@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,12 +8,15 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../../theme';
 import { api } from '../../services/api';
 import CapsuleCommunityCard from '../../components/CapsuleCommunityCard';
+
+const PAGE_SIZE = 8;
 
 interface PreviewPost {
   id: string;
@@ -30,6 +33,7 @@ interface Topic {
   iconEmoji: string | null;
   iconImageUrl: string | null;
   category: string;
+  type?: 'community' | 'private' | 'broadcast';
   followerCount: number;
   postCount: number;
   weeklyPostCount: number;
@@ -51,49 +55,73 @@ interface CommunitiesTabProps {
 
 export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesTabProps) {
   const { colors, isDark } = useTheme();
+  const { width: screenWidth } = useWindowDimensions();
+  const numColumns = screenWidth >= 768 ? 4 : 2;
+  const cardWidth = (screenWidth - 32 - (numColumns - 1) * 12) / numColumns;
   const [topics, setTopics] = useState<Topic[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedType, setSelectedType] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const cancelRef = useRef(0); // incremented to cancel in-flight background loads
 
   useFocusEffect(
     useCallback(() => {
-      loadData();
+      loadAll();
     }, [])
   );
 
-  // Handle search query changes
+  // Reset and reload when filters change
   useEffect(() => {
-    loadTopics(selectedCategory || undefined, searchQuery || undefined);
-  }, [searchQuery, selectedCategory]);
+    loadAll();
+  }, [searchQuery, selectedCategory, selectedType]);
 
-  const loadData = async () => {
-    try {
-      const [topicsRes, categoriesRes] = await Promise.all([
-        api.get('/topics'),
-        api.get('/topics/categories'),
-      ]);
-      setTopics(topicsRes.data.topics || []);
-      setCategories(categoriesRes.data.categories || []);
-    } catch (error) {
-      console.error('Error loading topics:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+  const buildParams = (offset: number) => {
+    const params = new URLSearchParams();
+    params.append('limit', String(PAGE_SIZE));
+    params.append('offset', String(offset));
+    if (selectedCategory) params.append('category', selectedCategory);
+    if (searchQuery) params.append('search', searchQuery);
+    if (selectedType) params.append('type', selectedType);
+    return params.toString();
   };
 
-  const loadTopics = async (category?: string, search?: string) => {
+  const loadAll = async () => {
+    const token = ++cancelRef.current;
     try {
-      const params = new URLSearchParams();
-      if (category) params.append('category', category);
-      if (search) params.append('search', search);
+      setLoading(true);
 
-      const response = await api.get(`/topics?${params.toString()}`);
-      setTopics(response.data.topics || []);
+      // First batch + categories in parallel
+      const [topicsRes, categoriesRes] = await Promise.all([
+        api.get(`/topics?${buildParams(0)}`),
+        api.get('/topics/categories'),
+      ]);
+
+      if (cancelRef.current !== token) return; // stale
+      const firstBatch: Topic[] = topicsRes.data.topics || [];
+      setTopics(firstBatch);
+      setCategories(categoriesRes.data.categories || []);
+      setLoading(false);
+      setRefreshing(false);
+
+      // Keep loading remaining batches in the background
+      let offset = firstBatch.length;
+      let hasMore = topicsRes.data.hasMore ?? firstBatch.length >= PAGE_SIZE;
+
+      while (hasMore && cancelRef.current === token) {
+        const response = await api.get(`/topics?${buildParams(offset)}`);
+        if (cancelRef.current !== token) return; // stale
+        const batch: Topic[] = response.data.topics || [];
+        if (batch.length === 0) break;
+        setTopics(prev => [...prev, ...batch]);
+        offset += batch.length;
+        hasMore = response.data.hasMore ?? batch.length >= PAGE_SIZE;
+      }
     } catch (error) {
       console.error('Error loading topics:', error);
+      setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -120,11 +148,53 @@ export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesT
 
   const handleRefresh = () => {
     setRefreshing(true);
-    loadData();
+    loadAll();
   };
+
+  const TYPE_FILTERS = [
+    { key: null, label: 'All', icon: 'apps-outline' },
+    { key: 'community', label: 'Communities', icon: 'people-outline' },
+    { key: 'private', label: 'Private', icon: 'lock-closed-outline' },
+    { key: 'broadcast', label: 'Channels', icon: 'megaphone-outline' },
+  ] as const;
 
   const renderCategoriesHeader = () => (
     <View style={styles.headerContainer}>
+      {/* Type filter chips */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.categoriesList}
+        contentContainerStyle={styles.categoriesContent}
+      >
+        {TYPE_FILTERS.map((tf) => (
+          <TouchableOpacity
+            key={tf.label}
+            style={[
+              styles.categoryChip,
+              { backgroundColor: colors.background, borderColor: colors.border },
+              selectedType === tf.key && styles.categoryChipActive,
+              !tf.key && !selectedType && styles.categoryChipActive,
+            ]}
+            onPress={() => setSelectedType(selectedType === tf.key ? null : tf.key)}
+          >
+            <Ionicons name={tf.icon as any} size={14} color={
+              (selectedType === tf.key || (!tf.key && !selectedType)) ? '#FFFFFF' : colors.text.secondary
+            } />
+            <Text
+              style={[
+                styles.categoryText,
+                { color: colors.text.secondary },
+                (selectedType === tf.key || (!tf.key && !selectedType)) && styles.categoryTextActive,
+              ]}
+            >
+              {tf.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* Category filter chips */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -166,6 +236,7 @@ export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesT
       topic={item}
       onPress={() => navigation.navigate('TopicPage', { topicSlug: item.slug })}
       onToggleFollow={handleFollowTopic}
+      cardWidth={cardWidth}
     />
   );
 
@@ -180,11 +251,12 @@ export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesT
 
   return (
     <FlatList
+      key={`cols-${numColumns}`}
       data={topics}
       renderItem={renderTopic}
       keyExtractor={item => item.id}
-      numColumns={2}
-      columnWrapperStyle={styles.columnWrapper}
+      numColumns={numColumns}
+      columnWrapperStyle={{ gap: 12, marginBottom: 12 }}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
       }
@@ -258,10 +330,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 16,
-  },
-  columnWrapper: {
-    justifyContent: 'space-between',
-    marginBottom: 16,
   },
   emptyState: {
     alignItems: 'center',

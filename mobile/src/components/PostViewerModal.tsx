@@ -11,6 +11,7 @@ import {
   StatusBar,
   ViewToken,
   Animated,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getImageUrl } from '../services/api';
@@ -33,6 +34,11 @@ export interface PostViewerModalProps {
   onCommentPress: (postId: string) => void;
   onUserPress?: (userId: string, username: string) => void;
   onPostChange?: (index: number, post: Post) => void;
+  onArchivePost?: (postId: string) => void;
+  onUnarchivePost?: (postId: string) => void;
+  onDeletePost?: (postId: string) => void;
+  isOwnProfile?: boolean;
+  isArchiveView?: boolean;
 }
 
 export default function PostViewerModal({
@@ -44,6 +50,11 @@ export default function PostViewerModal({
   onCommentPress,
   onUserPress,
   onPostChange,
+  onArchivePost,
+  onUnarchivePost,
+  onDeletePost,
+  isOwnProfile = false,
+  isArchiveView = false,
 }: PostViewerModalProps) {
   const { colors, isDark } = useTheme();
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
@@ -112,6 +123,49 @@ export default function PostViewerModal({
     setShareModalVisible(true);
   }, []);
 
+  const handlePostOptions = useCallback((post: Post) => {
+    if (!isOwnProfile) return;
+
+    const options: { text: string; style?: 'destructive' | 'cancel'; onPress?: () => void }[] = [];
+
+    if (isArchiveView) {
+      options.push({
+        text: 'Unarchive Post',
+        onPress: () => {
+          Alert.alert('Unarchive Post', 'This post will be visible on your profile again.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Unarchive', onPress: () => onUnarchivePost?.(post.id) },
+          ]);
+        },
+      });
+    } else {
+      options.push({
+        text: 'Archive Post',
+        onPress: () => {
+          Alert.alert('Archive Post', 'This post will be hidden from your profile but not deleted.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Archive', onPress: () => onArchivePost?.(post.id) },
+          ]);
+        },
+      });
+    }
+
+    options.push({
+      text: 'Delete Post',
+      style: 'destructive',
+      onPress: () => {
+        Alert.alert('Delete Post', 'This post will be permanently deleted. This cannot be undone.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: () => onDeletePost?.(post.id) },
+        ]);
+      },
+    });
+
+    options.push({ text: 'Cancel', style: 'cancel' });
+
+    Alert.alert('Post Options', undefined, options);
+  }, [isOwnProfile, isArchiveView, onArchivePost, onUnarchivePost, onDeletePost]);
+
   const currentPost = posts[currentIndex];
 
   const renderPost = ({ item, index }: { item: Post; index: number }) => {
@@ -120,25 +174,29 @@ export default function PostViewerModal({
     return (
       <View style={styles.postItem}>
         {/* User Header */}
-        <TouchableOpacity
-          style={styles.postHeader}
-          onPress={() => onUserPressInternal(item.user.id, item.user.username)}
-        >
-          <Avatar
-            size={36}
-            avatarUrl={!item.user.activeAvatar ? item.user.avatarUrl : undefined}
-            username={item.user.username}
-            customizations={item.user.activeAvatar?.customizations}
-            avatarStyle={item.user.activeAvatar?.style}
-          />
-          <View style={styles.postUserInfo}>
-            <Text style={[styles.postUsername, { color: colors.text.primary }]}>@{item.user.username}</Text>
-            <Text style={[styles.postTime, { color: colors.text.tertiary }]}>{formatTimeAgo(item.createdAt)}</Text>
-          </View>
-          <TouchableOpacity style={styles.moreButton}>
-            <Ionicons name="ellipsis-horizontal" size={20} color={colors.icon.secondary} />
+        <View style={styles.postHeader}>
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+            onPress={() => onUserPressInternal(item.user.id, item.user.username)}
+          >
+            <Avatar
+              size={36}
+              avatarUrl={!item.user.activeAvatar ? item.user.avatarUrl : undefined}
+              username={item.user.username}
+              customizations={item.user.activeAvatar?.customizations}
+              avatarStyle={item.user.activeAvatar?.style}
+            />
+            <View style={styles.postUserInfo}>
+              <Text style={[styles.postUsername, { color: colors.text.primary }]}>@{item.user.username}</Text>
+              <Text style={[styles.postTime, { color: colors.text.tertiary }]}>{formatTimeAgo(item.createdAt)}</Text>
+            </View>
           </TouchableOpacity>
-        </TouchableOpacity>
+          {isOwnProfile && (
+            <TouchableOpacity style={styles.moreButton} onPress={() => handlePostOptions(item)}>
+              <Ionicons name="ellipsis-horizontal" size={20} color={colors.icon.secondary} />
+            </TouchableOpacity>
+          )}
+        </View>
 
         {/* Image with double tap support */}
         <TouchableOpacity

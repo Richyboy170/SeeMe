@@ -24,4 +24,14 @@ router.get('/:topicId/admins', optionalAuth, TopicController.getTopicAdmins);
 router.post('/:topicId/admins', authenticateToken, TopicController.addTopicAdmin);
 router.delete('/:topicId/admins/:userId', authenticateToken, TopicController.removeTopicAdmin);
 
+// Private group routes
+router.post('/:topicId/request-join', authenticateToken, TopicController.requestJoin);
+router.get('/:topicId/pending-requests', authenticateToken, TopicController.getPendingRequests);
+router.post('/:topicId/handle-request', authenticateToken, TopicController.handleRequest);
+
+// Broadcaster routes
+router.get('/:topicId/broadcasters', optionalAuth, TopicController.getBroadcasters);
+router.post('/:topicId/broadcasters', authenticateToken, TopicController.addBroadcaster);
+router.delete('/:topicId/broadcasters/:userId', authenticateToken, TopicController.removeBroadcaster);
+
 export default router;

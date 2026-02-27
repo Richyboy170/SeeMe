@@ -1,7 +1,11 @@
 import { Request, Response } from 'express';
+import { Op } from 'sequelize';
 import { Post, PostStatus, PostVisibility } from '../models/Post';
 import { User } from '../models/User';
 import { PostTopic } from '../models/PostTopic';
+import { Topic } from '../models/Topic';
+import { TopicFollow } from '../models/TopicFollow';
+import { TopicAdmin } from '../models/TopicAdmin';
 import { S3Service } from '../services/S3Service';
 import { CoinsService } from '../services/CoinsService';
 import { AuthRequest } from '../middleware/auth';
@@ -43,6 +47,41 @@ export class PostController {
       if (validVisibility !== PostVisibility.FRIENDS_ONLY && parsedTopicIds.length === 0) {
         res.status(400).json({ error: 'Please select at least one topic for community posts' });
         return;
+      }
+
+      // Check permissions for special topic types
+      if (parsedTopicIds.length > 0) {
+        const topics = await Topic.findAll({
+          where: { id: parsedTopicIds, isActive: true }
+        });
+
+        for (const topic of topics) {
+          if (topic.type === 'broadcast') {
+            // Only broadcasters, admins, and creators can post to broadcast channels
+            const isBroadcaster = await TopicAdmin.findOne({
+              where: { topicId: topic.id, userId, role: 'broadcaster' }
+            });
+            const isAdmin = topic.creatorId === userId || await TopicAdmin.findOne({
+              where: { topicId: topic.id, userId, role: { [Op.in]: ['creator', 'admin'] } }
+            });
+            if (!isBroadcaster && !isAdmin) {
+              res.status(403).json({ error: `Only broadcasters can post to "${topic.name}"` });
+              return;
+            }
+          } else if (topic.type === 'private') {
+            // Only active members can post to private groups
+            const membership = await TopicFollow.findOne({
+              where: { topicId: topic.id, userId, status: 'active' }
+            });
+            const isAdmin = topic.creatorId === userId || await TopicAdmin.findOne({
+              where: { topicId: topic.id, userId }
+            });
+            if (!membership && !isAdmin) {
+              res.status(403).json({ error: `You must be a member of "${topic.name}" to post` });
+              return;
+            }
+          }
+        }
       }
 
       // Handle both single and dual image uploads
@@ -498,14 +537,15 @@ export class PostController {
       const { rows: posts, count } = await Post.findAndCountAll({
         where: {
           userId: user.id,
-          status: PostStatus.COMPLETED // Only show completed posts
+          status: PostStatus.COMPLETED, // Only show completed posts
+          isArchived: { [Op.ne]: true }
         },
         order: [['createdAt', 'DESC']],
         limit,
         offset,
         attributes: [
           'id', 'processedImageUrl', 'thumbnailUrl', 'caption',
-          'likesCount', 'commentsCount', 'locationName', 'photoTakenAt', 'createdAt'
+          'likesCount', 'commentsCount', 'locationName', 'photoTakenAt', 'createdAt', 'isArchived'
         ]
       });
 
@@ -593,20 +633,24 @@ export class PostController {
     try {
       const userId = req.user!.id;
       const page = parseInt(req.query.page as string) || 1;
+      const archived = req.query.archived === 'true';
       const limit = 20;
       const offset = (page - 1) * limit;
 
+      const whereClause: any = { userId };
+      if (archived) {
+        whereClause.isArchived = true;
+      }
+
       const { rows: posts, count } = await Post.findAndCountAll({
-        where: {
-          userId
-        },
+        where: whereClause,
         order: [['createdAt', 'DESC']],
         limit,
         offset,
         attributes: [
           'id', 'originalImageUrl', 'processedImageUrl', 'thumbnailUrl',
           'caption', 'status', 'processingError', 'likesCount', 'commentsCount',
-          'locationName', 'photoTakenAt',
+          'locationName', 'photoTakenAt', 'isArchived',
           'createdAt', 'processingStartedAt', 'processingCompletedAt'
         ]
       });

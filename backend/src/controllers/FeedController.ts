@@ -6,6 +6,8 @@ import { Follow } from '../models/Follow';
 import { Like } from '../models/Like';
 import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
 import { Topic } from '../models/Topic';
+import { TopicFollow } from '../models/TopicFollow';
+import { PostTopic } from '../models/PostTopic';
 import { AuthRequest } from '../middleware/auth';
 import { redisClient, redisAvailable } from '../config/redis';
 import { logger } from '../utils/logger';
@@ -186,7 +188,7 @@ export class FeedController {
           {
             model: Topic,
             as: 'topics',
-            attributes: ['id', 'name', 'slug', 'iconEmoji'],
+            attributes: ['id', 'name', 'slug', 'iconEmoji', 'iconImageUrl', 'type'],
             through: { attributes: [] }
           }
         ],
@@ -220,8 +222,32 @@ export class FeedController {
 
       const likedPostIds = new Set(likes.map(like => like.postId));
 
+      // Filter out posts from private groups where user is not an active member
+      const userPrivateGroupIds = new Set<string>();
+      const activePrivateMemberships = await TopicFollow.findAll({
+        where: { userId, status: 'active' },
+        attributes: ['topicId'],
+      });
+      for (const m of activePrivateMemberships) userPrivateGroupIds.add(m.topicId);
+
+      // Get all private topic IDs that appear in these posts
+      const allPostIds = posts.map(p => p.id);
+      const postTopicLinks = await PostTopic.findAll({
+        where: { postId: allPostIds },
+        include: [{ model: Topic, as: 'topic', attributes: ['id', 'type'], where: { type: 'private' }, required: true }],
+      });
+      const privatePostIds = new Set<string>();
+      for (const pt of postTopicLinks) {
+        if (!userPrivateGroupIds.has(pt.topicId)) {
+          privatePostIds.add(pt.postId);
+        }
+      }
+
+      // Filter posts
+      const filteredPosts = posts.filter(p => !privatePostIds.has(p.id));
+
       // Fetch active avatars for all post authors
-      const authorIds = [...new Set(posts.map(p => p.userId))];
+      const authorIds = [...new Set(filteredPosts.map(p => p.userId))];
       const avatars = await AvatarConfigSQL.findAll({
         where: {
           userId: authorIds,
@@ -234,10 +260,11 @@ export class FeedController {
       const decorationsByUserId = await DecorationService.batchResolveActiveDecorations(authorIds);
 
       // Fetch top 3 recent comments for each post
-      const recentCommentsByPostId = await batchFetchRecentComments(postIds, 3);
+      const filteredPostIds = filteredPosts.map(p => p.id);
+      const recentCommentsByPostId = await batchFetchRecentComments(filteredPostIds, 3);
 
       const response = {
-        posts: posts.map(post => {
+        posts: filteredPosts.map(post => {
           const userModel = post.get('user') as any;
           const userData = userModel ? (userModel.get ? userModel.get({ plain: true }) : userModel) : null;
           const avatar = avatarsByUserId.get(post.userId);
@@ -258,7 +285,8 @@ export class FeedController {
             createdAt: post.createdAt,
             likedByMe: likedPostIds.has(post.id),
             topics: ((post as any).topics || []).map((t: any) => ({
-              id: t.id, name: t.name, slug: t.slug, iconEmoji: t.iconEmoji,
+              id: t.id, name: t.name, slug: t.slug, iconEmoji: t.iconEmoji, iconImageUrl: t.iconImageUrl,
+              type: t.type,
             })),
             decoration: decorationsByUserId.get(post.userId) || null,
             recentComments: recentCommentsByPostId.get(post.id) || [],
@@ -340,7 +368,7 @@ export class FeedController {
           {
             model: Topic,
             as: 'topics',
-            attributes: ['id', 'name', 'slug', 'iconEmoji'],
+            attributes: ['id', 'name', 'slug', 'iconEmoji', 'iconImageUrl', 'type'],
             through: { attributes: [] }
           }
         ],
@@ -365,19 +393,28 @@ export class FeedController {
       // Check which posts are liked by the current user (if authenticated)
       let likedPostIds = new Set<string>();
       if (userId && posts.length > 0) {
-        const postIds = posts.map(p => p.id);
+        const discoverPostIds = posts.map(p => p.id);
         const likes = await Like.findAll({
           where: {
             userId,
-            postId: postIds
+            postId: discoverPostIds
           },
           attributes: ['postId']
         });
         likedPostIds = new Set(likes.map(like => like.postId));
       }
 
+      // Exclude all private group posts from discover feed
+      const allDiscoverPostIds = posts.map(p => p.id);
+      const privateTopicPostLinks = await PostTopic.findAll({
+        where: { postId: allDiscoverPostIds },
+        include: [{ model: Topic, as: 'topic', attributes: ['id', 'type'], where: { type: 'private' }, required: true }],
+      });
+      const privateGroupPostIds = new Set(privateTopicPostLinks.map(pt => pt.postId));
+      const discoverFilteredPosts = posts.filter(p => !privateGroupPostIds.has(p.id));
+
       // Fetch active avatars for all post authors
-      const authorIds = [...new Set(posts.map(p => p.userId))];
+      const authorIds = [...new Set(discoverFilteredPosts.map(p => p.userId))];
       const avatars = await AvatarConfigSQL.findAll({
         where: {
           userId: authorIds,
@@ -390,11 +427,11 @@ export class FeedController {
       const decorationsByUserId = await DecorationService.batchResolveActiveDecorations(authorIds);
 
       // Fetch top 3 recent comments for each post
-      const postIds = posts.map(p => p.id);
+      const postIds = discoverFilteredPosts.map(p => p.id);
       const recentCommentsByPostId = await batchFetchRecentComments(postIds, 3);
 
       const response = {
-        posts: posts.map(post => {
+        posts: discoverFilteredPosts.map(post => {
           const userModel = post.get('user') as any;
           const userData = userModel ? (userModel.get ? userModel.get({ plain: true }) : userModel) : null;
           const avatar = avatarsByUserId.get(post.userId);
@@ -415,7 +452,8 @@ export class FeedController {
             createdAt: post.createdAt,
             likedByMe: likedPostIds.has(post.id),
             topics: ((post as any).topics || []).map((t: any) => ({
-              id: t.id, name: t.name, slug: t.slug, iconEmoji: t.iconEmoji,
+              id: t.id, name: t.name, slug: t.slug, iconEmoji: t.iconEmoji, iconImageUrl: t.iconImageUrl,
+              type: t.type,
             })),
             decoration: decorationsByUserId.get(post.userId) || null,
             recentComments: recentCommentsByPostId.get(post.id) || [],

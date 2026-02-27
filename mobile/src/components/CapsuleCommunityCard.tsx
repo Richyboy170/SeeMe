@@ -14,10 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { getImageUrl } from '../services/api';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
-const CARD_WIDTH = (SCREEN_WIDTH - 48) / 2; // 16px padding each side + 16px gap
-const CARD_HEIGHT = CARD_WIDTH * 1.6;
-const BORDER_RADIUS = CARD_WIDTH * 0.2;
-const PORTHOLE_SIZE = CARD_WIDTH * 0.36;
+const DEFAULT_CARD_WIDTH = (SCREEN_WIDTH - 48) / 2; // 16px padding each side + 16px gap
 
 interface PreviewPost {
   id: string;
@@ -34,6 +31,7 @@ interface Topic {
   iconEmoji: string | null;
   iconImageUrl: string | null;
   category: string;
+  type?: 'community' | 'private' | 'broadcast';
   followerCount: number;
   postCount: number;
   weeklyPostCount: number;
@@ -62,9 +60,15 @@ interface Props {
   topic: Topic;
   onPress: () => void;
   onToggleFollow: (topicId: string, isFollowing: boolean) => void;
+  cardWidth?: number;
 }
 
-export default function CapsuleCommunityCard({ topic, onPress, onToggleFollow }: Props) {
+export default function CapsuleCommunityCard({ topic, onPress, onToggleFollow, cardWidth }: Props) {
+  const cw = cardWidth || DEFAULT_CARD_WIDTH;
+  const ch = cw * 1.6;
+  const br = cw * 0.2;
+  const ps = cw * 0.36;
+  const isCompact = cw < 140;
   const fadeA = useRef(new Animated.Value(1)).current;
   const fadeB = useRef(new Animated.Value(0)).current;
   const showingA = useRef(true);
@@ -117,26 +121,27 @@ export default function CapsuleCommunityCard({ topic, onPress, onToggleFollow }:
   const imageA = previewImages[indexA.current] || null;
   const imageB = previewImages[indexB.current] || null;
 
+  const iconSize = ps - 18;
   const renderIcon = () => {
     if (topic.iconImageUrl) {
       return (
         <Image
           source={{ uri: getImageUrl(topic.iconImageUrl) || topic.iconImageUrl }}
-          style={styles.portholeIcon}
+          style={{ width: iconSize, height: iconSize, borderRadius: iconSize / 2 }}
         />
       );
     }
     if (topic.iconEmoji && isIoniconName(topic.iconEmoji)) {
       return (
-        <Ionicons name={`${topic.iconEmoji}-outline` as any} size={22} color="#FFFFFF" />
+        <Ionicons name={`${topic.iconEmoji}-outline` as any} size={isCompact ? 16 : 22} color="#FFFFFF" />
       );
     }
-    return <Text style={styles.portholeEmoji}>{topic.iconEmoji || '🏷️'}</Text>;
+    return <Text style={[styles.portholeEmoji, isCompact && { fontSize: 18 }]}>{topic.iconEmoji || '🏷️'}</Text>;
   };
 
   return (
     <TouchableOpacity
-      style={styles.capsule}
+      style={[styles.capsule, { width: cw, height: ch, borderRadius: br }]}
       onPress={onPress}
       activeOpacity={0.85}
     >
@@ -181,7 +186,7 @@ export default function CapsuleCommunityCard({ topic, onPress, onToggleFollow }:
       <LinearGradient
         colors={['rgba(255,255,255,0.5)', 'rgba(255,255,255,0.2)', 'rgba(255,255,255,0.05)', 'transparent']}
         locations={[0, 0.2, 0.45, 0.7]}
-        style={styles.glossyHighlight}
+        style={[styles.glossyHighlight, { width: cw * 0.65, height: ch * 0.45, borderTopLeftRadius: br }]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       />
@@ -207,7 +212,7 @@ export default function CapsuleCommunityCard({ topic, onPress, onToggleFollow }:
       {/* Ceramic bottom reflection: soft bounce light */}
       <LinearGradient
         colors={['transparent', 'rgba(255,255,255,0.1)', 'rgba(255,255,255,0.16)']}
-        style={styles.glossyBottomReflection}
+        style={[styles.glossyBottomReflection, { width: cw * 0.5, height: ch * 0.3, borderBottomRightRadius: br }]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       />
@@ -223,38 +228,46 @@ export default function CapsuleCommunityCard({ topic, onPress, onToggleFollow }:
       {/* Centered content: porthole + text + button */}
       <View style={styles.centerContent}>
         {/* Porthole window */}
-        <View style={styles.portholeContainer}>
+        <View style={[styles.portholeContainer, { width: ps, height: ps, marginBottom: isCompact ? 6 : 10 }]}>
           {/* Metallic ring */}
           <LinearGradient
             colors={['#C0C0C0', '#FFFFFF', '#A0A0A0', '#D0D0D0']}
-            style={styles.portholeRing}
+            style={[styles.portholeRing, { width: ps, height: ps, borderRadius: ps / 2 }]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
           >
             {/* Inner dark gap */}
-            <View style={styles.portholeInnerGap}>
+            <View style={[styles.portholeInnerGap, { width: ps - 6, height: ps - 6, borderRadius: (ps - 6) / 2 }]}>
               {/* Icon circle */}
-              <View style={styles.portholeCenter}>
+              <View style={[styles.portholeCenter, { width: ps - 14, height: ps - 14, borderRadius: (ps - 14) / 2 }]}>
                 {renderIcon()}
               </View>
             </View>
           </LinearGradient>
 
           {/* Glow effect around porthole */}
-          <View style={styles.portholeGlow} />
+          <View style={[styles.portholeGlow, { width: ps + 16, height: ps + 16, borderRadius: (ps + 16) / 2, top: -8, left: -8 }]} />
         </View>
 
-        <Text style={styles.communityName} numberOfLines={1}>
-          {topic.name}
-        </Text>
-        <Text style={styles.memberCount}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: isCompact ? 2 : 4, paddingHorizontal: isCompact ? 4 : 8 }}>
+          {topic.type === 'private' && (
+            <Ionicons name="lock-closed" size={isCompact ? 10 : 12} color="#EF4444" />
+          )}
+          {topic.type === 'broadcast' && (
+            <Ionicons name="megaphone" size={isCompact ? 10 : 12} color="#F59E0B" />
+          )}
+          <Text style={[styles.communityName, isCompact && { fontSize: 11 }]} numberOfLines={1}>
+            {topic.name}
+          </Text>
+        </View>
+        <Text style={[styles.memberCount, isCompact && { fontSize: 9 }]}>
           {topic.followerCount} {topic.followerCount === 1 ? 'member' : 'members'}
         </Text>
 
         {/* Activeness badge */}
-        <View style={styles.activenessBadge}>
+        <View style={[styles.activenessBadge, isCompact && { marginTop: 3 }]}>
           <View style={[styles.activenessDot, { backgroundColor: getActiveness(topic.weeklyPostCount, topic.postCount).color }]} />
-          <Text style={[styles.activenessLabel, { color: getActiveness(topic.weeklyPostCount, topic.postCount).color }]}>
+          <Text style={[styles.activenessLabel, { color: getActiveness(topic.weeklyPostCount, topic.postCount).color }, isCompact && { fontSize: 8 }]}>
             {getActiveness(topic.weeklyPostCount, topic.postCount).label}
           </Text>
         </View>
@@ -263,6 +276,7 @@ export default function CapsuleCommunityCard({ topic, onPress, onToggleFollow }:
         <TouchableOpacity
           style={[
             styles.joinButton,
+            isCompact && { paddingHorizontal: 14, paddingVertical: 4, marginTop: 5 },
             topic.isFollowing && styles.joinedButton,
           ]}
           onPress={(e) => {
@@ -273,6 +287,7 @@ export default function CapsuleCommunityCard({ topic, onPress, onToggleFollow }:
         >
           <Text style={[
             styles.joinButtonText,
+            isCompact && { fontSize: 10 },
             topic.isFollowing && styles.joinedButtonText,
           ]}>
             {topic.isFollowing ? 'Joined' : 'Join'}
@@ -281,16 +296,13 @@ export default function CapsuleCommunityCard({ topic, onPress, onToggleFollow }:
       </View>
 
       {/* Glass edge border */}
-      <View style={styles.glassEdge} />
+      <View style={[styles.glassEdge, { borderRadius: br }]} />
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
   capsule: {
-    width: CARD_WIDTH,
-    height: CARD_HEIGHT,
-    borderRadius: BORDER_RADIUS,
     overflow: 'hidden',
     position: 'relative',
   },
@@ -298,17 +310,11 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     left: 0,
-    width: CARD_WIDTH * 0.65,
-    height: CARD_HEIGHT * 0.45,
-    borderTopLeftRadius: BORDER_RADIUS,
   },
   glossyBottomReflection: {
     position: 'absolute',
     bottom: 0,
     right: 0,
-    width: CARD_WIDTH * 0.5,
-    height: CARD_HEIGHT * 0.3,
-    borderBottomRightRadius: BORDER_RADIUS,
   },
   bottomGradient: {
     ...StyleSheet.absoluteFillObject,
@@ -319,16 +325,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   portholeContainer: {
-    width: PORTHOLE_SIZE,
-    height: PORTHOLE_SIZE,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 10,
   },
   portholeRing: {
-    width: PORTHOLE_SIZE,
-    height: PORTHOLE_SIZE,
-    borderRadius: PORTHOLE_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#FFFFFF',
@@ -338,35 +338,19 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   portholeInnerGap: {
-    width: PORTHOLE_SIZE - 6,
-    height: PORTHOLE_SIZE - 6,
-    borderRadius: (PORTHOLE_SIZE - 6) / 2,
     backgroundColor: 'rgba(10,10,30,0.8)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   portholeCenter: {
-    width: PORTHOLE_SIZE - 14,
-    height: PORTHOLE_SIZE - 14,
-    borderRadius: (PORTHOLE_SIZE - 14) / 2,
     backgroundColor: 'rgba(30,20,60,0.9)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   portholeGlow: {
     position: 'absolute',
-    width: PORTHOLE_SIZE + 16,
-    height: PORTHOLE_SIZE + 16,
-    borderRadius: (PORTHOLE_SIZE + 16) / 2,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
-    top: -8,
-    left: -8,
-  },
-  portholeIcon: {
-    width: PORTHOLE_SIZE - 18,
-    height: PORTHOLE_SIZE - 18,
-    borderRadius: (PORTHOLE_SIZE - 18) / 2,
   },
   portholeEmoji: {
     fontSize: 24,
@@ -428,7 +412,6 @@ const styles = StyleSheet.create({
   },
   glassEdge: {
     ...StyleSheet.absoluteFillObject,
-    borderRadius: BORDER_RADIUS,
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.3)',
   },

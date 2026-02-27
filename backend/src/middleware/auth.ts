@@ -11,6 +11,7 @@ export interface JWTPayload {
   userId: string;
   username: string;
   email: string;
+  role?: string;
   iat?: number;
   exp?: number;
 }
@@ -23,6 +24,7 @@ export interface AuthRequest extends Request {
     id: string;
     username: string;
     email: string;
+    role?: string;
   };
 }
 
@@ -58,11 +60,37 @@ export const authenticateToken = async (
       throw new APIError('User not found - please log in again', 403);
     }
 
+    // Check if user is banned
+    if (user.status === 'banned') {
+      throw new APIError('Your account has been permanently banned', 403, true, {
+        accountStatus: 'banned',
+        reason: user.banReason || undefined,
+      });
+    }
+
+    // Check if user is suspended
+    if (user.status === 'suspended') {
+      if (user.suspendedUntil && new Date(user.suspendedUntil) <= new Date()) {
+        // Suspension expired — auto-unsuspend
+        user.status = 'active';
+        user.suspendedUntil = null;
+        user.suspendReason = null;
+        await user.save();
+      } else {
+        throw new APIError('Your account is temporarily suspended', 403, true, {
+          accountStatus: 'suspended',
+          reason: user.suspendReason || undefined,
+          suspendedUntil: user.suspendedUntil || undefined,
+        });
+      }
+    }
+
     // Attach user info to request
     req.user = {
       id: decoded.userId,
       username: decoded.username,
-      email: decoded.email
+      email: decoded.email,
+      role: user.role
     };
 
     logger.debug('User authenticated', { userId: decoded.userId });
@@ -112,7 +140,7 @@ export const optionalAuth = async (
 /**
  * Generates a JWT token for a user
  */
-export const generateToken = (user: { id: string; username: string; email: string }): string => {
+export const generateToken = (user: { id: string; username: string; email: string; role?: string }): string => {
   if (!process.env.JWT_SECRET) {
     throw new Error('JWT_SECRET not configured');
   }
@@ -120,7 +148,8 @@ export const generateToken = (user: { id: string; username: string; email: strin
   const payload: JWTPayload = {
     userId: user.id,
     username: user.username,
-    email: user.email
+    email: user.email,
+    role: user.role || 'user'
   };
 
   const expiresIn = process.env.JWT_EXPIRES_IN || '7d';

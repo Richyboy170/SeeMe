@@ -298,6 +298,12 @@ export class TopicController {
                 where.category = category;
             }
 
+            // Filter by topic type if provided
+            const { type: topicType } = req.query;
+            if (topicType && ['community', 'private', 'broadcast'].includes(topicType as string)) {
+                where.type = topicType;
+            }
+
             // Fetch all topics and engagement stats up front so we can rank by engagement
             const [allTopics, engagementStats] = await Promise.all([
                 Topic.findAll({
@@ -364,7 +370,9 @@ export class TopicController {
             }
 
             // Paginate
+            const totalCount = topics.length;
             topics = topics.slice(Number(offset), Number(offset) + Number(limit));
+            const hasMore = Number(offset) + Number(limit) < totalCount;
 
             // Fetch followed topic IDs if not already fetched
             if (userId && followedTopicIds.length === 0) {
@@ -427,7 +435,8 @@ export class TopicController {
 
             res.json({
                 success: true,
-                topics: topicsWithFollowStatus
+                topics: topicsWithFollowStatus,
+                hasMore,
             });
         } catch (error) {
             logger.error('Error fetching topics', { error });
@@ -481,18 +490,29 @@ export class TopicController {
             }
 
             let isFollowing = false;
+            let autoJoined = false;
             if (userId) {
                 const follow = await TopicFollow.findOne({
                     where: { userId, topicId: topic.id }
                 });
-                isFollowing = !!follow;
+                if (follow && follow.status === 'active') {
+                    isFollowing = true;
+                } else if (!follow && topic.type === 'private') {
+                    // Auto-approve join via invite code for private groups
+                    await TopicFollow.create({ userId, topicId: topic.id, status: 'active' });
+                    await topic.increment('followerCount');
+                    await topic.increment('memberCount');
+                    isFollowing = true;
+                    autoJoined = true;
+                }
             }
 
             res.json({
                 success: true,
                 topic: {
                     ...topic.toJSON(),
-                    isFollowing
+                    isFollowing,
+                    autoJoined,
                 }
             });
         } catch (error) {
@@ -525,6 +545,9 @@ export class TopicController {
             }
 
             let isFollowing = false;
+            let isPendingRequest = false;
+            let isBroadcaster = false;
+            let isMember = false;
             let userStatus = null;
             let isAdmin = false;
 
@@ -532,7 +555,14 @@ export class TopicController {
                 const follow = await TopicFollow.findOne({
                     where: { userId, topicId: topic.id }
                 });
-                isFollowing = !!follow;
+                if (follow) {
+                    if (follow.status === 'active') {
+                        isFollowing = true;
+                        isMember = true;
+                    } else if (follow.status === 'pending') {
+                        isPendingRequest = true;
+                    }
+                }
 
                 userStatus = await UserTopicStatus.findOne({
                     where: { userId, topicId: topic.id }
@@ -544,11 +574,27 @@ export class TopicController {
                 } catch {
                     isAdmin = topic.creatorId === userId;
                 }
+
+                // Check broadcaster status for broadcast channels
+                if (topic.type === 'broadcast') {
+                    try {
+                        const broadcasterEntry = await TopicAdmin.findOne({
+                            where: { topicId: topic.id, userId, role: 'broadcaster' }
+                        });
+                        isBroadcaster = !!broadcasterEntry || isAdmin;
+                    } catch {
+                        isBroadcaster = isAdmin;
+                    }
+                }
             }
 
-            // Get recent members
+            // Get recent members (only active for private groups)
+            const followWhere: any = { topicId: topic.id };
+            if (topic.type === 'private') {
+                followWhere.status = 'active';
+            }
             const recentFollowers = await TopicFollow.findAll({
-                where: { topicId: topic.id },
+                where: followWhere,
                 limit: 10,
                 order: [['createdAt', 'DESC']],
                 include: [{
@@ -583,14 +629,26 @@ export class TopicController {
                 }
             });
 
+            // Count pending requests for admins of private groups
+            let pendingRequestCount = 0;
+            if (isAdmin && topic.type === 'private') {
+                pendingRequestCount = await TopicFollow.count({
+                    where: { topicId: topic.id, status: 'pending' }
+                });
+            }
+
             res.json({
                 success: true,
                 topic: {
                     ...topic.toJSON(),
                     isFollowing,
+                    isMember,
+                    isPendingRequest,
+                    isBroadcaster,
                     isAdmin,
                     userStatus,
                     weeklyPosts,
+                    pendingRequestCount,
                     recentMembers: recentFollowers.map(f => f.user),
                     admins: topicAdmins.map(a => ({
                         ...a.user?.toJSON(),
@@ -611,7 +669,7 @@ export class TopicController {
     static async createTopic(req: AuthRequest, res: Response): Promise<void> {
         try {
             const userId = req.user!.id;
-            const { name, description, iconEmoji, iconImageUrl, category, adminIds } = req.body;
+            const { name, description, iconEmoji, iconImageUrl, category, adminIds, type } = req.body;
 
             if (!name || name.length < 2) {
                 res.status(400).json({ error: 'Topic name must be at least 2 characters' });
@@ -622,6 +680,9 @@ export class TopicController {
                 res.status(400).json({ error: 'Category is required' });
                 return;
             }
+
+            // Validate type
+            const topicType = type && ['community', 'private', 'broadcast'].includes(type) ? type : 'community';
 
             // Generate unique slug
             let slug = Topic.generateSlug(name);
@@ -640,7 +701,7 @@ export class TopicController {
                 attempts++;
             } while (attempts < 10);
 
-            // Create topic
+            // Create topic with type-specific defaults
             const topic = await Topic.create({
                 name,
                 slug,
@@ -650,7 +711,10 @@ export class TopicController {
                 category,
                 creatorId: userId,
                 inviteCode,
-                isOfficial: false
+                isOfficial: false,
+                type: topicType,
+                requireApproval: topicType === 'private',
+                isDiscoverable: topicType !== 'private',
             });
 
             // Create TopicAdmin entry for the creator (non-blocking)
@@ -664,10 +728,14 @@ export class TopicController {
                 logger.error('Could not create TopicAdmin entry (table may not exist yet)', { error: err });
             }
 
+            // Note: For broadcast channels, the creator (with role 'creator') implicitly
+            // has broadcaster privileges — no separate broadcaster entry needed.
+
             // Auto-follow the topic creator
             await TopicFollow.create({
                 userId,
-                topicId: topic.id
+                topicId: topic.id,
+                status: 'active'
             });
 
             let followerCount = 1;
@@ -749,27 +817,55 @@ export class TopicController {
             });
 
             if (existingFollow) {
-                res.status(400).json({ error: 'Already following this topic' });
-                return;
+                if (existingFollow.status === 'active') {
+                    res.status(400).json({ error: 'Already following this topic' });
+                    return;
+                }
+                if (existingFollow.status === 'pending') {
+                    res.status(400).json({ error: 'Join request already pending' });
+                    return;
+                }
+                // If rejected, allow re-request
+                if (existingFollow.status === 'rejected') {
+                    await existingFollow.update({ status: topic.type === 'private' ? 'pending' : 'active' });
+                    if (topic.type !== 'private') {
+                        await topic.increment('followerCount');
+                        await topic.increment('memberCount');
+                    }
+                    res.json({
+                        success: true,
+                        isFollowing: topic.type !== 'private',
+                        isPending: topic.type === 'private'
+                    });
+                    return;
+                }
             }
 
-            // Create follow
-            await TopicFollow.create({ userId, topicId });
+            // For private groups with require_approval, create as pending
+            const status = topic.type === 'private' ? 'pending' : 'active';
+            await TopicFollow.create({ userId, topicId, status });
 
-            // Update follower count
-            await topic.increment('followerCount');
+            if (status === 'active') {
+                // Update follower count
+                await topic.increment('followerCount');
+                await topic.increment('memberCount');
 
-            // Initialize user topic status as beginner
-            await UserTopicStatus.findOrCreate({
-                where: { userId, topicId },
-                defaults: {
-                    userId,
-                    topicId,
-                    isBeginner: true
-                }
+                // Initialize user topic status as beginner
+                await UserTopicStatus.findOrCreate({
+                    where: { userId, topicId },
+                    defaults: {
+                        userId,
+                        topicId,
+                        isBeginner: true
+                    }
+                });
+            }
+
+            res.json({
+                success: true,
+                isFollowing: status === 'active',
+                isPending: status === 'pending'
             });
-
-            res.json({ success: true, isFollowing: true });
         } catch (error) {
             logger.error('Error following topic', { error });
             res.status(500).json({ error: 'Failed to follow topic' });
@@ -794,12 +890,16 @@ export class TopicController {
                 return;
             }
 
+            const wasActive = follow.status === 'active';
             await follow.destroy();
 
-            // Update follower count
-            const topic = await Topic.findByPk(topicId);
-            if (topic) {
-                await topic.decrement('followerCount');
+            // Update counts only if the follow was active (not pending/rejected)
+            if (wasActive) {
+                const topic = await Topic.findByPk(topicId);
+                if (topic) {
+                    await topic.decrement('followerCount');
+                    await topic.decrement('memberCount');
+                }
             }
 
             res.json({ success: true, isFollowing: false });
@@ -946,6 +1046,25 @@ export class TopicController {
             const { topicId } = req.params;
             const { sort = 'recent', limit = 20, offset = 0 } = req.query;
             const currentUserId = req.user?.id;
+
+            // Check if topic is private and user is an active member
+            const topic = await Topic.findByPk(topicId);
+            if (topic && topic.type === 'private') {
+                if (!currentUserId) {
+                    res.status(403).json({ error: 'You must be a member to view posts in this group' });
+                    return;
+                }
+                const membership = await TopicFollow.findOne({
+                    where: { userId: currentUserId, topicId, status: 'active' }
+                });
+                if (!membership) {
+                    const isAdmin = await TopicController.isTopicAdmin(topicId, currentUserId);
+                    if (!isAdmin) {
+                        res.status(403).json({ error: 'You must be a member to view posts in this group' });
+                        return;
+                    }
+                }
+            }
 
             const postTopics = await PostTopic.findAll({
                 where: { topicId },
@@ -1257,6 +1376,276 @@ export class TopicController {
         } catch (error) {
             logger.error('Error removing topic admin', { error });
             res.status(500).json({ error: 'Failed to remove admin' });
+        }
+    }
+
+    // ── Private Group: Join Requests ─────────────────────────────────
+
+    /**
+     * POST /api/topics/:topicId/request-join
+     * Request to join a private group
+     */
+    static async requestJoin(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const userId = req.user!.id;
+            const { topicId } = req.params;
+
+            const topic = await Topic.findByPk(topicId);
+            if (!topic || !topic.isActive) {
+                res.status(404).json({ error: 'Topic not found' });
+                return;
+            }
+
+            if (topic.type !== 'private') {
+                res.status(400).json({ error: 'This is not a private group. Use follow instead.' });
+                return;
+            }
+
+            const existingFollow = await TopicFollow.findOne({
+                where: { userId, topicId }
+            });
+
+            if (existingFollow) {
+                if (existingFollow.status === 'active') {
+                    res.status(400).json({ error: 'Already a member' });
+                    return;
+                }
+                if (existingFollow.status === 'pending') {
+                    res.status(400).json({ error: 'Request already pending' });
+                    return;
+                }
+                // Re-request after rejection
+                await existingFollow.update({ status: 'pending' });
+                res.json({ success: true, status: 'pending' });
+                return;
+            }
+
+            await TopicFollow.create({ userId, topicId, status: 'pending' });
+
+            res.json({ success: true, status: 'pending' });
+        } catch (error) {
+            logger.error('Error requesting to join topic', { error });
+            res.status(500).json({ error: 'Failed to request join' });
+        }
+    }
+
+    /**
+     * GET /api/topics/:topicId/pending-requests
+     * Admin: list pending join requests
+     */
+    static async getPendingRequests(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const userId = req.user!.id;
+            const { topicId } = req.params;
+
+            const isAdmin = await TopicController.isTopicAdmin(topicId, userId);
+            if (!isAdmin) {
+                res.status(403).json({ error: 'Only admins can view pending requests' });
+                return;
+            }
+
+            const pendingFollows = await TopicFollow.findAll({
+                where: { topicId, status: 'pending' },
+                include: [{
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
+                }],
+                order: [['createdAt', 'ASC']]
+            });
+
+            res.json({
+                success: true,
+                requests: pendingFollows.map(f => ({
+                    id: f.id,
+                    user: f.user,
+                    requestedAt: f.createdAt,
+                }))
+            });
+        } catch (error) {
+            logger.error('Error fetching pending requests', { error });
+            res.status(500).json({ error: 'Failed to fetch pending requests' });
+        }
+    }
+
+    /**
+     * POST /api/topics/:topicId/handle-request
+     * Admin: approve or reject a join request
+     */
+    static async handleRequest(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const currentUserId = req.user!.id;
+            const { topicId } = req.params;
+            const { userId: targetUserId, action } = req.body;
+
+            if (!targetUserId || !['approve', 'reject'].includes(action)) {
+                res.status(400).json({ error: 'userId and action (approve/reject) are required' });
+                return;
+            }
+
+            const isAdmin = await TopicController.isTopicAdmin(topicId, currentUserId);
+            if (!isAdmin) {
+                res.status(403).json({ error: 'Only admins can handle requests' });
+                return;
+            }
+
+            const follow = await TopicFollow.findOne({
+                where: { topicId, userId: targetUserId, status: 'pending' }
+            });
+
+            if (!follow) {
+                res.status(404).json({ error: 'Pending request not found' });
+                return;
+            }
+
+            if (action === 'approve') {
+                await follow.update({ status: 'active' });
+
+                const topic = await Topic.findByPk(topicId);
+                if (topic) {
+                    await topic.increment('followerCount');
+                    await topic.increment('memberCount');
+                }
+
+                // Initialize user topic status
+                await UserTopicStatus.findOrCreate({
+                    where: { userId: targetUserId, topicId },
+                    defaults: {
+                        userId: targetUserId,
+                        topicId,
+                        isBeginner: true
+                    }
+                });
+            } else {
+                await follow.update({ status: 'rejected' });
+            }
+
+            res.json({ success: true, status: follow.status });
+        } catch (error) {
+            logger.error('Error handling join request', { error });
+            res.status(500).json({ error: 'Failed to handle request' });
+        }
+    }
+
+    // ── Broadcast Channel: Broadcaster Management ────────────────────
+
+    /**
+     * GET /api/topics/:topicId/broadcasters
+     * List broadcasters for a channel
+     */
+    static async getBroadcasters(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const { topicId } = req.params;
+
+            const broadcasters = await TopicAdmin.findAll({
+                where: { topicId, role: 'broadcaster' },
+                include: [{
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
+                }]
+            });
+
+            // Also include admins and creator as they can broadcast too
+            const admins = await TopicAdmin.findAll({
+                where: { topicId, role: { [Op.in]: ['creator', 'admin'] } },
+                include: [{
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
+                }]
+            });
+
+            res.json({
+                success: true,
+                broadcasters: broadcasters.map(b => ({
+                    ...b.user?.toJSON(),
+                    role: 'broadcaster'
+                })),
+                admins: admins.map(a => ({
+                    ...a.user?.toJSON(),
+                    role: a.role
+                }))
+            });
+        } catch (error) {
+            logger.error('Error fetching broadcasters', { error });
+            res.status(500).json({ error: 'Failed to fetch broadcasters' });
+        }
+    }
+
+    /**
+     * POST /api/topics/:topicId/broadcasters
+     * Admin: add a broadcaster
+     */
+    static async addBroadcaster(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const currentUserId = req.user!.id;
+            const { topicId } = req.params;
+            const { userId: targetUserId } = req.body;
+
+            if (!targetUserId) {
+                res.status(400).json({ error: 'userId is required' });
+                return;
+            }
+
+            const isAdmin = await TopicController.isTopicAdmin(topicId, currentUserId);
+            if (!isAdmin) {
+                res.status(403).json({ error: 'Only admins can add broadcasters' });
+                return;
+            }
+
+            // Check if already a broadcaster
+            const existing = await TopicAdmin.findOne({
+                where: { topicId, userId: targetUserId, role: 'broadcaster' }
+            });
+            if (existing) {
+                res.status(400).json({ error: 'User is already a broadcaster' });
+                return;
+            }
+
+            await TopicAdmin.create({
+                topicId,
+                userId: targetUserId,
+                role: 'broadcaster'
+            });
+
+            res.json({ success: true });
+        } catch (error) {
+            logger.error('Error adding broadcaster', { error });
+            res.status(500).json({ error: 'Failed to add broadcaster' });
+        }
+    }
+
+    /**
+     * DELETE /api/topics/:topicId/broadcasters/:userId
+     * Admin: remove a broadcaster
+     */
+    static async removeBroadcaster(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const currentUserId = req.user!.id;
+            const { topicId, userId: targetUserId } = req.params;
+
+            const isAdmin = await TopicController.isTopicAdmin(topicId, currentUserId);
+            if (!isAdmin) {
+                res.status(403).json({ error: 'Only admins can remove broadcasters' });
+                return;
+            }
+
+            const broadcaster = await TopicAdmin.findOne({
+                where: { topicId, userId: targetUserId, role: 'broadcaster' }
+            });
+
+            if (!broadcaster) {
+                res.status(404).json({ error: 'Broadcaster not found' });
+                return;
+            }
+
+            await broadcaster.destroy();
+
+            res.json({ success: true });
+        } catch (error) {
+            logger.error('Error removing broadcaster', { error });
+            res.status(500).json({ error: 'Failed to remove broadcaster' });
         }
     }
 }

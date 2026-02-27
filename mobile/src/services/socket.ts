@@ -23,12 +23,21 @@ class SocketService {
   private maxReconnectAttempts = 5;
 
   async connect() {
+    // Disconnect existing socket before creating a new one
+    if (this.socket) {
+      this.socket.removeAllListeners();
+      this.socket.disconnect();
+      this.socket = null;
+    }
+
     const token = await AsyncStorage.getItem('auth_token');
 
     if (!token) {
       console.error('No auth token found');
       return;
     }
+
+    this.reconnectAttempts = 0;
 
     this.socket = io(SOCKET_URL, {
       auth: { token },
@@ -55,10 +64,6 @@ class SocketService {
         console.error('Max reconnect attempts reached');
         this.disconnect();
       }
-    });
-
-    this.socket.on('ping', () => {
-      this.socket?.emit('pong');
     });
   }
 

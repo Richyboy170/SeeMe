@@ -812,7 +812,9 @@ export default function ChatScreen({ route, navigation }: ChatScreenProps) {
   const scrollToMessage = (messageId: string) => {
     const index = messages.findIndex(m => m.id === messageId);
     if (index !== -1 && flatListRef.current) {
-      flatListRef.current.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+      try {
+        flatListRef.current.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+      } catch {}
     }
   };
 
@@ -1383,6 +1385,9 @@ export default function ChatScreen({ route, navigation }: ChatScreenProps) {
         contentContainerStyle={dynamicStyles.messagesList}
         onContentSizeChange={scrollToBottom}
         showsVerticalScrollIndicator={false}
+        onScrollToIndexFailed={(info) => {
+          flatListRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
+        }}
       />
 
       {/* Typing indicator */}

@@ -30,11 +30,17 @@ interface Topic {
     iconImageUrl: string | null;
     coverImageUrl: string | null;
     category: string;
+    type?: 'community' | 'private' | 'broadcast';
     followerCount: number;
+    memberCount?: number;
     postCount: number;
     weeklyPostCount: number;
     isFollowing: boolean;
+    isMember?: boolean;
+    isPendingRequest?: boolean;
+    isBroadcaster?: boolean;
     isAdmin?: boolean;
+    pendingRequestCount?: number;
     inviteCode: string;
     creatorId?: string;
     creator?: {
@@ -160,12 +166,17 @@ export default function TopicPageScreen({ route, navigation }: any) {
         if (!topic) return;
 
         try {
-            if (topic.isFollowing) {
+            if (topic.isFollowing || topic.isMember) {
                 await api.delete(`/topics/${topic.id}/follow`);
+                setTopic(prev => prev ? { ...prev, isFollowing: false, isMember: false, isPendingRequest: false } : null);
+            } else if (topic.type === 'private') {
+                // Request to join private group
+                await api.requestToJoinTopic(topic.id);
+                setTopic(prev => prev ? { ...prev, isPendingRequest: true } : null);
             } else {
                 await api.post(`/topics/${topic.id}/follow`);
+                setTopic(prev => prev ? { ...prev, isFollowing: true, isMember: true } : null);
             }
-            setTopic(prev => prev ? { ...prev, isFollowing: !prev.isFollowing } : null);
         } catch (error) {
             console.error('Error toggling follow:', error);
         }
@@ -244,7 +255,15 @@ export default function TopicPageScreen({ route, navigation }: any) {
                         <Text style={styles.emoji}>{topic?.iconEmoji || '🏷️'}</Text>
                     )}
                 </View>
-                <Text style={[styles.topicName, { color: colors.text.primary }]}>{topic?.name}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    {topic?.type === 'private' && (
+                        <Ionicons name="lock-closed" size={18} color="#EF4444" />
+                    )}
+                    {topic?.type === 'broadcast' && (
+                        <Ionicons name="megaphone" size={18} color="#F59E0B" />
+                    )}
+                    <Text style={[styles.topicName, { color: colors.text.primary }]}>{topic?.name}</Text>
+                </View>
 
                 {/* Stats - Members is now clickable */}
                 <View style={[styles.statsRow, { borderColor: colors.separator }]}>
@@ -274,19 +293,31 @@ export default function TopicPageScreen({ route, navigation }: any) {
 
                 {/* Actions */}
                 <View style={styles.actionRow}>
-                    <TouchableOpacity
-                        style={[styles.joinButton, topic?.isFollowing && styles.joinedButton]}
-                        onPress={handleFollow}
-                    >
-                        <Ionicons
-                            name={topic?.isFollowing ? 'checkmark' : 'add'}
-                            size={20}
-                            color={topic?.isFollowing ? '#10B981' : '#FFFFFF'}
-                        />
-                        <Text style={[styles.joinButtonText, topic?.isFollowing && styles.joinedButtonText]}>
-                            {topic?.isFollowing ? 'Joined' : 'Join'}
-                        </Text>
-                    </TouchableOpacity>
+                    {topic?.isPendingRequest ? (
+                        <TouchableOpacity
+                            style={[styles.joinButton, { backgroundColor: '#F59E0B' }]}
+                            disabled
+                        >
+                            <Ionicons name="time" size={20} color="#FFFFFF" />
+                            <Text style={styles.joinButtonText}>Request Pending</Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <TouchableOpacity
+                            style={[styles.joinButton, (topic?.isFollowing || topic?.isMember) && styles.joinedButton]}
+                            onPress={handleFollow}
+                        >
+                            <Ionicons
+                                name={(topic?.isFollowing || topic?.isMember) ? 'checkmark' :
+                                      topic?.type === 'private' ? 'lock-closed' : 'add'}
+                                size={20}
+                                color={(topic?.isFollowing || topic?.isMember) ? '#10B981' : '#FFFFFF'}
+                            />
+                            <Text style={[styles.joinButtonText, (topic?.isFollowing || topic?.isMember) && styles.joinedButtonText]}>
+                                {(topic?.isFollowing || topic?.isMember) ? 'Joined' :
+                                 topic?.type === 'private' ? 'Request to Join' : 'Join'}
+                            </Text>
+                        </TouchableOpacity>
+                    )}
                     <TouchableOpacity style={[styles.shareButton, { backgroundColor: colors.inputBackground }]} onPress={handleShare}>
                         <Ionicons name="share-outline" size={24} color={colors.text.secondary} />
                     </TouchableOpacity>
@@ -487,6 +518,44 @@ export default function TopicPageScreen({ route, navigation }: any) {
                     </TouchableOpacity>
                 </View>
             </View>
+
+            {/* Admin Management Section */}
+            {isAdmin && (
+                <View style={[styles.aboutSection, { backgroundColor: colors.card }]}>
+                    <Text style={[styles.aboutSectionTitle, { color: colors.text.primary }]}>Admin</Text>
+
+                    {topic?.type === 'private' && (
+                        <TouchableOpacity
+                            style={[styles.adminActionBtn, { borderColor: colors.border }]}
+                            onPress={() => navigation.navigate('PendingRequests', { topicId: topic?.id })}
+                        >
+                            <Ionicons name="people" size={20} color="#7C3AED" />
+                            <Text style={[styles.adminActionText, { color: colors.text.primary }]}>
+                                Pending Requests
+                            </Text>
+                            {(topic?.pendingRequestCount || 0) > 0 && (
+                                <View style={styles.badgeCircle}>
+                                    <Text style={styles.badgeText}>{topic?.pendingRequestCount}</Text>
+                                </View>
+                            )}
+                            <Ionicons name="chevron-forward" size={18} color={colors.text.secondary} style={{ marginLeft: 'auto' }} />
+                        </TouchableOpacity>
+                    )}
+
+                    {topic?.type === 'broadcast' && (
+                        <TouchableOpacity
+                            style={[styles.adminActionBtn, { borderColor: colors.border }]}
+                            onPress={() => navigation.navigate('BroadcasterManagement', { topicId: topic?.id })}
+                        >
+                            <Ionicons name="megaphone" size={20} color="#F59E0B" />
+                            <Text style={[styles.adminActionText, { color: colors.text.primary }]}>
+                                Manage Broadcasters
+                            </Text>
+                            <Ionicons name="chevron-forward" size={18} color={colors.text.secondary} style={{ marginLeft: 'auto' }} />
+                        </TouchableOpacity>
+                    )}
+                </View>
+            )}
         </View>
     );
 
@@ -1222,5 +1291,32 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.3,
         shadowRadius: 8,
         elevation: 8
-    }
+    },
+    adminActionBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        borderWidth: 1,
+        borderRadius: 10,
+        marginBottom: 8,
+        gap: 10,
+    },
+    adminActionText: {
+        fontSize: 15,
+        fontWeight: '500',
+    },
+    badgeCircle: {
+        backgroundColor: '#EF4444',
+        borderRadius: 10,
+        minWidth: 20,
+        height: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 6,
+    },
+    badgeText: {
+        color: '#FFFFFF',
+        fontSize: 11,
+        fontWeight: '700',
+    },
 });

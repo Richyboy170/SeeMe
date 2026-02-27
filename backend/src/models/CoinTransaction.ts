@@ -111,7 +111,14 @@ CoinTransaction.init(
             'encouragement',
             'gift',
             'post_reward',
-            'beginner_bonus'
+            'beginner_bonus',
+            // Bot reward types
+            'bot_welcome',
+            'bot_generosity_reward',
+            // Onboarding mission rewards
+            'mission_reward',
+            // Friendship meetup rewards
+            'earned_friendship'
           ]],
           msg: 'Invalid transaction type'
         }

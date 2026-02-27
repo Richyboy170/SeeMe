@@ -98,6 +98,7 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
   const cropStartRef = useRef<CropRect>({ x: 0, y: 0, width: 0, height: 0 });
   const imageLayoutRef = useRef(imageLayout);
   const cropRef = useRef(crop);
+  const canvasOffsetRef = useRef({ x: 0, y: 0 });
 
   // Keep refs in sync
   useEffect(() => { imageLayoutRef.current = imageLayout; }, [imageLayout]);
@@ -130,9 +131,9 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
             displayWidth = canvasHeight * aspectRatio;
           }
 
-          // Center the image in the canvas area
+          // Center the image in the canvas area (coordinates relative to canvasArea)
           const x = (SCREEN_WIDTH - displayWidth) / 2;
-          const y = topBarHeight + (canvasHeight - displayHeight) / 2;
+          const y = (canvasHeight - displayHeight) / 2;
 
           const layout = { x, y, width: displayWidth, height: displayHeight };
           setImageLayout(layout);
@@ -176,8 +177,9 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
     const c = cropRef.current;
 
     // Convert screen touch to image-relative coordinates
-    const relX = touchX - layout.x;
-    const relY = touchY - layout.y;
+    // pageX/pageY are screen-absolute, so subtract canvas offset first
+    const relX = touchX - canvasOffsetRef.current.x - layout.x;
+    const relY = touchY - canvasOffsetRef.current.y - layout.y;
 
     const r = HANDLE_HIT_AREA;
 
@@ -444,7 +446,14 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
         </View>
 
         {/* Image canvas with crop overlay */}
-        <View style={styles.canvasArea} {...panResponder.panHandlers}>
+        <View
+          style={styles.canvasArea}
+          {...panResponder.panHandlers}
+          onLayout={(e) => {
+            const { x, y } = e.nativeEvent.layout;
+            canvasOffsetRef.current = { x, y };
+          }}
+        >
           {/* Image */}
           <Image
             source={{ uri: imageUri }}

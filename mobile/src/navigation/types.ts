@@ -71,6 +71,12 @@ export type DiscoverStackParamList = {
     otherUsername: string;
     otherAvatarUrl?: string;
   };
+  PendingRequests: {
+    topicId: string;
+  };
+  BroadcasterManagement: {
+    topicId: string;
+  };
 };
 
 export type FeedStackParamList = {
@@ -107,6 +113,7 @@ export type ProfileStackParamList = {
     avatarId?: string;
   };
   FollowRequests: undefined;
+  ArchivedPosts: undefined;
 };
 
 export type CreatePostStackParamList = {
@@ -125,10 +132,37 @@ export type TopicsStackParamList = {
   CreateTopic: undefined;
 };
 
+export type FriendshipMeetupStackParamList = {
+  FriendshipHome: undefined;
+  CreateSession: undefined;
+  JoinSession: undefined;
+  PhotoBooth: {
+    sessionId: string;
+    poses: string[];
+    isHost: boolean;
+  };
+  PhotoStrip: {
+    sessionId: string;
+    photos: string[];
+    poses: string[];
+    partnerUsername: string;
+    partnerUserId?: string;
+  };
+  MeetupDetail: {
+    meetup: any;
+  };
+  FriendshipDetail: {
+    otherUserId: string;
+    otherUsername: string;
+    otherAvatarUrl?: string;
+  };
+};
+
 export type MainTabParamList = {
   Feed: undefined;
   Discover: undefined;
   CreatePost: undefined;
+  Friendship: undefined;
   Coins: undefined;
   Profile: undefined;
 };

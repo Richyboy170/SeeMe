@@ -14,6 +14,7 @@ import { connectMongoDB, disconnectMongoDB } from './config/mongodb';
 import { connectRedis, disconnectRedis } from './config/redis';
 import { initializeFirebase } from './config/firebase';
 import { initializeSocket } from './socket';
+import { setSocketInstance } from './socket/socketInstance';
 import authRoutes from './routes/auth';
 import postRoutes from './routes/posts';
 import feedRoutes from './routes/feed';
@@ -42,12 +43,30 @@ import decorationsRoutes from './routes/decorations';
 import { celeryClient } from './config/celery';
 import { seedDefaultTopics } from './utils/seedDefaultTopics';
 import { seedDecorations } from './utils/seedDecorations';
+import { seedBots } from './utils/seedBots';
+import { seedAdmin } from './utils/seedAdmin';
 import { StoryOfMeService } from './services/StoryOfMeService';
+import adminRoutes from './routes/admin';
+// Friendship Meetup routes
+import friendshipMeetupRoutes from './routes/friendshipMeetup';
+// Corner Icon routes
+import cornerIconsRoutes from './routes/cornerIcons';
 
 const app = express();
 
 // Security Middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "blob:", "*"],
+      connectSrc: ["'self'"],
+    },
+  },
+}));
 
 // CORS Configuration
 // In development, allow all origins for mobile testing
@@ -118,6 +137,19 @@ app.use('/api/stories', storiesRoutes);
 
 // Decoration Store routes
 app.use('/api/decorations', decorationsRoutes);
+
+// Admin API routes
+app.use('/api/admin', adminRoutes);
+
+// Friendship Meetup routes
+app.use('/api/friendship-meetup', friendshipMeetupRoutes);
+
+// Corner Icon routes
+app.use('/api/corner-icons', cornerIconsRoutes);
+
+// Admin panel static files
+const adminPanelPath = path.join(__dirname, 'admin-panel');
+app.use('/admin', express.static(adminPanelPath));
 
 // 404 Handler
 app.use((req: Request, res: Response) => {
@@ -192,8 +224,15 @@ const startServer = async () => {
     // Seed decoration store items if none exist
     await seedDecorations();
 
+    // Seed bot users if they don't exist
+    await seedBots();
+
+    // Seed admin user if none exists
+    await seedAdmin();
+
     // Initialize Socket.io
     io = initializeSocket(httpServer);
+    setSocketInstance(io);
     logger.info('Socket.io initialized');
 
     // Start HTTP server with Socket.io

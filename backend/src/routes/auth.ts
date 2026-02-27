@@ -7,6 +7,7 @@ import { generateToken, authenticateToken, AuthRequest } from '../middleware/aut
 import { asyncHandler, APIError } from '../middleware/errorHandler';
 import { logger } from '../utils/logger';
 import { googleAuthService, GoogleUserInfo } from '../utils/googleAuth';
+import { BotService } from '../services/BotService';
 
 const router = Router();
 
@@ -102,6 +103,9 @@ router.post(
       },
       token
     });
+
+    // Fire-and-forget: send bot welcome coins
+    BotService.sendWelcomeCoins(user.id).catch(() => {});
   })
 );
 
@@ -143,11 +147,34 @@ router.post(
       throw new APIError('Invalid email or password', 401);
     }
 
+    // Check account status
+    if (user.status === 'banned') {
+      throw new APIError('Your account has been permanently banned', 403, true, {
+        accountStatus: 'banned',
+        reason: user.banReason || undefined,
+      });
+    }
+    if (user.status === 'suspended') {
+      if (user.suspendedUntil && new Date(user.suspendedUntil) <= new Date()) {
+        user.status = 'active';
+        user.suspendedUntil = null;
+        user.suspendReason = null;
+        await user.save();
+      } else {
+        throw new APIError('Your account is temporarily suspended', 403, true, {
+          accountStatus: 'suspended',
+          reason: user.suspendReason || undefined,
+          suspendedUntil: user.suspendedUntil || undefined,
+        });
+      }
+    }
+
     // Generate JWT token
     const token = generateToken({
       id: user.id,
       username: user.username,
-      email: user.email
+      email: user.email,
+      role: user.role
     });
 
     logger.info('User logged in successfully', {
@@ -322,15 +349,42 @@ router.post(
       });
     }
 
+    const isNewUser = user.createdAt.getTime() === user.updatedAt.getTime();
+
+    // Check account status for existing users
+    if (!isNewUser) {
+      if (user.status === 'banned') {
+        throw new APIError('Your account has been permanently banned', 403, true, {
+          accountStatus: 'banned',
+          reason: user.banReason || undefined,
+        });
+      }
+      if (user.status === 'suspended') {
+        if (user.suspendedUntil && new Date(user.suspendedUntil) <= new Date()) {
+          user.status = 'active';
+          user.suspendedUntil = null;
+          user.suspendReason = null;
+          await user.save();
+        } else {
+          throw new APIError('Your account is temporarily suspended', 403, true, {
+            accountStatus: 'suspended',
+            reason: user.suspendReason || undefined,
+            suspendedUntil: user.suspendedUntil || undefined,
+          });
+        }
+      }
+    }
+
     // Generate JWT token
     const token = generateToken({
       id: user.id,
       username: user.username,
-      email: user.email
+      email: user.email,
+      role: user.role
     });
 
-    res.status(user.createdAt.getTime() === user.updatedAt.getTime() ? 201 : 200).json({
-      message: user.createdAt.getTime() === user.updatedAt.getTime()
+    res.status(isNewUser ? 201 : 200).json({
+      message: isNewUser
         ? 'User registered successfully via Google'
         : 'Login successful',
       user: {
@@ -343,8 +397,13 @@ router.post(
         createdAt: user.createdAt
       },
       token,
-      isNewUser: user.createdAt.getTime() === user.updatedAt.getTime()
+      isNewUser
     });
+
+    // Fire-and-forget: send bot welcome coins for new Google users
+    if (isNewUser) {
+      BotService.sendWelcomeCoins(user.id).catch(() => {});
+    }
   })
 );
 

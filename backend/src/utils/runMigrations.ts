@@ -22,6 +22,13 @@ import * as addCoinCollectedFlag from '../migrations/add-coin-collected-flag';
 import * as addAvatarUrl from '../migrations/add-avatar-url';
 import * as addPostLocationTime from '../migrations/add-post-location-time';
 import * as addAvatarGenderFields from '../migrations/add-avatar-gender-fields';
+import * as addBotUsersSupport from '../migrations/add-bot-users-support';
+import * as addAdminFields from '../migrations/add-admin-fields';
+import * as addAuditLogTable from '../migrations/add-audit-log-table';
+import * as addFriendshipMeetupTables from '../migrations/add-friendship-meetup-tables';
+import * as addCornerIcons from '../migrations/add-corner-icons';
+import * as addTopicGroupTypes from '../migrations/add-topic-group-types';
+import * as addDecoratedStrip from '../migrations/add-decorated-strip';
 
 /**
  * Run database migrations
@@ -138,6 +145,41 @@ const migrations = [
     name: 'add-avatar-gender-fields',
     up: addAvatarGenderFields.up,
     down: addAvatarGenderFields.down
+  },
+  {
+    name: 'add-bot-users-support',
+    up: addBotUsersSupport.up,
+    down: addBotUsersSupport.down
+  },
+  {
+    name: 'add-admin-fields',
+    up: addAdminFields.up,
+    down: addAdminFields.down
+  },
+  {
+    name: 'add-audit-log-table',
+    up: addAuditLogTable.up,
+    down: addAuditLogTable.down
+  },
+  {
+    name: 'add-friendship-meetup-tables',
+    up: addFriendshipMeetupTables.up,
+    down: addFriendshipMeetupTables.down
+  },
+  {
+    name: 'add-corner-icons',
+    up: addCornerIcons.up,
+    down: addCornerIcons.down
+  },
+  {
+    name: 'add-topic-group-types',
+    up: addTopicGroupTypes.up,
+    down: addTopicGroupTypes.down
+  },
+  {
+    name: 'add-decorated-strip',
+    up: addDecoratedStrip.up,
+    down: addDecoratedStrip.down
   }
   // Add more migrations here as needed
 ];
