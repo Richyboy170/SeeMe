@@ -156,7 +156,10 @@
       "Bash(git log:*)",
       "Bash(xargs -I{} taskkill //F //PID {})",
       "Bash(npx expo:*)",
-      "Bash(./node_modules/.bin/tsc:*)"
+      "Bash(./node_modules/.bin/tsc:*)",
+      "Bash(wc:*)",
+      "Bash(npx:*)",
+      "Bash(wmic process:*)"
     ]
   }
 }

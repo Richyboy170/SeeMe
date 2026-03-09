@@ -21,6 +21,7 @@ import {
 import ViewShot from 'react-native-view-shot';
 import * as MediaLibrary from 'expo-media-library';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useNavigation, CommonActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme';
@@ -33,6 +34,8 @@ import ProfileMedalsSection from '../../components/profile/ProfileMedalsSection'
 import StoryOfMeSection from '../../components/profile/StoryOfMeSection';
 import FavoriteButton from '../../components/favorites/FavoriteButton';
 import TrustGauge from '../../components/TrustGauge';
+import ProfileGuide from '../../components/guide/ProfileGuide';
+import { useAccountContext } from '../../contexts/AccountContext';
 
 const { width } = Dimensions.get('window');
 const GRID_GAP = 1;
@@ -65,6 +68,7 @@ interface ProfileScreenProps {
 export default function ProfileScreen({ route }: ProfileScreenProps) {
   const navigation = useNavigation<any>();
   const { colors, isDark } = useTheme();
+  const { setShowAccountSwitcher } = useAccountContext();
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [posts, setPosts] = useState<any[]>([]);
@@ -102,6 +106,10 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
   const shareCardRef = useRef<ViewShot>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
+  // Profile Guide state
+  const [guideVisible, setGuideVisible] = useState(false);
+  const guideRefs = useRef<Record<string, View | null>>({});
+
   // Scroll to top when tab is re-tapped
   useEffect(() => {
     const parent = navigation.getParent();
@@ -135,6 +143,24 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
         loadSavedPosts();
       }
     }, [userId, username])
+  );
+
+  // Auto-trigger profile guide for own profile on first visit
+  useEffect(() => {
+    if (!loading && user && isOwnProfile) {
+      AsyncStorage.getItem('@seeme_profile_guide_completed').then((val) => {
+        if (!val) {
+          setTimeout(() => setGuideVisible(true), 800);
+        }
+      });
+    }
+  }, [loading, user, isOwnProfile]);
+
+  const setGuideRef = useCallback(
+    (key: string) => (ref: View | null) => {
+      guideRefs.current[key] = ref;
+    },
+    [],
   );
 
   const loadSavedPosts = async () => {
@@ -314,8 +340,8 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
       Alert.alert(
         'Success',
         newPrivacyState
-          ? 'Your account is now private. New followers will need your approval.'
-          : 'Your account is now public.'
+          ? 'Your account is now private. New friends will need your approval.'
+          : 'Your account is now public. Anyone can be your friend!'
       );
     } catch (error) {
       Alert.alert('Error', 'Failed to update privacy settings');
@@ -323,9 +349,9 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
   };
 
   const getFollowButtonText = () => {
-    if (isFollowing) return 'Following';
-    if (followRequestStatus === 'pending') return 'Requested';
-    return 'Follow';
+    if (isFollowing) return 'Friends';
+    if (followRequestStatus === 'pending') return 'Request Sent';
+    return 'Add Friend';
   };
 
   const handleMessage = async () => {
@@ -518,7 +544,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     try {
       const profileUrl = `https://seeme.app/@${user?.username}`;
       const message = `✨ Check out @${user?.username} on SeeMe!\n\n` +
-        `📸 ${posts.length} Posts • 👥 ${user?.followersCount || 0} Followers\n\n` +
+        `📸 ${posts.length} Posts • 👥 ${user?.followersCount || 0} Friends • 💛 ${(user?.positivityGiveCounter || 0).toLocaleString()} Kindness Given\n\n` +
         `${user?.bio ? `"${user.bio}"\n\n` : ''}` +
         `🔗 ${profileUrl}\n\n` +
         `📲 Download SeeMe - Where Positivity Shines!`;
@@ -609,7 +635,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
         {/* Profile Header */}
         <View style={[styles.profileHeader, { backgroundColor: colors.background }]}>
           {/* Top Bar */}
-          <View style={styles.topBar}>
+          <View style={styles.topBar} ref={setGuideRef('topBar')}>
             <View style={styles.usernameRow}>
               {isPrivate && (
                 <Ionicons name="lock-closed" size={14} color={colors.text.tertiary} style={{ marginRight: 6 }} />
@@ -617,12 +643,23 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
               <Text style={[styles.topUsername, { color: colors.text.primary }]}>{user.username}</Text>
             </View>
             {isOwnProfile && (
-              <TouchableOpacity
-                style={styles.settingsButton}
-                onPress={() => setSettingsMenuVisible(true)}
-              >
-                <Ionicons name="menu-outline" size={22} color={colors.icon.secondary} />
-              </TouchableOpacity>
+              <View style={styles.topBarRight}>
+                <TouchableOpacity
+                  style={styles.settingsButton}
+                  onPress={() => {
+                    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+                    setTimeout(() => setGuideVisible(true), 350);
+                  }}
+                >
+                  <Ionicons name="information-circle-outline" size={22} color={colors.icon.secondary} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.settingsButton}
+                  onPress={() => setSettingsMenuVisible(true)}
+                >
+                  <Ionicons name="menu-outline" size={22} color={colors.icon.secondary} />
+                </TouchableOpacity>
+              </View>
             )}
           </View>
 
@@ -630,22 +667,22 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
           {isOwnProfile && !user.avatarUrl && !activeAvatar && !setupBannerDismissed && (
             <View style={styles.setupBannerWrapper}>
               <TouchableOpacity
-                style={[styles.setupBanner, { backgroundColor: isDark ? '#1A1708' : '#FFFBEB' }]}
+                style={[styles.setupBanner, { backgroundColor: isDark ? '#1A1214' : '#FFF5F7' }]}
                 onPress={handleEditProfile}
                 activeOpacity={0.7}
               >
-                <View style={[styles.setupBannerIcon, { backgroundColor: isDark ? '#2D2306' : '#FEF3C7' }]}>
-                  <Ionicons name="camera-outline" size={20} color="#F59E0B" />
+                <View style={[styles.setupBannerIcon, { backgroundColor: isDark ? '#2D1520' : '#FFE4EC' }]}>
+                  <Ionicons name="heart-outline" size={20} color="#E8538A" />
                 </View>
                 <View style={styles.setupBannerText}>
-                  <Text style={[styles.setupBannerTitle, { color: colors.text.primary }]}>Complete your profile</Text>
-                  <Text style={[styles.setupBannerSubtitle, { color: colors.text.secondary }]}>Add a photo or create a custom avatar</Text>
+                  <Text style={[styles.setupBannerTitle, { color: colors.text.primary }]}>Show your friends who you are!</Text>
+                  <Text style={[styles.setupBannerSubtitle, { color: colors.text.secondary }]}>Add a photo or create a fun avatar</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={colors.text.tertiary} style={{ marginRight: 4 }} />
                 <TouchableOpacity
                   onPress={() => setSetupBannerDismissed(true)}
                   hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                  style={[styles.setupBannerClose, { backgroundColor: isDark ? '#2D2306' : '#FEF3C7' }]}
+                  style={[styles.setupBannerClose, { backgroundColor: isDark ? '#2D1520' : '#FFE4EC' }]}
                 >
                   <Ionicons name="close" size={14} color={colors.text.tertiary} />
                 </TouchableOpacity>
@@ -654,7 +691,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
           )}
 
           {/* Avatar with rank-colored ring */}
-          <View style={styles.avatarSection}>
+          <View style={styles.avatarSection} ref={setGuideRef('avatarSection')}>
             <TouchableOpacity style={styles.avatarOuter} activeOpacity={0.8} onPress={() => setAvatarViewerVisible(true)}>
               <View style={[styles.avatarRing, { borderColor: rankInfo.ringColor, backgroundColor: colors.surface }]}>
                 <Avatar
@@ -671,61 +708,47 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
 
           {/* Bio */}
           {(user.bio || isOwnProfile) && (
-            <View style={styles.bioSection}>
+            <View style={styles.bioSection} ref={setGuideRef('bioSection')}>
               {user.bio ? (
                 <Text style={[styles.bio, { color: colors.text.secondary }]}>{user.bio}</Text>
               ) : (
-                <Text style={[styles.bioPlaceholder, { color: colors.text.tertiary }]}>Add a bio to tell people about yourself</Text>
+                <Text style={[styles.bioPlaceholder, { color: colors.text.tertiary }]}>Say hi! Tell your friends a little about yourself</Text>
               )}
+            </View>
+          )}
+
+          {/* Rank */}
+          {user.positivityRank && (
+            <View style={styles.rankBar} ref={setGuideRef('rankBar')}>
+              <View style={[styles.rankBadge, { backgroundColor: rankInfo.color + '14' }]}>
+                <View style={[styles.rankDot, { backgroundColor: rankInfo.color }]} />
+                <Text style={[styles.rankLabel, { color: rankInfo.color }]}>
+                  {userRank.charAt(0).toUpperCase() + userRank.slice(1)}
+                </Text>
+              </View>
             </View>
           )}
 
           {/* Stats */}
-          <View style={[styles.statsRow, { borderColor: colors.borderLight }]}>
+          <View style={[styles.statsRow, { backgroundColor: isDark ? colors.surfaceVariant : rankInfo.color + '0F', borderRadius: 16 }]} ref={setGuideRef('statsRow')}>
             <TouchableOpacity style={styles.statCard}>
-              <Text style={[styles.statNumber, { color: colors.text.primary }]}>{posts.length}</Text>
+              <Text style={[styles.statNumber, { color: rankInfo.color }]}>{posts.length}</Text>
               <Text style={[styles.statLabel, { color: colors.text.secondary }]}>Posts</Text>
             </TouchableOpacity>
-            <View style={[styles.statDivider, { backgroundColor: colors.borderLight }]} />
+            <View style={[styles.statDivider, { backgroundColor: rankInfo.color + '30' }]} />
             <TouchableOpacity style={styles.statCard}>
-              <Text style={[styles.statNumber, { color: colors.text.primary }]}>{user.followersCount || 0}</Text>
-              <Text style={[styles.statLabel, { color: colors.text.secondary }]}>Followers</Text>
+              <Text style={[styles.statNumber, { color: rankInfo.color }]}>{user.followersCount || 0}</Text>
+              <Text style={[styles.statLabel, { color: colors.text.secondary }]}>Friends</Text>
             </TouchableOpacity>
-            <View style={[styles.statDivider, { backgroundColor: colors.borderLight }]} />
+            <View style={[styles.statDivider, { backgroundColor: rankInfo.color + '30' }]} />
             <TouchableOpacity style={styles.statCard}>
-              <Text style={[styles.statNumber, { color: colors.text.primary }]}>{user.followingCount || 0}</Text>
-              <Text style={[styles.statLabel, { color: colors.text.secondary }]}>Following</Text>
+              <Text style={[styles.statNumber, { color: rankInfo.color }]}>{(user.positivityGiveCounter || 0).toLocaleString()}</Text>
+              <Text style={[styles.statLabel, { color: colors.text.secondary }]}>Kindness Given</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Rank & Coins indicator */}
-          {(user.positivityRank || user.positivityGiveCounter !== undefined) && (
-            <View style={styles.rankBar}>
-              {user.positivityRank && (
-                <View style={styles.rankBadge}>
-                  <View style={[styles.rankDot, { backgroundColor: rankInfo.color }]} />
-                  <Text style={[styles.rankLabel, { color: colors.text.secondary }]}>
-                    {userRank.charAt(0).toUpperCase() + userRank.slice(1)}
-                  </Text>
-                </View>
-              )}
-              {user.positivityGiveCounter !== undefined && (
-                <>
-                  <Text style={[styles.rankSep, { color: colors.text.tertiary }]}>&middot;</Text>
-                  <Text style={[styles.rankStat, { color: colors.text.tertiary }]}>
-                    {(user.positivityGiveCounter || 0).toLocaleString()} given
-                  </Text>
-                  <Text style={[styles.rankSep, { color: colors.text.tertiary }]}>&middot;</Text>
-                  <Text style={[styles.rankStat, { color: colors.text.tertiary }]}>
-                    {(user.positivityReceiveCounter || 0).toLocaleString()} received
-                  </Text>
-                </>
-              )}
-            </View>
-          )}
-
           {/* Action Buttons */}
-          <View style={styles.actionButtons}>
+          <View style={styles.actionButtons} ref={setGuideRef('actionButtons')}>
             {isOwnProfile ? (
               <>
                 <TouchableOpacity style={[styles.editButton, { backgroundColor: colors.surfaceVariant, borderColor: colors.border }]} onPress={handleEditProfile}>
@@ -754,7 +777,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
                     {
                       backgroundColor: isFollowing || followRequestStatus === 'pending'
                         ? colors.surfaceVariant
-                        : '#0095F6',
+                        : rankInfo.color,
                       borderWidth: isFollowing || followRequestStatus === 'pending' ? StyleSheet.hairlineWidth : 0,
                       borderColor: colors.border,
                     },
@@ -765,12 +788,19 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
                   {followLoading ? (
                     <ActivityIndicator size="small" color={isFollowing || followRequestStatus === 'pending' ? colors.text.primary : '#FFF'} />
                   ) : (
-                    <Text style={[
-                      styles.followButtonText,
-                      { color: isFollowing || followRequestStatus === 'pending' ? colors.text.primary : '#FFF' },
-                    ]}>
-                      {getFollowButtonText()}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons
+                        name={isFollowing ? 'heart' : followRequestStatus === 'pending' ? 'time-outline' : 'heart-outline'}
+                        size={16}
+                        color={isFollowing || followRequestStatus === 'pending' ? colors.text.primary : '#FFF'}
+                      />
+                      <Text style={[
+                        styles.followButtonText,
+                        { color: isFollowing || followRequestStatus === 'pending' ? colors.text.primary : '#FFF' },
+                      ]}>
+                        {getFollowButtonText()}
+                      </Text>
+                    </View>
                   )}
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -823,13 +853,17 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
         </View>
 
         {/* Medals Section */}
-        <ProfileMedalsSection userId={user.id} isOwnProfile={isOwnProfile} />
+        <View ref={setGuideRef('medalsSection')}>
+          <ProfileMedalsSection userId={user.id} isOwnProfile={isOwnProfile} />
+        </View>
 
         {/* Story of Me Section */}
-        <StoryOfMeSection userId={user.id} isOwnProfile={isOwnProfile} rankGradient={rankInfo.gradient} rankColor={rankInfo.color} />
+        <View ref={setGuideRef('storyOfMeSection')}>
+          <StoryOfMeSection userId={user.id} isOwnProfile={isOwnProfile} rankGradient={rankInfo.gradient} rankColor={rankInfo.color} />
+        </View>
 
         {/* Grid/Tabs Header */}
-        <View style={[styles.tabsContainer, { backgroundColor: colors.background, borderBottomColor: colors.borderLight }]}>
+        <View style={[styles.tabsContainer, { backgroundColor: colors.background, borderBottomColor: colors.borderLight }]} ref={setGuideRef('postTabs')}>
           <TouchableOpacity
             style={[styles.tab, activeTab === 'posts' && [styles.activeTab, { borderBottomColor: colors.text.primary }]]}
             onPress={() => setActiveTab('posts')}
@@ -847,6 +881,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
         </View>
 
         {/* Posts Grid */}
+        <View ref={setGuideRef('postsGrid')}>
         {activeTab === 'posts' ? (
           loadingPosts ? (
             <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
@@ -897,6 +932,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
             </View>
           )
         ) : null}
+        </View>
 
       </ScrollView>
 
@@ -1072,8 +1108,8 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
                     <Text style={styles.privacyToggleLabel}>Private Account</Text>
                     <Text style={styles.privacyToggleDescription}>
                       {isPrivate
-                        ? 'Only approved followers can see your posts'
-                        : 'Anyone can see your posts'}
+                        ? 'Only approved friends can see your posts'
+                        : 'Anyone can see your posts and be your friend'}
                     </Text>
                   </View>
                 </View>
@@ -1140,9 +1176,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
               <View style={styles.settingsItemIcon}>
                 <Ionicons name={isPrivate ? 'lock-closed-outline' : 'lock-open-outline'} size={22} color="#262626" />
               </View>
-              <Text style={styles.settingsItemText}>
-                {isPrivate ? 'Private Account' : 'Public Account'}
-              </Text>
+              <Text style={styles.settingsItemText}>Private Account</Text>
               <View style={[styles.settingsToggle, isPrivate && styles.settingsToggleActive]}>
                 <View style={[styles.settingsToggleKnob, isPrivate && styles.settingsToggleKnobActive]} />
               </View>
@@ -1159,6 +1193,21 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
                 <Ionicons name="share-social-outline" size={22} color="#262626" />
               </View>
               <Text style={styles.settingsItemText}>Share Profile</Text>
+              <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.settingsItem}
+              onPress={() => {
+                setSettingsMenuVisible(false);
+                scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+                setTimeout(() => setGuideVisible(true), 350);
+              }}
+            >
+              <View style={styles.settingsItemIcon}>
+                <Ionicons name="help-circle-outline" size={22} color="#262626" />
+              </View>
+              <Text style={styles.settingsItemText}>Profile Tour</Text>
               <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
             </TouchableOpacity>
 
@@ -1187,7 +1236,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
                 <View style={styles.settingsItemIcon}>
                   <Ionicons name="people-outline" size={22} color="#262626" />
                 </View>
-                <Text style={styles.settingsItemText}>Follow Requests</Text>
+                <Text style={styles.settingsItemText}>Friend Requests</Text>
                 <View style={styles.settingsItemBadge}>
                   <Text style={styles.settingsItemBadgeText}>{followRequestCount}</Text>
                 </View>
@@ -1195,6 +1244,20 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
             )}
 
             <View style={styles.settingsDivider} />
+
+            <TouchableOpacity
+              style={styles.settingsItem}
+              onPress={() => {
+                setSettingsMenuVisible(false);
+                setTimeout(() => setShowAccountSwitcher(true), 300);
+              }}
+            >
+              <View style={styles.settingsItemIcon}>
+                <Ionicons name="swap-horizontal-outline" size={22} color="#262626" />
+              </View>
+              <Text style={styles.settingsItemText}>Switch Account</Text>
+              <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.settingsItem}
@@ -1281,12 +1344,12 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
                     <View style={styles.shareCardStatDivider} />
                     <View style={styles.shareCardStat}>
                       <Text style={styles.shareCardStatNumber}>{user?.followersCount || 0}</Text>
-                      <Text style={styles.shareCardStatLabel}>Followers</Text>
+                      <Text style={styles.shareCardStatLabel}>Friends</Text>
                     </View>
                     <View style={styles.shareCardStatDivider} />
                     <View style={styles.shareCardStat}>
-                      <Text style={styles.shareCardStatNumber}>{user?.followingCount || 0}</Text>
-                      <Text style={styles.shareCardStatLabel}>Following</Text>
+                      <Text style={styles.shareCardStatNumber}>{(user?.positivityGiveCounter || 0).toLocaleString()}</Text>
+                      <Text style={styles.shareCardStatLabel}>Kindness Given</Text>
                     </View>
                   </View>
 
@@ -1415,6 +1478,14 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
           </View>
         </View>
       </Modal>
+
+      {/* Profile Guide Overlay */}
+      <ProfileGuide
+        visible={guideVisible}
+        onClose={() => setGuideVisible(false)}
+        guideRefs={guideRefs}
+        scrollViewRef={scrollViewRef}
+      />
     </View>
   );
 }
@@ -1435,7 +1506,7 @@ const styles = StyleSheet.create({
 
   // Profile Header
   profileHeader: {
-    paddingTop: 52,
+    paddingTop: 8,
     paddingBottom: 24,
     paddingHorizontal: 20,
   },
@@ -1443,7 +1514,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
   },
   usernameRow: {
     flexDirection: 'row',
@@ -1453,6 +1524,11 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     letterSpacing: 0.3,
+  },
+  topBarRight: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 2,
   },
   settingsButton: {
     padding: 8,
@@ -1471,18 +1547,17 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   avatarRing: {
-    borderRadius: 46,
-    borderWidth: 2.5,
-    padding: 2,
+    borderRadius: 48,
+    borderWidth: 3,
+    padding: 3,
   },
 
   // Stats
   statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 8,
     marginBottom: 14,
   },
   statCard: {
@@ -1490,35 +1565,37 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statNumber: {
-    fontSize: 17,
-    fontWeight: '700',
-    marginBottom: 2,
+    fontSize: 20,
+    fontWeight: '800',
+    marginBottom: 3,
   },
   statLabel: {
     fontSize: 11,
-    fontWeight: '500',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
   statDivider: {
-    width: StyleSheet.hairlineWidth,
-    height: 24,
+    width: 1,
+    height: 28,
+    borderRadius: 1,
+    opacity: 0.5,
   },
 
   // Bio
   bioSection: {
-    marginBottom: 14,
+    marginBottom: 16,
     alignItems: 'center',
-    paddingHorizontal: 10,
+    paddingHorizontal: 16,
   },
   bio: {
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 21,
     textAlign: 'center',
   },
   bioPlaceholder: {
     fontSize: 13,
     fontStyle: 'italic',
+    textAlign: 'center',
   },
 
   // Rank Bar
@@ -1528,23 +1605,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 18,
     gap: 8,
+    flexWrap: 'wrap',
   },
   rankBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
+    backgroundColor: 'rgba(124, 58, 237, 0.08)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   rankDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   rankLabel: {
     fontSize: 12,
     fontWeight: '600',
   },
   rankSep: {
-    fontSize: 12,
+    fontSize: 10,
   },
   rankStat: {
     fontSize: 12,
@@ -1554,13 +1636,13 @@ const styles = StyleSheet.create({
   // Action Buttons
   actionButtons: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
   },
   editButton: {
     flex: 1,
     flexDirection: 'row',
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 11,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
@@ -1568,8 +1650,8 @@ const styles = StyleSheet.create({
   shareButton: {
     flex: 0.6,
     flexDirection: 'row',
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 11,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
@@ -1581,23 +1663,24 @@ const styles = StyleSheet.create({
   followButton: {
     flex: 1,
     flexDirection: 'row',
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 11,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
   followButtonText: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   followingButton: {},
   requestedButton: {},
   followingButtonText: {},
   requestsButton: {
-    backgroundColor: '#0095F6',
+    backgroundColor: '#7C3AED',
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 11,
+    borderRadius: 20,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1615,12 +1698,12 @@ const styles = StyleSheet.create({
   requestsBadgeText: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#0095F6',
+    color: '#7C3AED',
   },
   messageButton: {
     width: 42,
     height: 42,
-    borderRadius: 8,
+    borderRadius: 21,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: StyleSheet.hairlineWidth,
@@ -1628,7 +1711,7 @@ const styles = StyleSheet.create({
   giveCoinsButton: {
     width: 42,
     height: 42,
-    borderRadius: 8,
+    borderRadius: 21,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: StyleSheet.hairlineWidth,
@@ -1636,7 +1719,7 @@ const styles = StyleSheet.create({
   favoriteButton: {
     width: 42,
     height: 42,
-    borderRadius: 8,
+    borderRadius: 21,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: StyleSheet.hairlineWidth,

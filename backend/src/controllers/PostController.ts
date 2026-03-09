@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { Op } from 'sequelize';
-import { Post, PostStatus, PostVisibility } from '../models/Post';
+import { Post, PostStatus, PostVisibility, PostType } from '../models/Post';
+import { ActivityService } from '../services/ActivityService';
 import { User } from '../models/User';
 import { PostTopic } from '../models/PostTopic';
 import { Topic } from '../models/Topic';
@@ -25,8 +26,9 @@ export class PostController {
    */
   static async createPost(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const { caption, visibility, topicIds, locationName, locationLat, locationLng, photoTakenAt } = req.body;
+      const { caption, visibility, topicIds, locationName, locationLat, locationLng, photoTakenAt, activityId, postType, goalId, goalVisible } = req.body;
       const userId = req.user!.id;
+      logger.info('createPost received', { goalId, goalVisible, postType, userId });
 
       // Validate visibility
       const validVisibility = visibility && Object.values(PostVisibility).includes(visibility)
@@ -137,6 +139,9 @@ export class PostController {
         }
       }
 
+      // Determine post type
+      const validPostType = postType === PostType.ACTIVITY ? PostType.ACTIVITY : PostType.REGULAR;
+
       // Create post record - originalImageUrl stores the full uncropped image
       const post = await Post.create({
         userId,
@@ -144,6 +149,10 @@ export class PostController {
         caption: caption || null,
         status: PostStatus.PROCESSING,
         visibility: validVisibility,
+        postType: validPostType,
+        activityId: activityId || null,
+        goalId: goalId || null,
+        goalVisible: goalId ? (goalVisible === 'false' || goalVisible === false ? false : true) : null,
         avatarId,
         imageWidth,
         imageHeight,
@@ -169,6 +178,26 @@ export class PostController {
         // since the post is still in PROCESSING status at this point).
 
         logger.info('Post associated with topics', { postId: post.id, topicIds: parsedTopicIds });
+      }
+
+      // Auto-complete activity if this is an activity post
+      if (validPostType === PostType.ACTIVITY && activityId) {
+        try {
+          await ActivityService.completeActivity(activityId, userId, post.id);
+          logger.info('Activity auto-completed from post', { activityId, postId: post.id });
+        } catch (error) {
+          logger.error('Failed to auto-complete activity', { error, activityId, postId: post.id });
+        }
+      }
+
+      // Increment goal postsCount
+      if (goalId) {
+        try {
+          const { Goal } = require('../models/Goal');
+          await Goal.increment('postsCount', { by: 1, where: { id: goalId } });
+        } catch (error) {
+          logger.error('Failed to increment goal postsCount', { error, goalId, postId: post.id });
+        }
       }
 
       // Check if post is "meaningful" (has caption with >20 chars) and award coins back
@@ -245,9 +274,15 @@ export class PostController {
         res.status(500).json({ error: 'Failed to queue image processing' });
       }
 
-    } catch (error) {
-      logger.error('Error creating post', { error, userId: req.user?.id });
-      res.status(500).json({ error: 'Failed to create post' });
+    } catch (error: any) {
+      logger.error('Error creating post', {
+        error,
+        message: error?.message,
+        original: error?.original?.message,
+        sql: error?.sql,
+        userId: req.user?.id,
+      });
+      res.status(500).json({ error: 'Failed to create post', detail: error?.original?.message || error?.message });
     }
   }
 
@@ -334,7 +369,7 @@ export class PostController {
   static async updatePost(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { postId } = req.params;
-      const { caption } = req.body;
+      const { caption, goalVisible } = req.body;
       const userId = req.user!.id;
 
       const post = await Post.findByPk(postId);
@@ -352,6 +387,9 @@ export class PostController {
       const updateData: any = {};
       if (caption !== undefined) {
         updateData.caption = caption;
+      }
+      if (goalVisible !== undefined && post.goalId) {
+        updateData.goalVisible = !!goalVisible;
       }
 
       // Handle optional re-cropped image upload

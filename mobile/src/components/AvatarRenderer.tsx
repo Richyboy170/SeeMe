@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { View, StyleSheet } from 'react-native';
 import Svg, { Circle, Ellipse, Path, G, Rect, Defs, ClipPath, Line } from 'react-native-svg';
+
+let _avatarClipCounter = 0;
 
 export interface AvatarCustomizations {
   skinTone: string;
@@ -32,6 +34,7 @@ export default function AvatarRenderer({
   customizations,
   style = 'cartoon'
 }: AvatarRendererProps) {
+  const clipId = useRef(`ac${++_avatarClipCounter}`).current;
   const {
     skinTone,
     eyeColor,
@@ -643,12 +646,12 @@ export default function AvatarRenderer({
     <View style={[styles.container, { width: size, height: size }]}>
       <Svg width={size} height={size} viewBox="0 0 100 100">
         <Defs>
-          <ClipPath id="avatarClip">
+          <ClipPath id={clipId}>
             <Circle cx="50" cy="50" r="48" />
           </ClipPath>
         </Defs>
 
-        <G clipPath="url(#avatarClip)">
+        <G clipPath={`url(#${clipId})`}>
           {/* Background */}
           <Circle cx="50" cy="50" r="50" fill="#E5E7EB" />
 

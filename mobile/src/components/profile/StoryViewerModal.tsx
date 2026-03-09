@@ -126,8 +126,9 @@ function SlideTopPost({ card }: { card: Extract<HighlightCard, { type: 'top_post
 }
 
 function SlidePostGallery({ card }: { card: Extract<HighlightCard, { type: 'post_gallery' }> }) {
-    const posts = card.posts.slice(0, 4);
-    const tileSize = (SCREEN_W - 52) / 2;
+    const posts = card.posts.slice(0, 6);
+    const cols = posts.length <= 2 ? 2 : posts.length <= 4 ? 2 : 3;
+    const tileSize = (SCREEN_W - 36 - (cols - 1) * 6) / cols;
     return (
         <View style={[sStyles.fullSlide, { backgroundColor: '#111' }]}>
             <Text style={sStyles.galleryLabel}>{card.label}</Text>

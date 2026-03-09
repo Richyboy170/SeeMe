@@ -97,8 +97,8 @@ export default function GivingActivityScreen({ navigation }: any) {
     }
   };
 
-  const handleUserPress = (userId: string) => {
-    navigation.navigate('Profile', { userId });
+  const handleUserPress = (userId: string, username: string) => {
+    navigation.navigate('UserProfile', { userId, username });
   };
 
   const formatTimeAgo = (dateString: string) => {
@@ -119,7 +119,7 @@ export default function GivingActivityScreen({ navigation }: any) {
         {/* Giver */}
         <TouchableOpacity
           style={styles.user}
-          onPress={() => handleUserPress(item.giver.id)}
+          onPress={() => handleUserPress(item.giver.id, item.giver.username)}
         >
           <Ionicons name="person-circle" size={40} color={colors.text.tertiary} />
           <Text style={[styles.username, { color: colors.text.primary }]}>@{item.giver.username}</Text>
@@ -138,7 +138,7 @@ export default function GivingActivityScreen({ navigation }: any) {
         {/* Receiver */}
         <TouchableOpacity
           style={styles.user}
-          onPress={() => handleUserPress(item.receiver.id)}
+          onPress={() => handleUserPress(item.receiver.id, item.receiver.username)}
         >
           <Ionicons name="person-circle" size={40} color={colors.text.tertiary} />
           <Text style={[styles.username, { color: colors.text.primary }]}>@{item.receiver.username}</Text>

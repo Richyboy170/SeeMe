@@ -42,6 +42,13 @@ import { FriendshipPhoto } from './FriendshipPhoto';
 import { CornerIconPurchase } from './CornerIconPurchase';
 import { CornerIconPlacement } from './CornerIconPlacement';
 
+// Activity Wheel imports
+import { CommunityActivity } from './CommunityActivity';
+import { ActivityCompletion } from './ActivityCompletion';
+
+// Goal imports
+import { Goal } from './Goal';
+
 // Admin imports
 import { AuditLog } from './AuditLog';
 
@@ -841,4 +848,40 @@ export const setupAssociations = () => {
     as: 'auditLogs',
     onDelete: 'CASCADE'
   });
+
+  // ===== ACTIVITY WHEEL ASSOCIATIONS =====
+
+  // CommunityActivity -> Topic: Many-to-One
+  CommunityActivity.belongsTo(Topic, { foreignKey: 'topicId', as: 'topic' });
+  Topic.hasMany(CommunityActivity, { foreignKey: 'topicId', as: 'activities', onDelete: 'CASCADE' });
+
+  // CommunityActivity -> User (creator): Many-to-One
+  CommunityActivity.belongsTo(User, { foreignKey: 'createdByUserId', as: 'createdBy' });
+  User.hasMany(CommunityActivity, { foreignKey: 'createdByUserId', as: 'createdActivities', onDelete: 'SET NULL' });
+
+  // ActivityCompletion -> CommunityActivity: Many-to-One
+  ActivityCompletion.belongsTo(CommunityActivity, { foreignKey: 'activityId', as: 'activity' });
+  CommunityActivity.hasMany(ActivityCompletion, { foreignKey: 'activityId', as: 'completions', onDelete: 'CASCADE' });
+
+  // ActivityCompletion -> User: Many-to-One
+  ActivityCompletion.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+  User.hasMany(ActivityCompletion, { foreignKey: 'userId', as: 'activityCompletions', onDelete: 'CASCADE' });
+
+  // ActivityCompletion -> Post: Many-to-One
+  ActivityCompletion.belongsTo(Post, { foreignKey: 'postId', as: 'post' });
+  Post.hasOne(ActivityCompletion, { foreignKey: 'postId', as: 'activityCompletion', onDelete: 'CASCADE' });
+
+  // Post -> CommunityActivity: Many-to-One
+  Post.belongsTo(CommunityActivity, { foreignKey: 'activityId', as: 'activity' });
+  CommunityActivity.hasMany(Post, { foreignKey: 'activityId', as: 'posts', onDelete: 'SET NULL' });
+
+  // ===== GOALS ASSOCIATIONS =====
+
+  // Goal -> User: Many-to-One
+  Goal.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+  User.hasMany(Goal, { foreignKey: 'userId', as: 'goals', onDelete: 'CASCADE' });
+
+  // Post -> Goal: Many-to-One
+  Post.belongsTo(Goal, { foreignKey: 'goalId', as: 'goal' });
+  Goal.hasMany(Post, { foreignKey: 'goalId', as: 'posts', onDelete: 'SET NULL' });
 };

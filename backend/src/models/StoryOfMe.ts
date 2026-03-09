@@ -26,6 +26,7 @@ export type HighlightCard =
     | { type: 'opener'; text: string }
     | { type: 'top_post'; label: string; post: PostSummary }
     | { type: 'post_gallery'; label: string; posts: PostSummary[] }
+    | { type: 'all_posts'; label: string; posts: PostSummary[] }
     | { type: 'stat_row'; items: { icon: string; value: number; label: string }[] }
     | { type: 'caption_quotes'; label: string; quotes: string[] }
     | { type: 'coins'; earned: number; given: number }

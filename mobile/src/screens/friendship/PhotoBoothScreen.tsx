@@ -98,7 +98,7 @@ export default function PhotoBoothScreen() {
 
       try {
         const snapshot = await cameraRef.current.takePictureAsync({
-          quality: 0.3,
+          quality: 0.5,
           skipProcessing: true,
         });
         if (cancelled || !snapshot?.uri) return;
@@ -118,9 +118,9 @@ export default function PhotoBoothScreen() {
           setLeftPersonMatched(detected >= 1);
           setRightPersonMatched(detected >= 2);
 
-          // Match: need 2 people detected with score > 0.3
+          // Match: need 2 people detected with score > 0.25
           // DEV: skip score threshold when +1 person is active
-          const scoreOk = devExtraPeopleRef.current > 0 ? score >= 0 : score > 0.3;
+          const scoreOk = devExtraPeopleRef.current > 0 ? score >= 0 : score > 0.25;
           if (scoreOk && detected >= 2 && !cancelled) {
             setIsMatched(true);
             setLeftPersonMatched(true);

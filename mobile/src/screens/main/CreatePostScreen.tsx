@@ -51,7 +51,6 @@ import { useTheme, Colors } from '../../theme';
 import SkyCoinIcon, { SKY_COIN_COLORS } from '../../components/coins/SkyCoinIcon';
 import CoinInvestAnimation from '../../components/coins/CoinInvestAnimation';
 import ImageEditor from '../../components/ImageEditor';
-import { analyzeImage } from '../../services/imageAnalyzer';
 import * as draftService from '../../services/draftService';
 // Person detection disabled for now — imports kept for re-enable later
 // import { checkImageForPerson, blurFacesInImage } from '../../services/contentCheck';
@@ -406,11 +405,12 @@ export default function CreatePostScreen() {
     locationLat?: number;
     locationLng?: number;
     photoTakenAt?: string;
+    activityId?: string;
+    postType?: 'regular' | 'activity';
   } | null>(null);
 
   // Topic suggestions toggle (photo + caption)
   const [showSuggestions, setShowSuggestions] = useState(true);
-  const [imageSuggestedTopics, setImageSuggestedTopics] = useState<FullTopic[]>([]);
 
   // Location & photo time state
   const [locationEnabled, setLocationEnabled] = useState(false);
@@ -426,6 +426,18 @@ export default function CreatePostScreen() {
   const [savingDraft, setSavingDraft] = useState(false);
   const activeDraftIdRef = useRef<string | null>(null);
 
+  // Activity wheel state
+  const [activityId, setActivityId] = useState<string | null>(null);
+  const [activityTitle, setActivityTitle] = useState<string | null>(null);
+  const [activityDescription, setActivityDescription] = useState<string | null>(null);
+  const [activityResearch, setActivityResearch] = useState<string | null>(null);
+  const [activityExpanded, setActivityExpanded] = useState(true);
+
+  // Goal tagging state
+  const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
+  const [goalVisibleOnPost, setGoalVisibleOnPost] = useState(true);
+  const [availableGoals, setAvailableGoals] = useState<{ id: string; title: string }[]>([]);
+
   // Refresh background data when tab is focused — preserve draft state
   useFocusEffect(
     useCallback(() => {
@@ -434,6 +446,7 @@ export default function CreatePostScreen() {
       loadGalleryThumbnail();
       loadCoinBalance();
       refreshDraftCount();
+      api.getMyGoals().then(res => setAvailableGoals(res.goals || [])).catch(() => {});
 
       // Check for resumeDraftId from DraftsGallery navigation
       const resumeId = route.params?.resumeDraftId;
@@ -442,7 +455,27 @@ export default function CreatePostScreen() {
         // Clear the param so it doesn't re-trigger
         navigation.setParams({ resumeDraftId: undefined });
       }
-    }, [route.params?.resumeDraftId])
+
+      // Check for activity params from spinning wheel
+      const params = route.params as any;
+      if (params?.activityId) {
+        setActivityId(params.activityId);
+        setActivityTitle(params.activityTitle || null);
+        setActivityDescription(params.activityDescription || null);
+        setActivityResearch(params.activityResearch || null);
+        setActivityExpanded(true);
+        // Auto-select the community topic and set visibility
+        if (params.activityTopicId) {
+          setSelectedTopics(prev => {
+            if (prev.includes(params.activityTopicId)) return prev;
+            return [...prev, params.activityTopicId];
+          });
+          setVisibility('topics_and_friends');
+        }
+        // Clear params so they don't re-trigger
+        navigation.setParams({ activityId: undefined, activityTitle: undefined, activityTopicId: undefined, activityTopicName: undefined, activityDescription: undefined, activityResearch: undefined } as any);
+      }
+    }, [route.params?.resumeDraftId, (route.params as any)?.activityId])
   );
 
   // Cleanup suggestion timer on unmount
@@ -518,7 +551,11 @@ export default function CreatePostScreen() {
     setVisibility('friends_only');
     setSelectedTopics([]);
     setSuggestedTopics([]);
-    setImageSuggestedTopics([]);
+    setActivityId(null);
+    setActivityTitle(null);
+    setActivityDescription(null);
+    setActivityResearch(null);
+    setActivityExpanded(true);
     setShowSuggestions(true);
     setLocationEnabled(false);
     setLocationName(null);
@@ -647,7 +684,6 @@ export default function CreatePostScreen() {
       setFollowedTopics(prev => [...prev, { ...topic, isFollowing: true }]);
       setSelectedTopics(prev => [...prev, topic.id]);
       setSuggestedTopics(prev => prev.filter(t => t.id !== topic.id));
-      setImageSuggestedTopics(prev => prev.filter(t => t.id !== topic.id));
       if (visibility === 'friends_only') {
         setVisibility('topics_and_friends');
       }
@@ -673,11 +709,6 @@ export default function CreatePostScreen() {
     setMode('compose');
     setContentStatus('ready');
 
-    // Run lightweight image analysis for topic suggestions (if allowed)
-    if (showSuggestions) {
-      analyzeImageForTopics(croppedUri);
-    }
-
     if (wasCropped) {
       Alert.alert(
         'Cropping Info',
@@ -692,32 +723,6 @@ export default function CreatePostScreen() {
     setRawImageUri(null);
   }, []);
 
-  // Lightweight on-device image analysis for topic suggestions
-  const analyzeImageForTopics = async (uri: string) => {
-    try {
-      const result = await analyzeImage(uri);
-      if (result.suggestedSlugs.length === 0) {
-        setImageSuggestedTopics([]);
-        return;
-      }
-
-      // Map slugs to actual topic objects, excluding already followed/selected
-      const followedIds = new Set(followedTopics.map(t => t.id));
-      selectedTopics.forEach(id => followedIds.add(id));
-
-      const matched = result.suggestedSlugs
-        .map(slug => allTopics.find(t => {
-          const topicSlug = t.slug || t.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-          return topicSlug === slug;
-        }))
-        .filter((t): t is FullTopic => !!t && !followedIds.has(t.id));
-
-      setImageSuggestedTopics(matched);
-    } catch (error) {
-      console.error('Image analysis failed:', error);
-      setImageSuggestedTopics([]);
-    }
-  };
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -930,6 +935,10 @@ export default function CreatePostScreen() {
       locationLat: locationEnabled && locationCoords ? locationCoords.lat : undefined,
       locationLng: locationEnabled && locationCoords ? locationCoords.lng : undefined,
       photoTakenAt: showPhotoTime && photoTakenAt ? photoTakenAt : undefined,
+      activityId: activityId || undefined,
+      postType: activityId ? 'activity' : 'regular',
+      goalId: selectedGoalId || undefined,
+      goalVisible: selectedGoalId ? goalVisibleOnPost : undefined,
     };
     submitPost();
   };
@@ -940,6 +949,7 @@ export default function CreatePostScreen() {
 
     setLoading(true);
     try {
+      console.log('submitPost goalId:', postData.goalId, 'goalVisible:', postData.goalVisible);
       const response = await api.createPost(
         postData.imageUri,
         postData.caption,
@@ -949,8 +959,13 @@ export default function CreatePostScreen() {
         postData.locationName,
         postData.locationLat,
         postData.locationLng,
-        postData.photoTakenAt
+        postData.photoTakenAt,
+        postData.activityId,
+        postData.postType,
+        postData.goalId,
+        postData.goalVisible,
       );
+      console.log('createPost response goal data:', response.post?.goalId, response.post?.goalVisible);
 
       // Refresh coin balance
       loadCoinBalance();
@@ -1083,6 +1098,33 @@ export default function CreatePostScreen() {
           </View>
         )}
 
+        {/* Activity Instructions Overlay — persists in camera mode */}
+        {activityTitle && (
+          <View style={styles.cameraActivityOverlay}>
+            <TouchableOpacity
+              style={styles.cameraActivityHeader}
+              onPress={() => setActivityExpanded(prev => !prev)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="color-wand" size={16} color="#EC4899" />
+              <Text style={styles.cameraActivityTitle} numberOfLines={activityExpanded ? 3 : 1}>
+                {activityTitle}
+              </Text>
+              <Ionicons name={activityExpanded ? 'chevron-up' : 'chevron-down'} size={16} color="rgba(255,255,255,0.6)" />
+            </TouchableOpacity>
+            {activityExpanded && (activityDescription || activityResearch) && (
+              <View style={styles.cameraActivityDetails}>
+                {activityDescription ? (
+                  <Text style={styles.cameraActivityDesc}>{activityDescription}</Text>
+                ) : null}
+                {activityResearch ? (
+                  <Text style={styles.cameraActivityResearch}>{activityResearch}</Text>
+                ) : null}
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Bottom Controls */}
         <View style={[styles.cameraBottomBar, { paddingBottom: insets.bottom + 20 }]}>
           {/* Gallery Thumbnail */}
@@ -1183,6 +1225,37 @@ export default function CreatePostScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {/* Activity Banner — persistent, expandable */}
+          {activityTitle && (
+            <View style={styles.activityBanner}>
+              <TouchableOpacity
+                style={styles.activityBannerHeader}
+                onPress={() => setActivityExpanded(prev => !prev)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="color-wand" size={18} color="#EC4899" />
+                <View style={styles.activityBannerContent}>
+                  <Text style={styles.activityBannerLabel}>Activity Challenge</Text>
+                  <Text style={styles.activityBannerTitle} numberOfLines={activityExpanded ? 3 : 1}>{activityTitle}</Text>
+                </View>
+                <Ionicons name={activityExpanded ? 'chevron-up' : 'chevron-down'} size={18} color="rgba(255,255,255,0.6)" />
+              </TouchableOpacity>
+              {activityExpanded && (
+                <View style={styles.activityBannerDetails}>
+                  {activityDescription ? (
+                    <Text style={styles.activityBannerDescription}>{activityDescription}</Text>
+                  ) : null}
+                  {activityResearch ? (
+                    <View style={styles.activityBannerResearch}>
+                      <Ionicons name="flask-outline" size={13} color="rgba(255,255,255,0.5)" />
+                      <Text style={styles.activityBannerResearchText}>{activityResearch}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              )}
+            </View>
+          )}
+
           {/* Image Preview */}
           {imageUri && (
             <View style={styles.composeImageContainer}>
@@ -1240,6 +1313,8 @@ export default function CreatePostScreen() {
               onChangeText={handleCaptionChange}
               multiline
               numberOfLines={3}
+              autoCorrect={true}
+              spellCheck={true}
             />
             <View style={styles.captionMeta}>
               <Text style={[
@@ -1271,6 +1346,65 @@ export default function CreatePostScreen() {
               </View>
             )}
           </View>
+
+          {/* Goal Selector */}
+          {availableGoals.length > 0 && (
+            <View style={styles.goalSelectorRow}>
+              <View style={styles.goalSelectorLabel}>
+                <Ionicons name="flag" size={14} color="#10B981" />
+                <Text style={[styles.goalSelectorLabelText, { color: colors.text.secondary }]}>Tag a goal:</Text>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.goalPillScroll}>
+                {availableGoals.map(goal => (
+                  <TouchableOpacity
+                    key={goal.id}
+                    style={[
+                      styles.goalPill,
+                      {
+                        backgroundColor: selectedGoalId === goal.id ? '#10B981' : (isDark ? '#10B98118' : '#10B98112'),
+                        borderColor: selectedGoalId === goal.id ? '#10B981' : '#10B98140',
+                      },
+                    ]}
+                    onPress={() => {
+                      setSelectedGoalId(prev => {
+                        const next = prev === goal.id ? null : goal.id;
+                        if (next) setGoalVisibleOnPost(true);
+                        return next;
+                      });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="flag" size={12} color={selectedGoalId === goal.id ? '#FFF' : '#10B981'} />
+                    <Text
+                      style={[
+                        styles.goalPillText,
+                        { color: selectedGoalId === goal.id ? '#FFF' : '#10B981' },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {goal.title}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              {selectedGoalId && (
+                <TouchableOpacity
+                  style={styles.goalVisibilityToggle}
+                  onPress={() => setGoalVisibleOnPost(prev => !prev)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={goalVisibleOnPost ? 'eye' : 'eye-off'}
+                    size={16}
+                    color={goalVisibleOnPost ? '#10B981' : colors.text.tertiary}
+                  />
+                  <Text style={[styles.goalVisibilityText, { color: goalVisibleOnPost ? '#10B981' : colors.text.tertiary }]}>
+                    {goalVisibleOnPost ? 'Goal visible to others' : 'Goal hidden from others'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
 
           {/* Location & Photo Time Toggles — only show if data exists from image */}
           <View style={[styles.composeSection, { paddingTop: 12, paddingBottom: 4 }]}>
@@ -1337,58 +1471,7 @@ export default function CreatePostScreen() {
             )}
           </View>
 
-          {/* Image-Based Topic Suggestions */}
-          {showSuggestions && imageSuggestedTopics.length > 0 && (
-            <View style={[styles.suggestionsSection, {
-              backgroundColor: isDark ? '#0F1A15' : '#F0FFF4',
-              borderBottomColor: colors.borderLight,
-            }]}>
-              <View style={styles.suggestionsHeader}>
-                <View style={styles.suggestionsTitleRow}>
-                  <Ionicons name="image" size={16} color="#10B981" />
-                  <Text style={[styles.suggestionsTitle, { color: colors.text.primary }]}>
-                    Photo Suggestions
-                  </Text>
-                </View>
-                <Text style={[styles.suggestionsSubtitle, { color: colors.text.secondary }]}>
-                  Based on your photo — tap to join
-                </Text>
-              </View>
-              {imageSuggestedTopics.map(topic => {
-                const isJoining = joiningTopicId === topic.id;
-                return (
-                  <TouchableOpacity
-                    key={`img-${topic.id}`}
-                    style={[styles.suggestionCard, {
-                      backgroundColor: isDark ? colors.surface : '#FFF',
-                      borderColor: isDark ? colors.border : '#D1FAE5',
-                    }]}
-                    onPress={() => handleJoinAndPost(topic)}
-                    disabled={isJoining}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.suggestionCardTop}>
-                      <Text style={styles.suggestionEmoji}>
-                        {topic.iconEmoji || '📌'}
-                      </Text>
-                      <View style={styles.suggestionInfo}>
-                        <Text style={[styles.suggestionName, { color: colors.text.primary }]} numberOfLines={1}>
-                          {topic.name}
-                        </Text>
-                      </View>
-                      {isJoining ? (
-                        <ActivityIndicator size="small" color="#10B981" />
-                      ) : (
-                        <Ionicons name="add-circle" size={24} color="#10B981" />
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
-
-          {/* Toggle for topic suggestions (photo + caption) */}
+          {/* Toggle for topic suggestions */}
           <View style={[styles.privacyToggle, {
             borderBottomColor: colors.borderLight,
           }]}>
@@ -1398,11 +1481,8 @@ export default function CreatePostScreen() {
                 const next = !showSuggestions;
                 setShowSuggestions(next);
                 if (next) {
-                  // Re-run both analyses when toggled back on
-                  if (imageUri) analyzeImageForTopics(imageUri);
                   updateSuggestions(caption);
                 } else {
-                  setImageSuggestedTopics([]);
                   setSuggestedTopics([]);
                   setFollowedSuggestedTopics([]);
                 }
@@ -1954,6 +2034,139 @@ const styles = StyleSheet.create({
   },
   composeScrollContent: {
     paddingBottom: 40,
+  },
+  activityBanner: {
+    backgroundColor: '#7C3AED',
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 4,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  activityBannerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    gap: 10,
+  },
+  activityBannerContent: {
+    flex: 1,
+  },
+  activityBannerLabel: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  activityBannerTitle: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  activityBannerDetails: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  activityBannerDescription: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  activityBannerResearch: {
+    flexDirection: 'row',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    padding: 10,
+    borderRadius: 8,
+  },
+  activityBannerResearchText: {
+    flex: 1,
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  goalSelectorRow: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  goalSelectorLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 6,
+  },
+  goalSelectorLabelText: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  goalPillScroll: {
+    flexDirection: 'row',
+  },
+  goalPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginRight: 8,
+  },
+  goalPillText: {
+    fontSize: 13,
+    fontWeight: '600',
+    maxWidth: 140,
+  },
+  goalVisibilityToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  goalVisibilityText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  cameraActivityOverlay: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 160,
+    backgroundColor: 'rgba(124, 58, 237, 0.92)',
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  cameraActivityHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    gap: 8,
+  },
+  cameraActivityTitle: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  cameraActivityDetails: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    gap: 6,
+  },
+  cameraActivityDesc: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  cameraActivityResearch: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 11,
+    lineHeight: 16,
+    fontStyle: 'italic',
   },
 
   // Image Preview

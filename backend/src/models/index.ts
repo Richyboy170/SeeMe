@@ -60,5 +60,12 @@ export { FriendshipPhoto } from './FriendshipPhoto';
 export { CornerIconPurchase } from './CornerIconPurchase';
 export { CornerIconPlacement } from './CornerIconPlacement';
 
+// Activity Wheel Models
+export { CommunityActivity } from './CommunityActivity';
+export { ActivityCompletion } from './ActivityCompletion';
+
+// Goal Models
+export { Goal } from './Goal';
+
 // Admin Models
 export { AuditLog } from './AuditLog';

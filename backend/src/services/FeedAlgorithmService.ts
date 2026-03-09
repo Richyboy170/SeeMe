@@ -10,9 +10,12 @@ import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
 import { Topic } from '../models/Topic';
 import { TopicFollow } from '../models/TopicFollow';
 import { PostTopic } from '../models/PostTopic';
+import { CommunityActivity } from '../models/CommunityActivity';
+import { Goal } from '../models/Goal';
 import { Comment } from '../models/Comment';
 import { DecorationService } from './DecorationService';
 import { logger } from '../utils/logger';
+import { formatAvatarForResponse } from '../utils/formatAvatar';
 
 /**
  * Batch fetch top N recent comments for a list of post IDs.
@@ -120,6 +123,7 @@ interface FeedItem {
     id: string;
     username: string;
     avatarUrl?: string | null;
+    activeAvatarId?: string | null;
     activeAvatar?: any;
   };
   repostComment?: string | null;
@@ -127,27 +131,6 @@ interface FeedItem {
   repostCreatedAt?: Date;
   score: number;
   reasons: string[];
-}
-
-// Helper to format avatar data for API response
-function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
-  if (!avatar) return null;
-  return {
-    id: avatar.id,
-    style: avatar.style,
-    customizations: {
-      skinTone: avatar.skinTone,
-      eyeColor: avatar.eyeColor,
-      eyeSize: avatar.eyeSize,
-      hairColor: avatar.hairColor,
-      hairStyle: avatar.hairStyle,
-      accessories: {
-        glasses: avatar.glasses,
-        hat: avatar.hat,
-        earrings: avatar.earrings,
-      },
-    },
-  };
 }
 
 export class FeedAlgorithmService {
@@ -211,6 +194,18 @@ export class FeedAlgorithmService {
             as: 'topics',
             attributes: ['id', 'name', 'slug', 'iconEmoji', 'iconImageUrl', 'type'],
             through: { attributes: [] }
+          },
+          {
+            model: CommunityActivity,
+            as: 'activity',
+            attributes: ['id', 'title', 'description', 'researchBasis', 'topicId'],
+            required: false,
+          },
+          {
+            model: Goal,
+            as: 'goal',
+            attributes: ['id', 'title', 'userId'],
+            required: false,
           }
         ],
         order: [['createdAt', 'DESC']],
@@ -228,7 +223,11 @@ export class FeedAlgorithmService {
           'repostCount',
           'locationName',
           'photoTakenAt',
-          'createdAt'
+          'createdAt',
+          'postType',
+          'activityId',
+          'goalId',
+          'goalVisible'
         ]
       });
 
@@ -272,6 +271,18 @@ export class FeedAlgorithmService {
                 as: 'topics',
                 attributes: ['id', 'name', 'slug', 'iconEmoji', 'iconImageUrl', 'type'],
                 through: { attributes: [] }
+              },
+              {
+                model: CommunityActivity,
+                as: 'activity',
+                attributes: ['id', 'title', 'description', 'researchBasis', 'topicId'],
+                required: false,
+              },
+              {
+                model: Goal,
+                as: 'goal',
+                attributes: ['id', 'title', 'userId'],
+                required: false,
               }
             ],
             order: [['createdAt', 'DESC']],
@@ -279,7 +290,8 @@ export class FeedAlgorithmService {
             attributes: [
               'id', 'userId', 'originalImageUrl', 'processedImageUrl', 'thumbnailUrl',
               'caption', 'likesCount', 'commentsCount', 'repostCount',
-              'locationName', 'photoTakenAt', 'createdAt'
+              'locationName', 'photoTakenAt', 'createdAt',
+              'postType', 'activityId', 'goalId', 'goalVisible'
             ]
           });
 
@@ -316,6 +328,18 @@ export class FeedAlgorithmService {
                 as: 'topics',
                 attributes: ['id', 'name', 'slug', 'iconEmoji', 'iconImageUrl', 'type'],
                 through: { attributes: [] }
+              },
+              {
+                model: CommunityActivity,
+                as: 'activity',
+                attributes: ['id', 'title', 'description', 'researchBasis', 'topicId'],
+                required: false,
+              },
+              {
+                model: Goal,
+                as: 'goal',
+                attributes: ['id', 'title', 'userId'],
+                required: false,
               }
             ],
             attributes: [
@@ -330,7 +354,11 @@ export class FeedAlgorithmService {
               'repostCount',
               'locationName',
               'photoTakenAt',
-              'createdAt'
+              'createdAt',
+              'postType',
+              'activityId',
+              'goalId',
+              'goalVisible'
             ]
           }
         ],
@@ -449,23 +477,41 @@ export class FeedAlgorithmService {
       const repostedPostMap = new Map(userReposts.map(r => [r.originalPostId, r.type]));
 
       // Fetch active avatars & decorations for all users in the feed
+      // Use activeAvatarId from User records (consistent with profile endpoints)
       const allUserIds = new Set<string>();
+      const activeAvatarIds = new Set<string>();
       paginatedItems.forEach(item => {
         // Extract userId from the eager-loaded user association or raw dataValues
         const postUserObj = item.post.user || item.post.get?.('user');
         const postUserId = postUserObj?.id || postUserObj?.dataValues?.id || item.post.dataValues?.userId;
         if (postUserId) allUserIds.add(postUserId);
+        const avatarId = postUserObj?.activeAvatarId || postUserObj?.dataValues?.activeAvatarId;
+        if (avatarId) activeAvatarIds.add(avatarId);
         if (item.repostedBy?.id) allUserIds.add(item.repostedBy.id);
+        if (item.repostedBy?.activeAvatarId) activeAvatarIds.add(item.repostedBy.activeAvatarId);
       });
 
       const userIdArray = Array.from(allUserIds);
-      const avatars = await AvatarConfigSQL.findAll({
-        where: {
-          userId: userIdArray,
-          isActive: true,
-        },
-      });
+      const avatarIdArray = Array.from(activeAvatarIds);
+
+      // Fetch avatars by activeAvatarId (primary lookup)
+      const avatars = avatarIdArray.length > 0
+        ? await AvatarConfigSQL.findAll({ where: { id: avatarIdArray } })
+        : [];
       const avatarsByUserId = new Map(avatars.map(a => [a.userId, a]));
+
+      // Fallback: for users without activeAvatarId, try isActive lookup
+      const usersWithoutAvatar = userIdArray.filter(uid => !avatarsByUserId.has(uid));
+      if (usersWithoutAvatar.length > 0) {
+        const fallbackAvatars = await AvatarConfigSQL.findAll({
+          where: { userId: usersWithoutAvatar, isActive: true }
+        });
+        for (const a of fallbackAvatars) {
+          if (!avatarsByUserId.has(a.userId)) {
+            avatarsByUserId.set(a.userId, a);
+          }
+        }
+      }
 
       // Fetch active decorations for all users in the feed
       const decorationsByUserId = await DecorationService.batchResolveActiveDecorations(userIdArray);
@@ -507,6 +553,22 @@ export class FeedAlgorithmService {
           repostedByMe: repostedPostMap.has(item.post.id),
           myRepostType: repostedPostMap.get(item.post.id) || null,
           topics: (item.post.get ? (item.post as any).get('topics') : (item.post as any).topics) || [],
+          postType: (item.post as any).postType || 'regular',
+          activity: (item.post as any).postType === 'activity' && (item.post as any).activity ? {
+            id: (item.post as any).activity.id,
+            title: (item.post as any).activity.title,
+            description: (item.post as any).activity.description,
+            researchBasis: (item.post as any).activity.researchBasis,
+            topicId: (item.post as any).activity.topicId,
+          } : null,
+          goal: (item.post as any).goalId && (item.post as any).goal ? {
+            id: (item.post as any).goal.id,
+            title: (item.post as any).goal.userId === userId || (item.post as any).goalVisible !== false
+              ? (item.post as any).goal.title
+              : null,
+            isVisible: (item.post as any).goalVisible !== false,
+            isOwner: (item.post as any).goal.userId === userId,
+          } : null,
           decoration: decorationsByUserId.get(postUser?.id || '') || null,
           recentComments: recentCommentsByPostId.get(item.post.id) || [],
           // Algorithm metadata

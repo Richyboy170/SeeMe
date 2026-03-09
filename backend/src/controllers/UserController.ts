@@ -11,27 +11,7 @@ import { sequelize } from '../config/database';
 import { S3Service } from '../services/S3Service';
 import { ImageProcessor } from '../utils/imageProcessing';
 import { v4 as uuidv4 } from 'uuid';
-
-// Helper to format avatar data for API response
-function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
-  if (!avatar) return null;
-  return {
-    id: avatar.id,
-    style: avatar.style,
-    customizations: {
-      skinTone: avatar.skinTone,
-      eyeColor: avatar.eyeColor,
-      eyeSize: avatar.eyeSize,
-      hairColor: avatar.hairColor,
-      hairStyle: avatar.hairStyle,
-      accessories: {
-        glasses: avatar.glasses,
-        hat: avatar.hat,
-        earrings: avatar.earrings,
-      },
-    },
-  };
-}
+import { formatAvatarForResponse } from '../utils/formatAvatar';
 
 /**
  * User Controller
@@ -65,11 +45,17 @@ export class UserController {
         return;
       }
 
-      // Fetch active avatar if exists
+      // Fetch active avatar: try activeAvatarId first, fallback to isActive
       let activeAvatar = null;
       if (user.activeAvatarId) {
         const avatar = await AvatarConfigSQL.findByPk(user.activeAvatarId);
         activeAvatar = formatAvatarForResponse(avatar);
+      }
+      if (!activeAvatar) {
+        const fallback = await AvatarConfigSQL.findOne({
+          where: { userId: user.id, isActive: true }
+        });
+        if (fallback) activeAvatar = formatAvatarForResponse(fallback);
       }
 
       // Fetch coins received from other users, followers count, and following count
@@ -149,11 +135,17 @@ export class UserController {
         return;
       }
 
-      // Fetch active avatar if exists
+      // Fetch active avatar: try activeAvatarId first, fallback to isActive
       let activeAvatar = null;
       if (user.activeAvatarId) {
         const avatar = await AvatarConfigSQL.findByPk(user.activeAvatarId);
         activeAvatar = formatAvatarForResponse(avatar);
+      }
+      if (!activeAvatar) {
+        const fallback = await AvatarConfigSQL.findOne({
+          where: { userId: user.id, isActive: true }
+        });
+        if (fallback) activeAvatar = formatAvatarForResponse(fallback);
       }
 
       // Fetch coins received from other users, followers count, and following count
@@ -226,6 +218,14 @@ export class UserController {
         );
         user.activeAvatarId = null;
       } else if (activeAvatarId !== undefined) {
+        // Keep isActive flag in sync with activeAvatarId
+        const { AvatarConfigSQL } = await import('../models/AvatarConfigSQL');
+        if (activeAvatarId) {
+          await AvatarConfigSQL.update({ isActive: false }, { where: { userId } });
+          await AvatarConfigSQL.update({ isActive: true }, { where: { id: activeAvatarId, userId } });
+        } else {
+          await AvatarConfigSQL.update({ isActive: false }, { where: { userId } });
+        }
         user.activeAvatarId = activeAvatarId;
       }
 

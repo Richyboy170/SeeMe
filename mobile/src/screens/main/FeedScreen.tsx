@@ -35,6 +35,7 @@ import { RepostOptionsModal } from '../../components/feed/RepostOptionsModal';
 import ChatDrawer, { ChatDrawerRef } from '../../components/chat/ChatDrawer';
 import ImageEditor from '../../components/ImageEditor';
 import { api, getImageUrl } from '../../services/api';
+import { useCoinCelebration } from '../../contexts/CoinCelebrationContext';
 import { sharePost, ShareablePost } from '../../services/shareService';
 import { RepostType } from '../../services/repostService';
 import { trackShare } from '../../services/postInteractionService';
@@ -44,6 +45,7 @@ import { AvatarCustomizations } from '../../components/AvatarRenderer';
 import { navigateToUserProfile } from '../../utils/feedNavigation';
 import { useTheme } from '../../theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import FeedGuideOverlay from '../../components/guide/FeedGuideOverlay';
 
 type FeedScreenNavigationProp = StackNavigationProp<FeedStackParamList, 'FeedHome'>;
 
@@ -51,6 +53,27 @@ const TABLET_BREAKPOINT = 600;
 const MAX_CONTENT_WIDTH = 600;
 const SEEN_POSTS_STORAGE_KEY_PREFIX = '@seeme_seen_post_ids_';
 const SEEN_POSTS_MAX_STORED = 500;
+const FEED_GUIDE_SHOWN_KEY = '@seeme_feed_guide_shown';
+
+/** Placeholder post shown during the feed guide when the feed is empty */
+const DEMO_POST: Post = {
+  id: '__guide_demo__',
+  user: {
+    id: '__guide_user__',
+    username: 'kindness_explorer',
+    avatarUrl: null,
+    activeAvatar: null,
+  },
+  caption: 'Spread kindness wherever you go! Every small act counts and makes someone\'s day brighter. \u2728',
+  imageUrl: 'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=600',
+  likesCount: 42,
+  commentsCount: 7,
+  repostCount: 3,
+  likedByMe: false,
+  repostedByMe: false,
+  createdAt: new Date().toISOString(),
+  topics: [{ id: '__topic__', name: 'Kindness', slug: 'kindness', iconEmoji: '\u{1F49B}', iconImageUrl: null }],
+};
 
 /**
  * Blend a hex color toward a base color.
@@ -161,21 +184,50 @@ interface Post {
   repostCreatedAt?: string;
   // Topic data from backend
   topics?: Array<{ id: string; name: string; slug: string; iconEmoji: string | null; iconImageUrl: string | null }>;
+  // Activity post data
+  postType?: 'regular' | 'activity';
+  activity?: { id: string; title: string; description?: string; researchBasis?: string; topicId: string } | null;
+  // Goal data
+  goal?: { id: string; title: string | null; isVisible: boolean; isOwner: boolean } | null;
 }
 
 // --- Seen-post / "Caught Up" types ---
-type CaughtUpItem = { _type: 'caught_up'; id: string };
-type FeedItem = Post | CaughtUpItem;
+type CaughtUpItem = { _type: 'caught_up'; id: string; feedStale?: boolean };
+type OlderPostsDivider = { _type: 'older_divider'; id: string };
+type FeedItem = Post | CaughtUpItem | OlderPostsDivider;
 
 function isCaughtUpItem(item: FeedItem): item is CaughtUpItem {
   return '_type' in item && (item as CaughtUpItem)._type === 'caught_up';
 }
+
+function isOlderDivider(item: FeedItem): item is OlderPostsDivider {
+  return '_type' in item && (item as OlderPostsDivider)._type === 'older_divider';
+}
+
+// Check if feed is "stale" — newest post is older than 24 hours
+const STALE_FEED_HOURS = 24;
+function isFeedStale(posts: Post[]): boolean {
+  if (posts.length === 0) return false;
+  const newest = posts.reduce((latest, p) => {
+    const d = new Date(p.createdAt).getTime();
+    return d > latest ? d : latest;
+  }, 0);
+  return Date.now() - newest > STALE_FEED_HOURS * 60 * 60 * 1000;
+}
+
 
 const caughtUpStyles = StyleSheet.create({
   container: {
     alignItems: 'center',
     paddingVertical: 32,
     paddingHorizontal: 24,
+  },
+  dismissButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 1,
+    padding: 4,
   },
   iconCircle: {
     width: 64,
@@ -201,11 +253,82 @@ const caughtUpStyles = StyleSheet.create({
     width: '60%',
     height: 1,
   },
+  // Stale feed encouragement card
+  staleCard: {
+    width: '100%',
+    marginBottom: 20,
+    borderRadius: 16,
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#FFD700',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+  },
+  staleGradient: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  staleCoinEmoji: {
+    fontSize: 40,
+    marginBottom: 8,
+  },
+  staleTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 8,
+    textShadowColor: 'rgba(0,0,0,0.15)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  staleSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.92)',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 14,
+    paddingHorizontal: 8,
+  },
+  staleArrowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  staleArrowText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.85)',
+    fontWeight: '600',
+  },
+  stalePlusIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 });
 
-function CaughtUpCard({ colors, filtered }: { colors: FeedColors; filtered?: boolean }) {
+function CaughtUpCard({ colors, filtered, feedStale, onCreatePost, onDismiss }: {
+  colors: FeedColors;
+  filtered?: boolean;
+  feedStale?: boolean;
+  onCreatePost?: () => void;
+  onDismiss?: () => void;
+}) {
   return (
     <View style={caughtUpStyles.container}>
+      {/* Dismiss button */}
+      <TouchableOpacity
+        style={caughtUpStyles.dismissButton}
+        onPress={onDismiss}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
+        <Ionicons name="close" size={20} color={colors.textSecondary} />
+      </TouchableOpacity>
+
       <View style={[caughtUpStyles.iconCircle, { backgroundColor: colors.emptyIconBg }]}>
         <Ionicons name="checkmark-circle" size={36} color={colors.accent} />
       </View>
@@ -217,10 +340,74 @@ function CaughtUpCard({ colors, filtered }: { colors: FeedColors; filtered?: boo
           ? 'All posts from your selected friends and communities have been seen'
           : "You've seen all new posts from your friends and communities"}
       </Text>
+
+      {/* Stale feed encouragement — no one has posted in 24h+ */}
+      {feedStale && !filtered && (
+        <TouchableOpacity
+          style={caughtUpStyles.staleCard}
+          activeOpacity={0.85}
+          onPress={onCreatePost}
+        >
+          <LinearGradient
+            colors={['#FFD700', '#FFA500', '#FF6B6B']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={caughtUpStyles.staleGradient}
+          >
+            <Text style={caughtUpStyles.staleCoinEmoji}>{"\u{1FA99}"}</Text>
+            <Text style={caughtUpStyles.staleTitle}>
+              Free 10 Positivity Coins!
+            </Text>
+            <Text style={caughtUpStyles.staleSubtitle}>
+              Be the first one to start posting in a while {'\u2014'} you{'\u2019'}re encouraging your friends to share their story!
+            </Text>
+            <View style={caughtUpStyles.staleArrowRow}>
+              <Text style={caughtUpStyles.staleArrowText}>Tap here or press</Text>
+              <View style={caughtUpStyles.stalePlusIcon}>
+                <Ionicons name="add" size={18} color="#FFFFFF" />
+              </View>
+              <Text style={caughtUpStyles.staleArrowText}>to create a post</Text>
+            </View>
+          </LinearGradient>
+        </TouchableOpacity>
+      )}
+
       <View style={[caughtUpStyles.divider, { backgroundColor: colors.separator }]} />
     </View>
   );
 }
+
+function OlderPostsDividerCard({ colors }: { colors: FeedColors }) {
+  return (
+    <View style={olderDividerStyles.container}>
+      <View style={[olderDividerStyles.line, { backgroundColor: colors.separator }]} />
+      <Text style={[olderDividerStyles.label, { color: colors.textSecondary }]}>
+        Older posts
+      </Text>
+      <View style={[olderDividerStyles.line, { backgroundColor: colors.separator }]} />
+    </View>
+  );
+}
+
+const olderDividerStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+  },
+  line: {
+    flex: 1,
+    height: 1,
+  },
+  label: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginHorizontal: 12,
+  },
+});
 
 const ENCOURAGING_MESSAGES = [
   "You're awesome!",
@@ -266,6 +453,7 @@ const TweetCard = React.memo(function TweetCard({
   onCoinPickerChange,
   currentUserId,
   colors,
+  isStale,
 }: {
   post: Post;
   onLike: (postId: string) => void;
@@ -281,6 +469,7 @@ const TweetCard = React.memo(function TweetCard({
   onCoinPickerChange?: (active: boolean) => void;
   currentUserId: string;
   colors: ThemeColors;
+  isStale?: boolean;
 }) {
   const { width } = useWindowDimensions();
   const { isDark } = useTheme();
@@ -291,6 +480,9 @@ const TweetCard = React.memo(function TweetCard({
   const [showHeartOverlay, setShowHeartOverlay] = React.useState(false);
   const [repostExpanded, setRepostExpanded] = React.useState(false);
   const [metaExpanded, setMetaExpanded] = React.useState(false);
+  const [activityInfoVisible, setActivityInfoVisible] = React.useState(false);
+  const [goalInfoVisible, setGoalInfoVisible] = React.useState(false);
+  const isActivityPost = post.postType === 'activity' && !!post.activity;
 
   // ── Decoration resolution ──────────────────────────────────────────
   const decoration = post.decoration;
@@ -1231,6 +1423,22 @@ const TweetCard = React.memo(function TweetCard({
             )}
           </View>
 
+          {/* Goal Badge */}
+          {post.goal && (
+            <TouchableOpacity
+              style={styles.goalPostBadge}
+              onPress={() => setGoalInfoVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="flag" size={13} color="#10B981" />
+              {post.goal.isVisible && post.goal.title && (
+                <Text style={styles.goalPostBadgeText} numberOfLines={1}>
+                  {post.goal.title}
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
+
           {/* Double-tap area for like (caption + image) */}
           <Pressable onPress={handleContentTap}>
             {/* Tweet Text */}
@@ -1241,31 +1449,200 @@ const TweetCard = React.memo(function TweetCard({
 
           {/* Media - Single tap opens viewer, double tap likes */}
           {imageUri && (
-            <Pressable
-              style={[styles.mediaContainer, { borderColor: colors.border }, frameStyle]}
-              onPress={handleImageTap}
-            >
-              <Image
-                source={{ uri: imageUri }}
-                style={[styles.mediaImage, { width: imageWidth, height: imageWidth * 0.75, backgroundColor: colors.mediaBackground }]}
-                resizeMode="cover"
-              />
-              {(frameCornerConfig || perCornerIcons) && <CornerDecorations config={frameCornerConfig || undefined} cornerIcons={perCornerIcons} muted />}
-              {/* Heart overlay animation */}
-              {showHeartOverlay && (
-                <Animated.View
-                  style={[
-                    styles.heartOverlay,
-                    {
-                      transform: [{ scale: heartScale }],
-                      opacity: heartOpacity,
-                    },
-                  ]}
+            <View style={styles.mediaWrapper}>
+              {/* Rainbow gradient frame for activity posts */}
+              {isActivityPost && (
+                <LinearGradient
+                  colors={['#FF0000', '#FF8800', '#FFDD00', '#00CC44', '#0088FF', '#8800FF', '#FF0088']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[styles.activityRainbowFrame, { marginTop: 12 }]}
                 >
-                  <Ionicons name="heart" size={80} color="#FFF" />
-                </Animated.View>
+                  <View style={[styles.activityFrameInner, { backgroundColor: colors.cardBackground }]}>
+                    <Pressable
+                      style={[styles.mediaContainer, { borderColor: 'transparent', borderWidth: 0, marginTop: 0 }]}
+                      onPress={handleImageTap}
+                    >
+                      <Image
+                        source={{ uri: imageUri }}
+                        style={[styles.mediaImage, { width: imageWidth - 12, height: (imageWidth - 12) * 0.75, backgroundColor: colors.mediaBackground }]}
+                        resizeMode="cover"
+                      />
+                      {(frameCornerConfig || perCornerIcons) && <CornerDecorations config={frameCornerConfig || undefined} cornerIcons={perCornerIcons} muted />}
+                      {showHeartOverlay && (
+                        <Animated.View
+                          style={[styles.heartOverlay, { transform: [{ scale: heartScale }], opacity: heartOpacity }]}
+                        >
+                          <Ionicons name="heart" size={80} color="#FFF" />
+                        </Animated.View>
+                      )}
+                    </Pressable>
+                  </View>
+                </LinearGradient>
               )}
-            </Pressable>
+              {/* Activity frame tap indicator */}
+              {isActivityPost && (
+                <TouchableOpacity
+                  style={styles.activityFrameTapIndicator}
+                  onPress={() => setActivityInfoVisible(true)}
+                  activeOpacity={0.7}
+                >
+                  <LinearGradient
+                    colors={['#FF0088', '#8800FF', '#0088FF']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.activityFrameTapBg}
+                  >
+                    <Ionicons name="color-wand" size={12} color="#FFF" />
+                    <Text style={styles.activityFrameTapText}>Activity</Text>
+                    <Ionicons name="chevron-forward" size={12} color="rgba(255,255,255,0.7)" />
+                  </LinearGradient>
+                </TouchableOpacity>
+              )}
+              {/* Regular (non-activity) image */}
+              {!isActivityPost && (
+                <Pressable
+                  style={[styles.mediaContainer, { borderColor: colors.border }, frameStyle]}
+                  onPress={handleImageTap}
+                >
+                  <Image
+                    source={{ uri: imageUri }}
+                    style={[styles.mediaImage, { width: imageWidth, height: imageWidth * 0.75, backgroundColor: colors.mediaBackground }]}
+                    resizeMode="cover"
+                  />
+                  {(frameCornerConfig || perCornerIcons) && <CornerDecorations config={frameCornerConfig || undefined} cornerIcons={perCornerIcons} muted />}
+                  {showHeartOverlay && (
+                    <Animated.View
+                      style={[styles.heartOverlay, { transform: [{ scale: heartScale }], opacity: heartOpacity }]}
+                    >
+                      <Ionicons name="heart" size={80} color="#FFF" />
+                    </Animated.View>
+                  )}
+                </Pressable>
+              )}
+            </View>
+          )}
+
+          {/* Activity Info Modal */}
+          {isActivityPost && (
+            <Modal
+              visible={activityInfoVisible}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setActivityInfoVisible(false)}
+            >
+              <Pressable style={styles.activityModalOverlay} onPress={() => setActivityInfoVisible(false)}>
+                <Pressable style={[styles.activityModalCard, { backgroundColor: isDark ? '#1e1e30' : '#ffffff' }]} onPress={e => e.stopPropagation()}>
+                  {/* Rainbow top bar */}
+                  <LinearGradient
+                    colors={['#FF0000', '#FF8800', '#FFDD00', '#00CC44', '#0088FF', '#8800FF', '#FF0088']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.activityModalTopBar}
+                  />
+                  <TouchableOpacity style={styles.activityModalClose} onPress={() => setActivityInfoVisible(false)}>
+                    <Ionicons name="close" size={22} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                  <View style={styles.activityModalBody}>
+                    <View style={styles.activityModalIconRow}>
+                      <Ionicons name="color-wand" size={24} color="#8800FF" />
+                    </View>
+                    <Text style={[styles.activityModalTitle, { color: colors.text }]}>{post.activity!.title}</Text>
+                    {post.activity!.description && (
+                      <Text style={[styles.activityModalDesc, { color: colors.textSecondary }]}>{post.activity!.description}</Text>
+                    )}
+                    {post.activity!.researchBasis && (
+                      <View style={[styles.activityModalResearchBox, { backgroundColor: isDark ? '#252540' : '#f0f4ff' }]}>
+                        <View style={styles.activityModalResearchHeader}>
+                          <Ionicons name="flask" size={14} color="#3B82F6" />
+                          <Text style={styles.activityModalResearchLabel}>Why This Helps</Text>
+                        </View>
+                        <Text style={[styles.activityModalResearchText, { color: colors.textSecondary }]}>{post.activity!.researchBasis}</Text>
+                      </View>
+                    )}
+                  </View>
+                </Pressable>
+              </Pressable>
+            </Modal>
+          )}
+
+          {/* Goal Info Modal */}
+          {post.goal && (
+            <Modal
+              visible={goalInfoVisible}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setGoalInfoVisible(false)}
+            >
+              <Pressable style={styles.activityModalOverlay} onPress={() => setGoalInfoVisible(false)}>
+                <Pressable
+                  style={[styles.activityModalCard, { backgroundColor: isDark ? '#1e1e30' : '#ffffff' }]}
+                  onPress={e => e.stopPropagation()}
+                >
+                  <View style={styles.goalModalTopBar} />
+                  <TouchableOpacity style={styles.activityModalClose} onPress={() => setGoalInfoVisible(false)}>
+                    <Ionicons name="close" size={22} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                  <View style={styles.activityModalBody}>
+                    <View style={styles.activityModalIconRow}>
+                      <Ionicons name="flag" size={28} color="#10B981" />
+                    </View>
+                    {(post.goal.isOwner || (post.goal.isVisible && post.goal.title)) ? (
+                      <>
+                        <Text style={[styles.activityModalTitle, { color: colors.text }]}>
+                          {post.goal.title}
+                        </Text>
+                        <Text style={[styles.activityModalDesc, { color: colors.textSecondary }]}>
+                          {post.goal.isOwner ? 'Your goal' : `${post.user.username}'s goal`}
+                        </Text>
+                      </>
+                    ) : (
+                      <>
+                        <Text style={[styles.activityModalTitle, { color: colors.textSecondary }]}>
+                          This goal is invisible
+                        </Text>
+                        <Text style={[styles.activityModalDesc, { color: colors.textSecondary }]}>
+                          The user chose to keep this goal private
+                        </Text>
+                      </>
+                    )}
+                    {post.goal.isOwner && (
+                      <TouchableOpacity
+                        style={[styles.goalVisibilityToggleBtn, {
+                          backgroundColor: post.goal.isVisible ? '#10B98118' : (isDark ? '#33333a' : '#f0f0f0'),
+                        }]}
+                        onPress={async () => {
+                          try {
+                            await api.updatePostGoalVisibility(post.id, !post.goal!.isVisible);
+                            post.goal!.isVisible = !post.goal!.isVisible;
+                            if (!post.goal!.isVisible) {
+                              post.goal!.title = post.goal!.title; // keep for owner
+                            }
+                            setGoalInfoVisible(false);
+                            setTimeout(() => setGoalInfoVisible(true), 100);
+                          } catch {}
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name={post.goal.isVisible ? 'eye' : 'eye-off'}
+                          size={18}
+                          color={post.goal.isVisible ? '#10B981' : colors.textSecondary}
+                        />
+                        <Text style={[styles.goalVisibilityToggleTxt, {
+                          color: post.goal.isVisible ? '#10B981' : colors.textSecondary,
+                        }]}>
+                          {post.goal.isVisible ? 'Visible to others' : 'Hidden from others'}
+                        </Text>
+                        <Text style={[styles.goalVisibilityToggleHint, { color: colors.textSecondary }]}>
+                          Tap to {post.goal.isVisible ? 'hide' : 'show'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </Pressable>
+              </Pressable>
+            </Modal>
           )}
 
           {/* Location & photo time — half-half below image, tap to expand */}
@@ -1408,12 +1785,36 @@ const TweetCard = React.memo(function TweetCard({
     </View>
   );
 
+  if (isStale) {
+    return (
+      <View style={stalePostStyles.wrapper}>
+        <View style={stalePostStyles.grayscaleOverlay} pointerEvents="none" />
+        {cardContent}
+      </View>
+    );
+  }
+
   return cardContent;
 }, (prev, next) => {
   // Only re-render if the post data or currentUserId changed
   return prev.post === next.post
     && prev.currentUserId === next.currentUserId
-    && prev.colors === next.colors;
+    && prev.colors === next.colors
+    && prev.isStale === next.isStale;
+});
+
+const stalePostStyles = StyleSheet.create({
+  wrapper: {
+    opacity: 0.55,
+    transform: [{ scale: 0.88 }],
+    marginVertical: -8,
+  },
+  grayscaleOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(128,128,128,0.12)',
+    zIndex: 10,
+    borderRadius: 8,
+  },
 });
 
 // Full-screen single-post Image Viewer
@@ -2565,6 +2966,11 @@ export default function FeedScreen() {
   const isTablet = width >= TABLET_BREAKPOINT;
   const insets = useSafeAreaInsets();
   const { unreadCount } = useUnreadCount();
+  const { showCelebration } = useCoinCelebration();
+
+  // Track when user navigates to CreatePost from stale encouragement card
+  const pendingStalePostRewardRef = useRef(false);
+  const postsCountBeforeCreateRef = useRef(0);
 
   // Map global theme to flat FeedColors used by TweetCard
   const colors: FeedColors = useMemo(() => ({
@@ -2599,6 +3005,7 @@ export default function FeedScreen() {
   const [editImageUri, setEditImageUri] = React.useState<string | null>(null);
   const [editedImageUri, setEditedImageUri] = React.useState<string | null>(null);
   const [showImageEditor, setShowImageEditor] = React.useState(false);
+  const [showFeedGuide, setShowFeedGuide] = React.useState(false);
 
   // Pagination state for infinite scroll
   const [loadingMore, setLoadingMore] = useState(false);
@@ -2629,8 +3036,18 @@ export default function FeedScreen() {
       try {
         const stored = await AsyncStorage.getItem(SEEN_POSTS_STORAGE_KEY_PREFIX + currentUserId);
         if (stored) {
-          const arr: string[] = JSON.parse(stored);
-          seenPostIdsRef.current = new Set(arr);
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            seenPostIdsRef.current = new Set(parsed);
+          } else {
+            // Handle map format from previous code — extract keys only
+            seenPostIdsRef.current = new Set(Object.keys(parsed));
+            // Re-save in simple format
+            AsyncStorage.setItem(
+              SEEN_POSTS_STORAGE_KEY_PREFIX + currentUserId,
+              JSON.stringify(Object.keys(parsed))
+            ).catch(console.error);
+          }
         }
       } catch (e) {
         console.error('Error loading seen post IDs:', e);
@@ -2674,7 +3091,7 @@ export default function FeedScreen() {
       const next = new Set(prev);
       let changed = false;
       for (const vi of viewableItems) {
-        // Skip the caught-up card
+        // Skip the caught-up card / older divider
         if ('_type' in vi.item) continue;
         const post = vi.item as Post;
         const key = post.feedItemId || post.id;
@@ -2833,22 +3250,40 @@ export default function FeedScreen() {
   }, [posts, isFilterActive, selectedFriendIds, selectedCommunityIds]);
 
   const feedItems: FeedItem[] = useMemo(() => {
-    if (filteredPosts.length === 0) return [];
+    // Show demo post during guide when feed is empty
+    if (filteredPosts.length === 0) {
+      if (showFeedGuide) return [DEMO_POST];
+      return [];
+    }
+    const now = Date.now();
+    const staleThreshold = STALE_FEED_HOURS * 60 * 60 * 1000;
     const unseen: Post[] = [];
-    const seen: Post[] = [];
+    const recentlySeen: Post[] = [];  // seen + created < 24h ago
+    const oldSeen: Post[] = [];       // seen + created 24h+ ago
     for (const p of filteredPosts) {
       const key = p.feedItemId || p.id;
-      if (feedSeenSnapshot.has(key)) {
-        seen.push(p);
-      } else {
+      if (!feedSeenSnapshot.has(key)) {
         unseen.push(p);
+      } else {
+        // Seen post — use createdAt to decide recent vs old
+        const age = now - new Date(p.createdAt).getTime();
+        if (age > staleThreshold) {
+          oldSeen.push(p);
+        } else {
+          recentlySeen.push(p);
+        }
       }
     }
-    const caughtUpCard: CaughtUpItem = { _type: 'caught_up', id: '__caught_up__' };
+    const stale = isFeedStale(filteredPosts);
+    const caughtUpCard: CaughtUpItem = { _type: 'caught_up', id: '__caught_up__', feedStale: stale };
+    const olderDivider: OlderPostsDivider = { _type: 'older_divider', id: '__older_divider__' };
 
-    if (seen.length > 0) {
-      // Mix of new + old posts — insert divider between unseen and seen
-      return [...unseen, caughtUpCard, ...seen];
+    if (recentlySeen.length > 0 || oldSeen.length > 0) {
+      const items: FeedItem[] = [...unseen, caughtUpCard, ...recentlySeen];
+      if (oldSeen.length > 0) {
+        items.push(olderDivider, ...oldSeen);
+      }
+      return items;
     }
 
     // All posts are new (fresh account / no history) — show card at bottom
@@ -2859,12 +3294,12 @@ export default function FeedScreen() {
     }
 
     return filteredPosts;
-  }, [filteredPosts, feedSeenSnapshot, viewedPostIds]);
+  }, [filteredPosts, feedSeenSnapshot, viewedPostIds, showFeedGuide]);
 
   // Scroll to a specific post (used by sidebar)
   const scrollToPost = React.useCallback((postId: string) => {
     const index = feedItems.findIndex(item => {
-      if (isCaughtUpItem(item)) return false;
+      if (isCaughtUpItem(item) || isOlderDivider(item)) return false;
       return (item.feedItemId || item.id) === postId;
     });
     if (index >= 0 && flatListRef.current) {
@@ -2982,12 +3417,67 @@ export default function FeedScreen() {
     };
   }, []);
 
-  // Hide navigation header - we'll use custom headers for each page
+  // Use standard navigation header like other pages
   React.useLayoutEffect(() => {
     navigation.setOptions({
-      headerShown: false,
+      headerShown: true,
+      title: 'Home',
+      headerLeft: () => (
+        <View style={styles.headerLeftGroup}>
+          {!isTablet && (
+            <TouchableOpacity
+              style={styles.filterToggleButton}
+              onPress={() => setFilterDropdownVisible(v => !v)}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={hasActiveFilters ? 'funnel' : filterDropdownVisible ? 'funnel-outline' : 'people-outline'}
+                size={22}
+                color={hasActiveFilters || filterDropdownVisible ? colors.accent : colors.text}
+              />
+              {hasActiveFilters && !filterDropdownVisible && (
+                <View style={[styles.filterBadge, { backgroundColor: colors.accent }]}>
+                  <Text style={styles.filterBadgeText}>
+                    {totalActiveFilters}
+                  </Text>
+                </View>
+              )}
+              {!hasActiveFilters && totalUnseen > 0 && !filterDropdownVisible && (
+                <View style={styles.filterBadge}>
+                  <Text style={styles.filterBadgeText}>
+                    {totalUnseen > 99 ? '99+' : totalUnseen}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            onPress={() => setShowFeedGuide(true)}
+            style={styles.headerGuideButton}
+            activeOpacity={0.6}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="information-circle-outline" size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
+      ),
+      headerRight: () => (
+        <TouchableOpacity
+          style={styles.navHeaderChatButton}
+          onPress={() => setChatDrawerVisible(true)}
+        >
+          <Ionicons name="chatbubbles-outline" size={24} color={colors.text} />
+          {unreadCount > 0 && (
+            <View style={styles.headerChatBadge}>
+              <Text style={styles.headerChatBadgeText}>
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      ),
     });
-  }, [navigation]);
+  }, [navigation, colors, isTablet, hasActiveFilters, filterDropdownVisible, totalActiveFilters, totalUnseen, unreadCount]);
 
   // Listen for tab press: close chat drawer, scroll-to-top, or refresh
   React.useEffect(() => {
@@ -3031,6 +3521,40 @@ export default function FeedScreen() {
     }, [])
   );
 
+  // Check if user just posted from the stale encouragement card — award bonus coins
+  useFocusEffect(
+    useCallback(() => {
+      if (pendingStalePostRewardRef.current) {
+        pendingStalePostRewardRef.current = false;
+        // Small delay to let feed reload, then check if a new post appeared
+        const timer = setTimeout(() => {
+          if (posts.length > postsCountBeforeCreateRef.current) {
+            showCelebration(10, 'post');
+          }
+        }, 1500);
+        return () => clearTimeout(timer);
+      }
+    }, [posts.length, showCelebration])
+  );
+
+  // Auto-show feed guide on first visit (once initial load completes)
+  useEffect(() => {
+    if (loading) return;
+    (async () => {
+      try {
+        const shown = await AsyncStorage.getItem(FEED_GUIDE_SHOWN_KEY);
+        if (!shown) setShowFeedGuide(true);
+      } catch (_) {}
+    })();
+  }, [loading]);
+
+  const handleFeedGuideClose = useCallback(async () => {
+    setShowFeedGuide(false);
+    try {
+      await AsyncStorage.setItem(FEED_GUIDE_SHOWN_KEY, '1');
+    } catch (_) {}
+  }, []);
+
   const loadCurrentUser = async () => {
     try {
       const response = await api.getProfile();
@@ -3073,6 +3597,7 @@ export default function FeedScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     setViewedPostIds(new Set()); // Reset viewed tracking on refresh
+    setCaughtUpDismissed(false); // Re-show the caught-up card
     try {
       const data = await api.getAlgorithmicFeed(1);
       setPosts(data.posts || []);
@@ -3320,10 +3845,8 @@ export default function FeedScreen() {
   };
 
   const navigateToFindFriends = () => {
-    navigation.navigate('Discover' as any, {
-      screen: 'DiscoverHome',
-      params: { initialTab: 'people', _ts: Date.now() },
-    });
+    const parent = navigation.getParent();
+    if (parent) parent.navigate('Fillup');
   };
 
   const handleTopicPress = useCallback((topicSlug: string) => {
@@ -3335,10 +3858,49 @@ export default function FeedScreen() {
     setCoinPickerActive(active);
   }, []);
 
+  // Navigate to CreatePost (used by stale feed encouragement card)
+  const handleCreatePostFromStale = useCallback(() => {
+    pendingStalePostRewardRef.current = true;
+    postsCountBeforeCreateRef.current = posts.length;
+    const parent = navigation.getParent();
+    if (parent) parent.navigate('CreatePost');
+  }, [navigation, posts.length]);
+
+  // Pre-compute which post IDs are in the "old" section (after the older_divider)
+  const oldPostIds = useMemo(() => {
+    const ids = new Set<string>();
+    let pastDivider = false;
+    for (const item of feedItems) {
+      if (isOlderDivider(item)) { pastDivider = true; continue; }
+      if (pastDivider && !isCaughtUpItem(item)) {
+        ids.add((item as Post).feedItemId || (item as Post).id);
+      }
+    }
+    return ids;
+  }, [feedItems]);
+
+  // Dismiss the "You're all caught up" card — resets on refresh
+  const [caughtUpDismissed, setCaughtUpDismissed] = useState(false);
+  const handleDismissCaughtUp = useCallback(() => setCaughtUpDismissed(true), []);
+
   const renderFeedItem = useCallback(({ item }: { item: FeedItem }) => {
     if (isCaughtUpItem(item)) {
-      return <CaughtUpCard colors={colors} filtered={isFilterActive} />;
+      if (caughtUpDismissed) return null;
+      return (
+        <CaughtUpCard
+          colors={colors}
+          filtered={isFilterActive}
+          feedStale={item.feedStale}
+          onCreatePost={handleCreatePostFromStale}
+          onDismiss={handleDismissCaughtUp}
+        />
+      );
     }
+    if (isOlderDivider(item)) {
+      return <OlderPostsDividerCard colors={colors} />;
+    }
+    const postKey = item.feedItemId || item.id;
+    const stale = oldPostIds.has(postKey);
     return (
       <TweetCard
         post={item}
@@ -3355,9 +3917,10 @@ export default function FeedScreen() {
         onCoinPickerChange={handleCoinPickerChange}
         currentUserId={currentUserId}
         colors={colors}
+        isStale={stale}
       />
     );
-  }, [colors, isFilterActive, currentUserId, handleLike, handleComment, handleUserPress, handleQuickGiveCoins, handleImagePress, handleRepost, handleShare, handleNavigateToProfile, handleTopicPress, handleMorePress, handleCoinPickerChange]);
+  }, [colors, isFilterActive, currentUserId, oldPostIds, caughtUpDismissed, handleLike, handleComment, handleUserPress, handleQuickGiveCoins, handleImagePress, handleRepost, handleShare, handleNavigateToProfile, handleTopicPress, handleMorePress, handleCoinPickerChange, handleCreatePostFromStale, handleDismissCaughtUp]);
 
   const renderSeparator = useCallback(() => (
     <View style={[styles.separator, { backgroundColor: colors.separator }]} />
@@ -3365,7 +3928,7 @@ export default function FeedScreen() {
 
   // Stable keyExtractor
   const keyExtractor = useCallback((item: FeedItem) =>
-    isCaughtUpItem(item) ? item.id : (item.feedItemId || item.id), []);
+    (isCaughtUpItem(item) || isOlderDivider(item)) ? item.id : (item.feedItemId || item.id), []);
 
   // Stable onScrollToIndexFailed
   const onScrollToIndexFailed = useCallback((info: { averageItemLength: number; index: number }) => {
@@ -3450,61 +4013,6 @@ export default function FeedScreen() {
             { backgroundColor: colors.background },
           ]}
         >
-          {/* Custom Home Header */}
-          <View
-            style={[
-              styles.customHeader,
-              {
-                backgroundColor: colors.background,
-                borderBottomColor: colors.separator,
-                paddingTop: insets.top,
-              },
-            ]}
-          >
-            <View style={styles.headerLeftGroup}>
-              {!isTablet && (
-                <TouchableOpacity
-                  style={styles.filterToggleButton}
-                  onPress={() => setFilterDropdownVisible(v => !v)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name={hasActiveFilters ? 'funnel' : filterDropdownVisible ? 'funnel-outline' : 'people-outline'}
-                    size={22}
-                    color={hasActiveFilters || filterDropdownVisible ? colors.accent : colors.text}
-                  />
-                  {hasActiveFilters && !filterDropdownVisible && (
-                    <View style={[styles.filterBadge, { backgroundColor: colors.accent }]}>
-                      <Text style={styles.filterBadgeText}>
-                        {totalActiveFilters}
-                      </Text>
-                    </View>
-                  )}
-                  {!hasActiveFilters && totalUnseen > 0 && !filterDropdownVisible && (
-                    <View style={styles.filterBadge}>
-                      <Text style={styles.filterBadgeText}>
-                        {totalUnseen > 99 ? '99+' : totalUnseen}
-                      </Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              )}
-              <Text style={[styles.customHeaderTitle, { color: colors.text }]}>Home</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.headerChatButton}
-              onPress={() => setChatDrawerVisible(true)}
-            >
-              <Ionicons name="chatbubbles-outline" size={24} color={colors.text} />
-              {unreadCount > 0 && (
-                <View style={styles.headerChatBadge}>
-                  <Text style={styles.headerChatBadgeText}>
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          </View>
 
           {/* Floating bar rendered as overlay — see below feedPageLayout */}
 
@@ -3762,12 +4270,46 @@ export default function FeedScreen() {
         )}
       </Modal>
 
+      {/* Floating Create Post Button (FAB) */}
+      {!chatDrawerVisible && (
+        <TouchableOpacity
+          style={[styles.createFab, { bottom: insets.bottom + 28 }]}
+          activeOpacity={0.8}
+          onPress={() => {
+            const parent = navigation.getParent();
+            if (parent) parent.navigate('CreatePost');
+          }}
+        >
+          <LinearGradient
+            colors={['#E1306C', '#FF6B6B', '#FBBF24']}
+            style={styles.createFabGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <Ionicons name="add" size={32} color="#FFFFFF" />
+          </LinearGradient>
+        </TouchableOpacity>
+      )}
+
       {/* Swipe indicator on right edge */}
       {!chatDrawerVisible && (
         <View style={styles.swipeIndicator} pointerEvents="none">
           <View style={[styles.swipeIndicatorBar, { backgroundColor: colors.textSecondary }]} />
         </View>
       )}
+
+      {/* Feed Guide Overlay */}
+      <FeedGuideOverlay
+        visible={showFeedGuide}
+        onClose={handleFeedGuideClose}
+        insetTop={insets.top}
+        insetBottom={insets.bottom}
+        screenWidth={width}
+        screenHeight={Dimensions.get('window').height}
+        hasPostLoaded={posts.length > 0 || showFeedGuide}
+        firstPostHasImage={!!(posts[0]?.imageUrl) || (showFeedGuide && posts.length === 0)}
+        isDark={isDark}
+      />
 
       {/* Messages Page - Full screen, slides in from right */}
       <ChatDrawer
@@ -3808,7 +4350,12 @@ const styles = StyleSheet.create({
   headerLeftGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
+    marginLeft: 8,
+  },
+  headerGuideButton: {
+    padding: 2,
+    opacity: 0.6,
   },
   filterToggleButton: {
     padding: 4,
@@ -3983,6 +4530,159 @@ const styles = StyleSheet.create({
   },
   moreButton: {
     padding: 4,
+  },
+  activityPostBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(236, 72, 153, 0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    marginBottom: 6,
+    gap: 6,
+    alignSelf: 'flex-start',
+  },
+  activityPostBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#EC4899',
+  },
+  goalPostBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 2,
+    marginBottom: 4,
+    gap: 5,
+    alignSelf: 'flex-start',
+  },
+  goalPostBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#10B981',
+  },
+  goalModalTopBar: {
+    height: 4,
+    backgroundColor: '#10B981',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  goalVisibilityToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginTop: 16,
+  },
+  goalVisibilityToggleTxt: {
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+  },
+  goalVisibilityToggleHint: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  mediaWrapper: {
+    width: '100%',
+  },
+  activityRainbowFrame: {
+    borderRadius: 20,
+    padding: 3,
+  },
+  activityFrameInner: {
+    borderRadius: 17,
+    overflow: 'hidden',
+  },
+  activityFrameTapIndicator: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    borderRadius: 14,
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  activityFrameTapBg: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    gap: 4,
+  },
+  activityFrameTapText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  activityModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  activityModalCard: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  activityModalTopBar: {
+    height: 4,
+  },
+  activityModalClose: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    zIndex: 10,
+    padding: 4,
+  },
+  activityModalBody: {
+    padding: 24,
+    paddingTop: 20,
+    alignItems: 'center',
+  },
+  activityModalIconRow: {
+    marginBottom: 12,
+  },
+  activityModalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  activityModalDesc: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  activityModalResearchBox: {
+    padding: 14,
+    borderRadius: 12,
+    width: '100%',
+    marginTop: 4,
+  },
+  activityModalResearchHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  activityModalResearchLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    color: '#3B82F6',
+  },
+  activityModalResearchText: {
+    fontSize: 13,
+    lineHeight: 19,
   },
   topicTagRowInline: {
     flexDirection: 'row',
@@ -4535,6 +5235,11 @@ const styles = StyleSheet.create({
     padding: 4,
     position: 'relative',
   },
+  navHeaderChatButton: {
+    marginRight: 8,
+    padding: 4,
+    position: 'relative',
+  },
   headerChatButtonLeft: {
     marginLeft: 16,
     padding: 4,
@@ -4556,6 +5261,28 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 10,
     fontWeight: 'bold',
+  },
+
+  // Floating Action Button (Create Post)
+  createFab: {
+    position: 'absolute',
+    right: 20,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    zIndex: 20,
+    elevation: 10,
+    shadowColor: '#E1306C',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 8,
+  },
+  createFabGradient: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   // Swipe indicator on right edge

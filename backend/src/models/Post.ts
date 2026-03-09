@@ -20,6 +20,14 @@ export enum PostVisibility {
 }
 
 /**
+ * Post type enum - distinguishes regular posts from activity posts
+ */
+export enum PostType {
+  REGULAR = 'regular',
+  ACTIVITY = 'activity'
+}
+
+/**
  * Post attributes interface
  */
 export interface PostAttributes {
@@ -31,6 +39,10 @@ export interface PostAttributes {
   caption: string | null;
   status: PostStatus;
   visibility: PostVisibility;  // Phase 3.3: Post visibility
+  postType: PostType;
+  activityId: string | null;
+  goalId: string | null;
+  goalVisible: boolean | null;
   processingError: string | null;
   processingStartedAt: Date | null;
   processingCompletedAt: Date | null;
@@ -62,6 +74,10 @@ interface PostCreationAttributes extends Optional<
   | 'caption'
   | 'status'
   | 'visibility'
+  | 'postType'
+  | 'activityId'
+  | 'goalId'
+  | 'goalVisible'
   | 'processingError'
   | 'processingStartedAt'
   | 'processingCompletedAt'
@@ -94,6 +110,10 @@ export class Post extends Model<PostAttributes, PostCreationAttributes> implemen
   public caption!: string | null;
   public status!: PostStatus;
   public visibility!: PostVisibility;
+  public postType!: PostType;
+  public activityId!: string | null;
+  public goalId!: string | null;
+  public goalVisible!: boolean | null;
   public processingError!: string | null;
   public processingStartedAt!: Date | null;
   public processingCompletedAt!: Date | null;
@@ -175,6 +195,44 @@ Post.init(
         }
       },
       comment: 'Phase 3.3: Who can see this post in their feed'
+    },
+    postType: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+      defaultValue: PostType.REGULAR,
+      validate: {
+        isIn: {
+          args: [[PostType.REGULAR, PostType.ACTIVITY]],
+          msg: 'Post type must be regular or activity'
+        }
+      },
+      comment: 'Type of post - regular or activity wheel completion'
+    },
+    activityId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'community_activities',
+        key: 'id'
+      },
+      onDelete: 'SET NULL',
+      comment: 'ID of the community activity this post completes'
+    },
+    goalId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'goals',
+        key: 'id'
+      },
+      onDelete: 'SET NULL',
+      comment: 'ID of the goal this post is tagged with'
+    },
+    goalVisible: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+      defaultValue: null,
+      comment: 'Whether the goal tag on this post is visible to others (per-post override)'
     },
     processingError: {
       type: DataTypes.TEXT,

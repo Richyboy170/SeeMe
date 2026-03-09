@@ -6,29 +6,9 @@ import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
 import { AuthRequest } from '../middleware/auth';
 import { sequelize } from '../config/database';
 import { logger } from '../utils/logger';
+import { formatAvatarForResponse } from '../utils/formatAvatar';
 import { CoinsService } from '../services/CoinsService';
 import { PositivityDetectionService } from '../services/PositivityDetectionService';
-
-// Helper to format avatar data for API response
-function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
-  if (!avatar) return null;
-  return {
-    id: avatar.id,
-    style: avatar.style,
-    customizations: {
-      skinTone: avatar.skinTone,
-      eyeColor: avatar.eyeColor,
-      eyeSize: avatar.eyeSize,
-      hairColor: avatar.hairColor,
-      hairStyle: avatar.hairStyle,
-      accessories: {
-        glasses: avatar.glasses,
-        hat: avatar.hat,
-        earrings: avatar.earrings,
-      },
-    },
-  };
-}
 
 // Helper to add avatar data to comments
 async function addAvatarsToComments(comments: any[]): Promise<any[]> {

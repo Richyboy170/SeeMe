@@ -18,10 +18,12 @@ const upload = multer({
   },
   fileFilter: (_req, file, cb) => {
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-    if (allowedTypes.includes(file.mimetype)) {
+    if (allowedTypes.includes(file.mimetype) || file.mimetype === 'application/octet-stream') {
+      cb(null, true);
+    } else if (/\.(jpe?g|png|webp|heic|heif)$/i.test(file.originalname)) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type. Only JPEG, PNG, WebP, and HEIC images are allowed.'));
+      cb(new Error(`Invalid file type "${file.mimetype}". Only JPEG, PNG, WebP, and HEIC images are allowed.`));
     }
   }
 });

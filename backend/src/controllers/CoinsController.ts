@@ -6,29 +6,9 @@ import { CoinGivingActivity } from '../models/CoinGivingActivity';
 import { User } from '../models/User';
 import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
 import { logger } from '../utils/logger';
+import { formatAvatarForResponse } from '../utils/formatAvatar';
 import { FeedAlgorithmService } from '../services/FeedAlgorithmService';
 import { InteractionType } from '../models/UserInteraction';
-
-// Helper to format avatar data for API response
-function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
-  if (!avatar) return null;
-  return {
-    id: avatar.id,
-    style: avatar.style,
-    customizations: {
-      skinTone: avatar.skinTone,
-      eyeColor: avatar.eyeColor,
-      eyeSize: avatar.eyeSize,
-      hairColor: avatar.hairColor,
-      hairStyle: avatar.hairStyle,
-      accessories: {
-        glasses: avatar.glasses,
-        hat: avatar.hat,
-        earrings: avatar.earrings,
-      },
-    },
-  };
-}
 
 /**
  * CoinsController - Handles all coins-related HTTP requests

@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Circle, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
 import { useFocusEffect, CommonActions } from '@react-navigation/native';
 import { useTheme } from '../../theme';
 import { api } from '../../services/api';
@@ -20,6 +21,37 @@ import { AvatarCustomizations } from '../../components/AvatarRenderer';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const FRIEND_CARD_WIDTH = 140;
+const FRIEND_CARD_WIDTH_COMPACT = 120;
+
+// Mini power gauge for friend cards
+const MINI_GAUGE_SIZE = 28;
+const MINI_GAUGE_STROKE = 3;
+const MINI_GAUGE_RADIUS = (MINI_GAUGE_SIZE - MINI_GAUGE_STROKE) / 2;
+const MINI_GAUGE_CIRC = 2 * Math.PI * MINI_GAUGE_RADIUS;
+
+function MiniPowerGauge({ score, gradient, icon }: { score: number; gradient: [string, string]; icon: string }) {
+  const progress = Math.min(score, 100) / 100;
+  const offset = MINI_GAUGE_CIRC * (1 - progress);
+  return (
+    <View style={{ width: MINI_GAUGE_SIZE, height: MINI_GAUGE_SIZE, justifyContent: 'center', alignItems: 'center' }}>
+      <Svg width={MINI_GAUGE_SIZE} height={MINI_GAUGE_SIZE}>
+        <Defs>
+          <SvgGradient id="miniGaugeGrad" x1="0" y1="0" x2="1" y2="1">
+            <Stop offset="0" stopColor={gradient[0]} />
+            <Stop offset="1" stopColor={gradient[1]} />
+          </SvgGradient>
+        </Defs>
+        <Circle cx={MINI_GAUGE_SIZE / 2} cy={MINI_GAUGE_SIZE / 2} r={MINI_GAUGE_RADIUS} stroke="#E5E7EB" strokeWidth={MINI_GAUGE_STROKE} fill="none" />
+        <Circle cx={MINI_GAUGE_SIZE / 2} cy={MINI_GAUGE_SIZE / 2} r={MINI_GAUGE_RADIUS} stroke="url(#miniGaugeGrad)" strokeWidth={MINI_GAUGE_STROKE} fill="none" strokeLinecap="round" strokeDasharray={`${MINI_GAUGE_CIRC}`} strokeDashoffset={offset} rotation="-90" origin={`${MINI_GAUGE_SIZE / 2}, ${MINI_GAUGE_SIZE / 2}`} />
+      </Svg>
+      <View style={StyleSheet.absoluteFill as any}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Ionicons name={icon as any} size={10} color={gradient[0]} />
+        </View>
+      </View>
+    </View>
+  );
+}
 
 interface ActiveAvatar {
   id: string;
@@ -48,10 +80,17 @@ interface BondData {
   totalExchangeDays: number;
 }
 
+interface PeopleGuideRefs {
+  friendsSectionRef?: React.RefObject<View | null>;
+  suggestedSectionRef?: React.RefObject<View | null>;
+}
+
 interface PeopleTabProps {
   searchQuery: string;
   navigation: any;
   nestedScrollActiveRef?: MutableRefObject<boolean>;
+  guideRefs?: PeopleGuideRefs;
+  embedded?: boolean;
 }
 
 const getRankInfo = (trustScore: number) => {
@@ -62,7 +101,7 @@ const getRankInfo = (trustScore: number) => {
   return { label: 'New', color: '#6B7280', bgColor: '#F3F4F6', darkBgColor: '#1F2937', gradient: ['#9CA3AF', '#D1D5DB'] as [string, string], icon: 'sparkles' as const };
 };
 
-export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveRef }: PeopleTabProps) {
+export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveRef, guideRefs, embedded }: PeopleTabProps) {
   const { colors, isDark } = useTheme();
   const [users, setUsers] = useState<SearchUser[]>([]);
   const [followingUsers, setFollowingUsers] = useState<SearchUser[]>([]);
@@ -167,7 +206,7 @@ export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveR
       const currentUserId = (profileResponse.user || profileResponse).id;
       const currentUsername = (profileResponse.user || profileResponse).username;
 
-      const response = await api.getRecommendedUsers(20);
+      const response = await api.getRecommendedUsers(10);
       const recommendations = response.recommendations || [];
 
       const filteredRecommendations = recommendations.filter(
@@ -283,7 +322,11 @@ export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveR
     return (
       <TouchableOpacity
         key={item.id}
-        style={[styles.friendCard, { backgroundColor: isDark ? colors.surface : colors.card }]}
+        style={[
+          styles.friendCard,
+          { backgroundColor: isDark ? colors.surface : colors.card },
+          embedded && { width: FRIEND_CARD_WIDTH_COMPACT, paddingVertical: 12, paddingHorizontal: 6 },
+        ]}
         onPress={() => handleUserPress(item)}
         activeOpacity={0.8}
       >
@@ -298,10 +341,11 @@ export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveR
               avatarStyle={item.activeAvatar?.style}
             />
           </View>
-          {/* Score badge — tappable to friendship detail */}
+          {/* Power gauge badge — tappable to friendship detail */}
           {bond && (
             <TouchableOpacity
               activeOpacity={0.7}
+              style={styles.friendGaugeBadge}
               onPress={(e) => {
                 e.stopPropagation?.();
                 navigation.dispatch(
@@ -319,12 +363,7 @@ export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveR
                 );
               }}
             >
-              <LinearGradient
-                colors={rank.gradient}
-                style={styles.friendScoreBadge}
-              >
-                <Text style={styles.friendScoreText}>{trustScore}</Text>
-              </LinearGradient>
+              <MiniPowerGauge score={trustScore} gradient={rank.gradient} icon={rank.icon} />
             </TouchableOpacity>
           )}
           {/* Streak flame */}
@@ -514,6 +553,15 @@ export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveR
 
   // --- Search Results ---
   if (hasSearched && users.length > 0) {
+    if (embedded) {
+      return (
+        <View style={styles.searchListContent}>
+          {users.map((user) => (
+            <View key={user.id}>{renderSearchItem({ item: user })}</View>
+          ))}
+        </View>
+      );
+    }
     return (
       <FlatList
         data={users}
@@ -549,15 +597,20 @@ export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveR
   }
 
   // --- Main Content: Friends + Suggestions ---
+  const Wrapper = embedded ? View : ScrollView;
+  const wrapperProps = embedded
+    ? { style: [styles.container, { backgroundColor: colors.background }] }
+    : {
+        style: [styles.container, { backgroundColor: colors.background }],
+        contentContainerStyle: styles.scrollContent,
+        showsVerticalScrollIndicator: false,
+      };
+
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: colors.background }]}
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* Your Friends Section */}
-      {followingUsers.length > 0 && (
-        <View style={styles.section}>
+    <Wrapper {...wrapperProps}>
+      {/* Your Friends Section — hidden in embedded mode (shown via Friendship Bonds instead) */}
+      {!embedded && followingUsers.length > 0 && (
+        <View style={styles.section} ref={guideRefs?.friendsSectionRef} collapsable={false}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <Ionicons name="people" size={20} color="#833AB4" />
@@ -593,7 +646,7 @@ export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveR
           </Text>
         </View>
       ) : recommendedUsers.length > 0 ? (
-        <View style={styles.section}>
+        <View style={styles.section} ref={guideRefs?.suggestedSectionRef} collapsable={false}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <Ionicons name="sparkles" size={20} color="#F59E0B" />
@@ -612,8 +665,8 @@ export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveR
         </View>
       ) : null}
 
-      {/* Empty state when no friends and no suggestions */}
-      {followingUsers.length === 0 && recommendedUsers.length === 0 && !loadingRecommendations && (
+      {/* Empty state when no suggestions */}
+      {(embedded ? true : followingUsers.length === 0) && recommendedUsers.length === 0 && !loadingRecommendations && (
         <View style={styles.centerContent}>
           <View style={[styles.emptyIconWrap, { backgroundColor: isDark ? '#1F2937' : '#F3F4F6' }]}>
             <Ionicons name="people-outline" size={40} color={colors.text.tertiary} />
@@ -624,7 +677,7 @@ export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveR
           </Text>
         </View>
       )}
-    </ScrollView>
+    </Wrapper>
   );
 }
 
@@ -701,22 +754,13 @@ const styles = StyleSheet.create({
     borderRadius: 34,
     padding: 2,
   },
-  friendScoreBadge: {
+  friendGaugeBadge: {
     position: 'absolute',
-    bottom: -4,
-    right: -4,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#FFF',
-  },
-  friendScoreText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#FFF',
+    bottom: -6,
+    right: -6,
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 1,
   },
   friendStreakBadge: {
     position: 'absolute',

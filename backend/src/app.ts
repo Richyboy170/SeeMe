@@ -38,6 +38,10 @@ import adminRoutes from './routes/admin';
 import friendshipMeetupRoutes from './routes/friendshipMeetup';
 // Corner Icon routes
 import cornerIconsRoutes from './routes/cornerIcons';
+// Activity Wheel routes
+import activitiesRoutes from './routes/activities';
+// Goals routes
+import goalsRoutes from './routes/goals';
 
 const app = express();
 
@@ -115,6 +119,12 @@ app.use('/api/friendship-meetup', friendshipMeetupRoutes);
 
 // Corner Icon routes
 app.use('/api/corner-icons', cornerIconsRoutes);
+
+// Activity Wheel routes
+app.use('/api/activities', activitiesRoutes);
+
+// Goals routes
+app.use('/api/goals', goalsRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response) => {

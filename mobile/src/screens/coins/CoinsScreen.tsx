@@ -9,7 +9,7 @@ import {
     Alert,
     Animated,
     Dimensions,
-    PanResponder
+    PanResponder,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { CommonActions } from '@react-navigation/native';
@@ -21,6 +21,7 @@ import SkyCoinIcon, { SKY_COIN_COLORS } from '../../components/coins/SkyCoinIcon
 import EncouragementModal from '../../components/coins/EncouragementModal';
 import DecorationStoreContent from '../../components/DecorationStoreContent';
 import OnboardingMissions from '../../components/coins/OnboardingMissions';
+import CoinsPageGuide from '../../components/coins/CoinsPageGuide';
 import { AvatarCustomizations } from '../../components/AvatarRenderer';
 import { useTheme } from '../../theme';
 
@@ -68,6 +69,17 @@ export default function CoinsScreen({ navigation }: any) {
     const [uncollectedCount, setUncollectedCount] = useState(0);
     const [showEncouragement, setShowEncouragement] = useState(false);
     const [activeTab, setActiveTab] = useState<'wallet' | 'store'>('wallet');
+    const [showGuide, setShowGuide] = useState(false);
+
+    // Guide refs for each highlightable component
+    const rootRef = useRef<View>(null);
+    const guideTabsRef = useRef<View>(null);
+    const guideBalanceRef = useRef<View>(null);
+    const guideGivenRef = useRef<View>(null);
+    const guideSkyRef = useRef<View>(null);
+    const guideFreeRef = useRef<View>(null);
+    const guideEarnRef = useRef<View>(null);
+    const guideHistoryRef = useRef<View>(null);
 
     // Tab slide animation: 0 = wallet (left), 1 = store (right)
     const slideAnim = useRef(new Animated.Value(0)).current;
@@ -104,7 +116,9 @@ export default function CoinsScreen({ navigation }: any) {
                 let targetIndex = currentIndexRef.current;
 
                 if (Math.abs(vx) > VELOCITY_THRESHOLD) {
-                    targetIndex = vx < 0 ? 1 : 0;
+                    targetIndex = vx < 0
+                        ? Math.min(1, currentIndexRef.current + 1)
+                        : Math.max(0, currentIndexRef.current - 1);
                 } else if (Math.abs(dx) > SWIPE_THRESHOLD) {
                     targetIndex = dx < 0
                         ? Math.min(1, currentIndexRef.current + 1)
@@ -121,9 +135,10 @@ export default function CoinsScreen({ navigation }: any) {
                     friction: 15,
                 }).start();
 
-                const newTab = targetIndex === 0 ? 'wallet' : 'store';
+                const tabs: ('wallet' | 'store')[] = ['wallet', 'store'];
+                const newTab = tabs[targetIndex];
                 if (newTab !== activeTabRef.current) {
-                    setActiveTab(newTab as 'wallet' | 'store');
+                    setActiveTab(newTab);
                 }
             },
         })
@@ -515,6 +530,28 @@ export default function CoinsScreen({ navigation }: any) {
         loadUncollectedCoins();
     };
 
+    const handleStartGuide = () => {
+        setActiveTab('wallet');
+        scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+        setTimeout(() => setShowGuide(true), 100);
+    };
+
+    // Update header right button
+    useEffect(() => {
+        navigation.setOptions({
+            title: 'Positivity Coins',
+            headerRight: () => (
+                <TouchableOpacity
+                    onPress={handleStartGuide}
+                    activeOpacity={0.7}
+                    style={styles.headerHelpButton}
+                >
+                    <Ionicons name="help-circle-outline" size={24} color={colors.text.secondary} />
+                </TouchableOpacity>
+            ),
+        });
+    }, [navigation, colors]);
+
     const handleEncouragementClose = () => {
         setShowEncouragement(false);
         // Refresh data after modal close to pick up collected coins
@@ -579,10 +616,10 @@ export default function CoinsScreen({ navigation }: any) {
     const rankInfo = getRankInfo(coinsData.rank);
 
     return (
-        <View style={styles.rootContainer}>
+        <View ref={rootRef} style={styles.rootContainer}>
         {/* Segmented Control */}
         <View style={[styles.segmentedControlContainer, { backgroundColor: colors.surface }]}>
-            <View style={[styles.segmentedControl, { backgroundColor: colors.surfaceVariant }]}>
+            <View ref={guideTabsRef} collapsable={false} style={[styles.segmentedControl, { backgroundColor: colors.surfaceVariant }]}>
                 {/* Sliding pill indicator */}
                 <Animated.View
                     style={[
@@ -631,6 +668,7 @@ export default function CoinsScreen({ navigation }: any) {
             ref={scrollViewRef}
             style={[styles.container, { backgroundColor: colors.surface }]}
             contentContainerStyle={styles.contentContainer}
+            scrollEnabled={!showGuide}
             refreshControl={
                 <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.text.secondary} />
             }
@@ -667,7 +705,7 @@ export default function CoinsScreen({ navigation }: any) {
                 </Animated.View>
 
                 {/* Main Balance */}
-                <View style={styles.heroContent}>
+                <View ref={guideBalanceRef} collapsable={false} style={styles.heroContent}>
                     {/* Expanding ring pulse behind coin */}
                     <Animated.View style={[styles.heroRingPulse, {
                         borderColor: rankInfo.heroGradient[1],
@@ -692,7 +730,7 @@ export default function CoinsScreen({ navigation }: any) {
                 {/* ============ COINS GIVEN & SKY COINS — SIDE BY SIDE ============ */}
                 <View style={styles.panelsRow}>
                 {/* Coins Given Panel */}
-                <View style={styles.panelCard}>
+                <View ref={guideGivenRef} collapsable={false} style={styles.panelCard}>
                     <LinearGradient
                         colors={[rankInfo.heroGradient[0], rankInfo.heroGradient[1], rankInfo.heroGradient[2]]}
                         start={{ x: 0, y: 0 }}
@@ -774,10 +812,11 @@ export default function CoinsScreen({ navigation }: any) {
                 </View>
 
                 {/* Sky Coins Panel */}
+                <View ref={guideSkyRef} collapsable={false} style={styles.panelCard}>
                 <TouchableOpacity
                     activeOpacity={0.85}
                     onPress={() => setShowEncouragement(true)}
-                    style={styles.panelCard}
+                    style={{ flex: 1 }}
                 >
                     <LinearGradient
                         colors={SKY_COIN_COLORS.cardGradient}
@@ -858,6 +897,7 @@ export default function CoinsScreen({ navigation }: any) {
                     </LinearGradient>
                 </TouchableOpacity>
                 </View>
+                </View>
 
                 {/* ============ ONBOARDING MISSIONS (inside hero) ============ */}
                 <OnboardingMissions onClaimed={() => loadCoins()} />
@@ -866,7 +906,7 @@ export default function CoinsScreen({ navigation }: any) {
             {/* ============ GET MORE COINS - UNIFIED SECTION ============ */}
             <View style={styles.getCoinsSection}>
                 {/* Free Coins Card */}
-                <View style={[styles.freeCoinsCard, { backgroundColor: colors.background }]}>
+                <View ref={guideFreeRef} collapsable={false} style={[styles.freeCoinsCard, { backgroundColor: colors.background }]}>
                     <LinearGradient
                         colors={['#10B981', '#059669']}
                         start={{ x: 0, y: 0 }}
@@ -938,7 +978,7 @@ export default function CoinsScreen({ navigation }: any) {
                 </View>
 
                 {/* Earn Options - Compact Row */}
-                <View style={styles.earnRow}>
+                <View ref={guideEarnRef} collapsable={false} style={styles.earnRow}>
                     <EarnChip
                         icon="create"
                         iconColor="#8B5CF6"
@@ -975,6 +1015,7 @@ export default function CoinsScreen({ navigation }: any) {
             </View>
 
             {/* ============ VIEW ALL ACTIVITY — BOTTOM ============ */}
+            <View ref={guideHistoryRef} collapsable={false}>
             <TouchableOpacity
                 style={[styles.viewAllActivityBottom, { backgroundColor: colors.background, borderColor: colors.border }]}
                 onPress={() => navigation.navigate('CoinHistory')}
@@ -984,6 +1025,7 @@ export default function CoinsScreen({ navigation }: any) {
                 <Text style={styles.viewAllActivityText}>View All Activity</Text>
                 <Ionicons name="chevron-forward" size={14} color="#6366F1" />
             </TouchableOpacity>
+            </View>
 
             <View style={styles.bottomSpacer} />
 
@@ -1002,6 +1044,22 @@ export default function CoinsScreen({ navigation }: any) {
         </View>
         </Animated.View>
         </View>
+
+        <CoinsPageGuide
+            visible={showGuide}
+            onClose={() => setShowGuide(false)}
+            refs={{
+                tabs: guideTabsRef,
+                balance: guideBalanceRef,
+                given: guideGivenRef,
+                sky: guideSkyRef,
+                free: guideFreeRef,
+                earn: guideEarnRef,
+                history: guideHistoryRef,
+            }}
+            scrollRef={scrollViewRef}
+            rootRef={rootRef}
+        />
 
         </View>
     );
@@ -1170,6 +1228,10 @@ const styles = StyleSheet.create({
         paddingTop: 8,
         paddingBottom: 4,
     },
+    headerHelpButton: {
+        marginRight: 12,
+        padding: 4,
+    },
     segmentedControl: {
         flexDirection: 'row',
         borderRadius: 20,
@@ -1210,7 +1272,7 @@ const styles = StyleSheet.create({
     },
     tabSlidingContainer: {
         flexDirection: 'row',
-        width: SCREEN_WIDTH * 2,
+        width: SCREEN_WIDTH * 3,
         height: '100%',
     },
     tabPage: {

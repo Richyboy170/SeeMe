@@ -102,7 +102,7 @@ def _angle_between_points(a: Dict, b: Dict, c: Dict) -> float:
 
 def _get_landmark(landmarks: List[Dict], idx: int) -> Optional[Dict]:
     """Get a landmark by index, returning None if not visible enough."""
-    if idx < len(landmarks) and landmarks[idx].get("visibility", 0) > 0.3:
+    if idx < len(landmarks) and landmarks[idx].get("visibility", 0) > 0.15:
         return landmarks[idx]
     return None
 
@@ -291,7 +291,7 @@ def _get_person_center(landmarks: List[Dict]) -> Optional[tuple]:
     return (cx, cy)
 
 
-def _deduplicate_people(people_landmarks: List[List[Dict]], min_distance: float = 0.15) -> List[List[Dict]]:
+def _deduplicate_people(people_landmarks: List[List[Dict]], min_distance: float = 0.07) -> List[List[Dict]]:
     """
     Remove duplicate detections of the same person.
     If two detected poses have torso centers closer than min_distance, keep only the one
@@ -333,7 +333,7 @@ class FriendshipPoseValidator:
 
     def __init__(self):
         self.extractor = HolisticLandmarksExtractor(
-            num_poses=4, num_faces=4, min_detection_confidence=0.6
+            num_poses=4, num_faces=4, min_detection_confidence=0.35
         )
 
     def validate(self, image: np.ndarray, pose_name: str, min_people: int = 2) -> Dict[str, Any]:
@@ -395,12 +395,12 @@ class FriendshipPoseValidator:
         # Overall score is the average of all detected people
         overall_score = float(np.mean(person_scores)) if person_scores else 0.0
 
-        # Bonus for having enough people
+        # Bonus for having enough people (selfie-friendly: boost score more)
         if people_count >= min_people:
-            overall_score = min(1.0, overall_score * 1.1)
+            overall_score = min(1.0, max(overall_score * 1.2, 0.4))
 
         enough_people = people_count >= min_people
-        is_valid = enough_people and overall_score > 0.3
+        is_valid = enough_people and overall_score > 0.25
 
         if not enough_people:
             details = f"Need {min_people} people, detected {people_count}"

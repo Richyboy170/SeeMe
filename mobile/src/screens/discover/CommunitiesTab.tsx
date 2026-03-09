@@ -48,12 +48,19 @@ interface Category {
   description: string;
 }
 
+interface GuideRefs {
+  typeFiltersRef?: React.RefObject<View | null>;
+  categoryFiltersRef?: React.RefObject<View | null>;
+  communityGridRef?: React.RefObject<View | null>;
+}
+
 interface CommunitiesTabProps {
   searchQuery: string;
   navigation: any;
+  guideRefs?: GuideRefs;
 }
 
-export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesTabProps) {
+export default function CommunitiesTab({ searchQuery, navigation, guideRefs }: CommunitiesTabProps) {
   const { colors, isDark } = useTheme();
   const { width: screenWidth } = useWindowDimensions();
   const numColumns = screenWidth >= 768 ? 4 : 2;
@@ -161,73 +168,77 @@ export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesT
   const renderCategoriesHeader = () => (
     <View style={styles.headerContainer}>
       {/* Type filter chips */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.categoriesList}
-        contentContainerStyle={styles.categoriesContent}
-      >
-        {TYPE_FILTERS.map((tf) => (
-          <TouchableOpacity
-            key={tf.label}
-            style={[
-              styles.categoryChip,
-              { backgroundColor: colors.background, borderColor: colors.border },
-              selectedType === tf.key && styles.categoryChipActive,
-              !tf.key && !selectedType && styles.categoryChipActive,
-            ]}
-            onPress={() => setSelectedType(selectedType === tf.key ? null : tf.key)}
-          >
-            <Ionicons name={tf.icon as any} size={14} color={
-              (selectedType === tf.key || (!tf.key && !selectedType)) ? '#FFFFFF' : colors.text.secondary
-            } />
-            <Text
+      <View ref={guideRefs?.typeFiltersRef} collapsable={false}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.categoriesList}
+          contentContainerStyle={styles.categoriesContent}
+        >
+          {TYPE_FILTERS.map((tf) => (
+            <TouchableOpacity
+              key={tf.label}
               style={[
-                styles.categoryText,
-                { color: colors.text.secondary },
-                (selectedType === tf.key || (!tf.key && !selectedType)) && styles.categoryTextActive,
+                styles.categoryChip,
+                { backgroundColor: colors.background, borderColor: colors.border },
+                selectedType === tf.key && styles.categoryChipActive,
+                !tf.key && !selectedType && styles.categoryChipActive,
               ]}
+              onPress={() => setSelectedType(selectedType === tf.key ? null : tf.key)}
             >
-              {tf.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+              <Ionicons name={tf.icon as any} size={14} color={
+                (selectedType === tf.key || (!tf.key && !selectedType)) ? '#FFFFFF' : colors.text.secondary
+              } />
+              <Text
+                style={[
+                  styles.categoryText,
+                  { color: colors.text.secondary },
+                  (selectedType === tf.key || (!tf.key && !selectedType)) && styles.categoryTextActive,
+                ]}
+              >
+                {tf.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
 
       {/* Category filter chips */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.categoriesList}
-        contentContainerStyle={styles.categoriesContent}
-      >
-        {categories.map((category) => (
-          <TouchableOpacity
-            key={category.id}
-            style={[
-              styles.categoryChip,
-              { backgroundColor: colors.background, borderColor: colors.border },
-              selectedCategory === category.id && styles.categoryChipActive,
-            ]}
-            onPress={() =>
-              handleCategorySelect(
-                selectedCategory === category.id ? null : category.id
-              )
-            }
-          >
-            <Text style={styles.categoryEmoji}>{category.icon}</Text>
-            <Text
+      <View ref={guideRefs?.categoryFiltersRef} collapsable={false}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.categoriesList}
+          contentContainerStyle={styles.categoriesContent}
+        >
+          {categories.map((category) => (
+            <TouchableOpacity
+              key={category.id}
               style={[
-                styles.categoryText,
-                { color: colors.text.secondary },
-                selectedCategory === category.id && styles.categoryTextActive,
+                styles.categoryChip,
+                { backgroundColor: colors.background, borderColor: colors.border },
+                selectedCategory === category.id && styles.categoryChipActive,
               ]}
+              onPress={() =>
+                handleCategorySelect(
+                  selectedCategory === category.id ? null : category.id
+                )
+              }
             >
-              {category.name}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+              <Text style={styles.categoryEmoji}>{category.icon}</Text>
+              <Text
+                style={[
+                  styles.categoryText,
+                  { color: colors.text.secondary },
+                  selectedCategory === category.id && styles.categoryTextActive,
+                ]}
+              >
+                {category.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
     </View>
   );
 
@@ -250,31 +261,33 @@ export default function CommunitiesTab({ searchQuery, navigation }: CommunitiesT
   }
 
   return (
-    <FlatList
-      key={`cols-${numColumns}`}
-      data={topics}
-      renderItem={renderTopic}
-      keyExtractor={item => item.id}
-      numColumns={numColumns}
-      columnWrapperStyle={{ gap: 12, marginBottom: 12 }}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-      }
-      style={[styles.container, { backgroundColor: colors.background }]}
-      contentContainerStyle={styles.topicsList}
-      ListHeaderComponent={renderCategoriesHeader}
-      ListEmptyComponent={
-        <View style={styles.emptyState}>
-          <Ionicons name="compass-outline" size={48} color={colors.text.tertiary} />
-          <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>No communities found</Text>
-          <Text style={[styles.emptySubtitle, { color: colors.text.secondary }]}>
-            {searchQuery
-              ? 'Try a different search term'
-              : 'Be the first to create one!'}
-          </Text>
-        </View>
-      }
-    />
+    <View style={{ flex: 1 }} ref={guideRefs?.communityGridRef} collapsable={false}>
+      <FlatList
+        key={`cols-${numColumns}`}
+        data={topics}
+        renderItem={renderTopic}
+        keyExtractor={item => item.id}
+        numColumns={numColumns}
+        columnWrapperStyle={{ gap: 12, marginBottom: 12 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
+        style={[styles.container, { backgroundColor: colors.background }]}
+        contentContainerStyle={styles.topicsList}
+        ListHeaderComponent={renderCategoriesHeader}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Ionicons name="compass-outline" size={48} color={colors.text.tertiary} />
+            <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>No communities found</Text>
+            <Text style={[styles.emptySubtitle, { color: colors.text.secondary }]}>
+              {searchQuery
+                ? 'Try a different search term'
+                : 'Be the first to create one!'}
+            </Text>
+          </View>
+        }
+      />
+    </View>
   );
 }
 

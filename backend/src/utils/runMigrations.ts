@@ -29,6 +29,9 @@ import * as addFriendshipMeetupTables from '../migrations/add-friendship-meetup-
 import * as addCornerIcons from '../migrations/add-corner-icons';
 import * as addTopicGroupTypes from '../migrations/add-topic-group-types';
 import * as addDecoratedStrip from '../migrations/add-decorated-strip';
+import * as addActivityWheelTables from '../migrations/add-activity-wheel-tables';
+import * as addGoalsTables from '../migrations/add-goals-tables';
+import * as addActiveAvatarId from '../migrations/add-active-avatar-id';
 
 /**
  * Run database migrations
@@ -180,6 +183,21 @@ const migrations = [
     name: 'add-decorated-strip',
     up: addDecoratedStrip.up,
     down: addDecoratedStrip.down
+  },
+  {
+    name: 'add-activity-wheel-tables',
+    up: addActivityWheelTables.up,
+    down: addActivityWheelTables.down
+  },
+  {
+    name: 'add-goals-tables',
+    up: addGoalsTables.up,
+    down: addGoalsTables.down
+  },
+  {
+    name: 'add-active-avatar-id',
+    up: addActiveAvatarId.up,
+    down: addActiveAvatarId.down
   }
   // Add more migrations here as needed
 ];

@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Circle, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
 import { getImageUrl } from '../services/api';
 import { useTheme } from '../theme';
 
@@ -27,39 +27,90 @@ interface TrustConnectionItemProps {
   onProfilePress?: (connection: TrustConnection) => void;
 }
 
+// --- Power Gauge ---
+const GAUGE_SIZE = 44;
+const GAUGE_STROKE = 4;
+const GAUGE_RADIUS = (GAUGE_SIZE - GAUGE_STROKE) / 2;
+const GAUGE_CIRCUMFERENCE = 2 * Math.PI * GAUGE_RADIUS;
+
+function PowerGauge({ score, gradient, icon }: { score: number; gradient: [string, string]; icon: string }) {
+  const progress = Math.min(score, 100) / 100;
+  const strokeDashoffset = GAUGE_CIRCUMFERENCE * (1 - progress);
+
+  return (
+    <View style={gaugeStyles.container}>
+      <Svg width={GAUGE_SIZE} height={GAUGE_SIZE}>
+        <Defs>
+          <SvgGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="1">
+            <Stop offset="0" stopColor={gradient[0]} />
+            <Stop offset="1" stopColor={gradient[1]} />
+          </SvgGradient>
+        </Defs>
+        {/* Background track */}
+        <Circle
+          cx={GAUGE_SIZE / 2}
+          cy={GAUGE_SIZE / 2}
+          r={GAUGE_RADIUS}
+          stroke="#E5E7EB"
+          strokeWidth={GAUGE_STROKE}
+          fill="none"
+        />
+        {/* Filled arc */}
+        <Circle
+          cx={GAUGE_SIZE / 2}
+          cy={GAUGE_SIZE / 2}
+          r={GAUGE_RADIUS}
+          stroke="url(#gaugeGrad)"
+          strokeWidth={GAUGE_STROKE}
+          fill="none"
+          strokeLinecap="round"
+          strokeDasharray={`${GAUGE_CIRCUMFERENCE}`}
+          strokeDashoffset={strokeDashoffset}
+          rotation="-90"
+          origin={`${GAUGE_SIZE / 2}, ${GAUGE_SIZE / 2}`}
+        />
+      </Svg>
+      {/* Center icon */}
+      <View style={gaugeStyles.iconWrap}>
+        <Ionicons name={icon as any} size={16} color={gradient[0]} />
+      </View>
+    </View>
+  );
+}
+
+const gaugeStyles = StyleSheet.create({
+  container: {
+    width: GAUGE_SIZE,
+    height: GAUGE_SIZE,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  iconWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});
+
+// --- Main Component ---
 export const TrustConnectionItem: React.FC<TrustConnectionItemProps> = ({
   connection,
   onPress,
   onMessagePress,
   onProfilePress,
 }) => {
-  const { colors } = useTheme();
-  const { otherUser, trustScore, currentStreak, longestStreak, isMutualFollow, totalExchangeDays, lastExchangeDate } = connection;
+  const { colors, isDark } = useTheme();
+  const { otherUser, trustScore, currentStreak, isMutualFollow } = connection;
 
-  // Get rank info based on trust score
   const getRankInfo = () => {
-    if (trustScore >= 80) return { label: 'Best Friend', color: '#8B5CF6', bgColor: '#EDE9FE', gradient: ['#8B5CF6', '#A855F7'] as [string, string], icon: 'heart' as const };
-    if (trustScore >= 60) return { label: 'Close Friend', color: '#EC4899', bgColor: '#FCE7F3', gradient: ['#EC4899', '#F472B6'] as [string, string], icon: 'heart-half' as const };
-    if (trustScore >= 40) return { label: 'Good Friend', color: '#F59E0B', bgColor: '#FEF3C7', gradient: ['#F59E0B', '#FBBF24'] as [string, string], icon: 'sunny' as const };
-    if (trustScore >= 20) return { label: 'Building', color: '#10B981', bgColor: '#D1FAE5', gradient: ['#10B981', '#34D399'] as [string, string], icon: 'leaf' as const };
-    return { label: 'New', color: '#6B7280', bgColor: '#F3F4F6', gradient: ['#9CA3AF', '#D1D5DB'] as [string, string], icon: 'sparkles' as const };
+    if (trustScore >= 80) return { label: 'Best Friend', color: '#8B5CF6', bgColor: '#EDE9FE', darkBgColor: '#2E1065', gradient: ['#8B5CF6', '#A855F7'] as [string, string], icon: 'heart' };
+    if (trustScore >= 60) return { label: 'Close Friend', color: '#EC4899', bgColor: '#FCE7F3', darkBgColor: '#4A0E2B', gradient: ['#EC4899', '#F472B6'] as [string, string], icon: 'heart-half' };
+    if (trustScore >= 40) return { label: 'Good Friend', color: '#F59E0B', bgColor: '#FEF3C7', darkBgColor: '#451A03', gradient: ['#F59E0B', '#FBBF24'] as [string, string], icon: 'sunny' };
+    if (trustScore >= 20) return { label: 'Building', color: '#10B981', bgColor: '#D1FAE5', darkBgColor: '#064E3B', gradient: ['#10B981', '#34D399'] as [string, string], icon: 'leaf' };
+    return { label: 'New', color: '#6B7280', bgColor: '#F3F4F6', darkBgColor: '#1F2937', gradient: ['#9CA3AF', '#D1D5DB'] as [string, string], icon: 'sparkles' };
   };
 
   const rankInfo = getRankInfo();
-
-  // Format the last exchange date
-  const formatLastExchange = () => {
-    if (!lastExchangeDate) return 'Never';
-    const date = new Date(lastExchangeDate);
-    const now = new Date();
-    const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-
   const avatarUrl = getImageUrl(otherUser.avatarUrl);
 
   return (
@@ -92,49 +143,22 @@ export const TrustConnectionItem: React.FC<TrustConnectionItemProps> = ({
         <View style={styles.nameRow}>
           <Text style={[styles.username, { color: colors.text.primary }]} numberOfLines={1}>@{otherUser.username}</Text>
           {isMutualFollow && (
-            <View style={styles.mutualIcon}>
+            <View style={[styles.mutualIcon, { backgroundColor: isDark ? '#2E1065' : '#EDE9FE' }]}>
               <Ionicons name="people" size={10} color="#8B5CF6" />
             </View>
           )}
-          <View style={[styles.rankBadge, { backgroundColor: rankInfo.bgColor }]}>
-            <Ionicons name={rankInfo.icon} size={10} color={rankInfo.color} />
-            <Text style={[styles.rankText, { color: rankInfo.color }]}>{rankInfo.label}</Text>
-          </View>
         </View>
-
-        {/* Stats Row */}
-        <View style={styles.statsRow}>
-          <View style={styles.statItem}>
-            <Ionicons name="calendar-outline" size={10} color={colors.icon.secondary} />
-            <Text style={[styles.statText, { color: colors.text.tertiary }]}>{totalExchangeDays}d</Text>
-          </View>
-          <View style={[styles.statDivider, { backgroundColor: colors.disabled }]} />
-          <View style={styles.statItem}>
-            <Ionicons name="time-outline" size={10} color={colors.icon.secondary} />
-            <Text style={[styles.statText, { color: colors.text.tertiary }]}>{formatLastExchange()}</Text>
-          </View>
-          {longestStreak > 0 && (
-            <>
-              <View style={[styles.statDivider, { backgroundColor: colors.disabled }]} />
-              <View style={styles.statItem}>
-                <Ionicons name="trophy-outline" size={10} color="#F59E0B" />
-                <Text style={[styles.statText, { color: '#F59E0B' }]}>{longestStreak}</Text>
-              </View>
-            </>
-          )}
+        <View style={[styles.rankBadge, { backgroundColor: isDark ? rankInfo.darkBgColor : rankInfo.bgColor }]}>
+          <Ionicons name={rankInfo.icon as any} size={10} color={rankInfo.color} />
+          <Text style={[styles.rankText, { color: rankInfo.color }]}>{rankInfo.label}</Text>
         </View>
       </View>
 
-      {/* Score + Message */}
+      {/* Power Gauge + Message */}
       <View style={styles.rightSection}>
-        <LinearGradient
-          colors={rankInfo.gradient}
-          style={styles.scoreCircle}
-        >
-          <Text style={styles.scoreValue}>{trustScore}</Text>
-        </LinearGradient>
+        <PowerGauge score={trustScore} gradient={rankInfo.gradient} icon={rankInfo.icon} />
         <TouchableOpacity
-          style={styles.messageIconBtn}
+          style={[styles.messageIconBtn, { backgroundColor: isDark ? '#1E3A5F' : '#EFF6FF' }]}
           onPress={() => onMessagePress?.(connection)}
           activeOpacity={0.7}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -208,12 +232,12 @@ const styles = StyleSheet.create({
   infoSection: {
     flex: 1,
     marginLeft: 10,
+    gap: 4,
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    marginBottom: 3,
   },
   username: {
     fontSize: 14,
@@ -225,13 +249,13 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: '#EDE9FE',
     justifyContent: 'center',
     alignItems: 'center',
   },
   rankBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 8,
@@ -241,51 +265,17 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
   },
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  statText: {
-    fontSize: 10,
-    color: '#9CA3AF',
-    fontWeight: '500',
-  },
-  statDivider: {
-    width: 2,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: '#D1D5DB',
-    marginHorizontal: 5,
-  },
 
-  // Right Section (Score + Message)
+  // Right Section (Gauge + Message)
   rightSection: {
     alignItems: 'center',
     marginLeft: 8,
-    gap: 6,
-  },
-  scoreCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  scoreValue: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#FFF',
+    gap: 4,
   },
   messageIconBtn: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#EFF6FF',
     justifyContent: 'center',
     alignItems: 'center',
   },

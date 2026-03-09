@@ -189,8 +189,7 @@ export class StoryOfMeService {
             const ranked = [...posts].sort((a, b) => engagementScore(b) - engagementScore(a));
             const topPost = ranked[0];
 
-            // Gallery sizes per period
-            let galleryCap: number;
+            // All remaining posts included (no cap)
             let openers: string[];
             let closers: string[];
             let titlePrefix: string;
@@ -200,7 +199,6 @@ export class StoryOfMeService {
 
             switch (periodType) {
                 case 'weekly':
-                    galleryCap = 6;
                     openers = WEEKLY_OPENERS;
                     closers = WEEKLY_CLOSERS;
                     titlePrefix = 'This Week\'s Highlights';
@@ -209,7 +207,6 @@ export class StoryOfMeService {
                     quotesLabel = 'In your words';
                     break;
                 case 'monthly':
-                    galleryCap = 11;
                     openers = MONTHLY_OPENERS;
                     closers = MONTHLY_CLOSERS;
                     titlePrefix = 'This Month\'s Story';
@@ -218,7 +215,6 @@ export class StoryOfMeService {
                     quotesLabel = 'Your own words';
                     break;
                 case 'yearly':
-                    galleryCap = 11;
                     openers = YEARLY_OPENERS;
                     closers = YEARLY_CLOSERS;
                     titlePrefix = 'Your Year in Review';
@@ -228,7 +224,7 @@ export class StoryOfMeService {
                     break;
             }
 
-            const galleryPosts = ranked.slice(1, 1 + galleryCap);
+            const galleryPosts = ranked.slice(1);
 
             // ── Caption excerpts ──────────────────────────────────────
 
@@ -259,6 +255,16 @@ export class StoryOfMeService {
                     posts: galleryPosts.map(toPostSummary),
                 });
             }
+
+            // All posts sorted by date (newest first) for the inline grid
+            const allPostsByDate = [...posts].sort((a, b) =>
+                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            );
+            highlights.push({
+                type: 'all_posts',
+                label: 'All posts',
+                posts: allPostsByDate.map(toPostSummary),
+            });
 
             // Stat row
             const statItems: { icon: string; value: number; label: string }[] = [

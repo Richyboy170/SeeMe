@@ -2,16 +2,22 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity,
     ActivityIndicator, Platform, UIManager,
+    Image, Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { api } from '../../services/api';
+import { api, getImageUrl } from '../../services/api';
 import { useTheme } from '../../theme';
 import StoryViewerModal from './StoryViewerModal';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
+
+const { width: SCREEN_W } = Dimensions.get('window');
+const GRID_GAP = 2;
+const GRID_COLS = 3;
+const TILE_SIZE = (SCREEN_W - 32 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
 
 // ── Types matching backend HighlightCard ──────────────────────────────
 
@@ -29,6 +35,7 @@ export type HighlightCard =
     | { type: 'opener'; text: string }
     | { type: 'top_post'; label: string; post: PostSummary }
     | { type: 'post_gallery'; label: string; posts: PostSummary[] }
+    | { type: 'all_posts'; label: string; posts: PostSummary[] }
     | { type: 'stat_row'; items: { icon: string; value: number; label: string }[] }
     | { type: 'caption_quotes'; label: string; quotes: string[] }
     | { type: 'coins'; earned: number; given: number }
@@ -69,13 +76,24 @@ export function parseHighlights(content: string): HighlightCard[] {
     }
 }
 
+// ── Helpers ──────────────────────────────────────────────────────────
+
+function formatPostDate(dateStr: string): string {
+    try {
+        const d = new Date(dateStr);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    } catch {
+        return '';
+    }
+}
+
 // ── Main component ────────────────────────────────────────────────────
 
 const DEFAULT_GRADIENT: [string, string, string] = ['#9CA3AF', '#6B7280', '#4B5563'];
 const DEFAULT_COLOR = '#9CA3AF';
 
 export default function StoryOfMeSection({ userId, isOwnProfile = false, rankGradient, rankColor }: StoryOfMeSectionProps) {
-    const { colors } = useTheme();
+    const { colors, isDark } = useTheme();
     const accentColor = rankColor || DEFAULT_COLOR;
     const gradientColors = rankGradient || DEFAULT_GRADIENT;
     const accentLight = accentColor + '20';
@@ -134,7 +152,12 @@ export default function StoryOfMeSection({ userId, isOwnProfile = false, rankGra
     }
 
     const highlights = story ? parseHighlights(story.content) : [];
-    const openerCard = highlights.find(c => c.type === 'opener') as Extract<HighlightCard, { type: 'opener' }> | undefined;
+    const allPostsCard = highlights.find(c => c.type === 'all_posts') as Extract<HighlightCard, { type: 'all_posts' }> | undefined;
+    const allPosts = allPostsCard?.posts || [];
+    const statsCard = highlights.find(c => c.type === 'stat_row') as Extract<HighlightCard, { type: 'stat_row' }> | undefined;
+    const coinsCard = highlights.find(c => c.type === 'coins') as Extract<HighlightCard, { type: 'coins' }> | undefined;
+
+    const periodLabel = selectedPeriod === 'weekly' ? 'this week' : selectedPeriod === 'monthly' ? 'this month' : 'this year';
 
     return (
         <View style={[styles.container, { backgroundColor: colors.card, borderTopColor: colors.separator }]}>
@@ -144,6 +167,15 @@ export default function StoryOfMeSection({ userId, isOwnProfile = false, rankGra
                     <Ionicons name="book" size={18} color={accentColor} />
                     <Text style={[styles.title, { color: colors.text.primary }]}>Story of Me</Text>
                 </View>
+                {story && highlights.length > 0 && (
+                    <TouchableOpacity
+                        style={[styles.viewStoryBtn, { backgroundColor: accentLight }]}
+                        onPress={() => setViewerVisible(true)}
+                    >
+                        <Ionicons name="play" size={12} color={accentColor} />
+                        <Text style={[styles.viewStoryText, { color: accentColor }]}>View Story</Text>
+                    </TouchableOpacity>
+                )}
             </View>
 
             {/* Period Tabs */}
@@ -153,12 +185,14 @@ export default function StoryOfMeSection({ userId, isOwnProfile = false, rankGra
                         key={tab.key}
                         style={[
                             styles.periodTab,
+                            { backgroundColor: isDark ? colors.surfaceVariant : '#F3F4F6' },
                             selectedPeriod === tab.key && { backgroundColor: accentLight },
                         ]}
                         onPress={() => handlePeriodChange(tab.key)}
                     >
                         <Text style={[
                             styles.periodTabText,
+                            { color: colors.text.tertiary },
                             selectedPeriod === tab.key && { color: accentColor, fontWeight: '600' as const },
                         ]}>
                             {tab.label}
@@ -171,28 +205,74 @@ export default function StoryOfMeSection({ userId, isOwnProfile = false, rankGra
                 <View style={styles.cardLoading}>
                     <ActivityIndicator size="small" color={accentColor} />
                 </View>
-            ) : story && highlights.length > 0 ? (
-                <TouchableOpacity activeOpacity={0.85} onPress={() => setViewerVisible(true)}>
-                    <LinearGradient
-                        colors={gradientColors}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={styles.storyCard}
-                    >
-                        <Text style={styles.storyTitle}>{story.title}</Text>
-                        {openerCard && (
-                            <Text style={styles.openerTeaser} numberOfLines={2}>
-                                {openerCard.text}
-                            </Text>
-                        )}
-                        <View style={styles.tapHintRow}>
-                            <Text style={styles.tapHint}>Tap to view story</Text>
-                            <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.7)" />
+            ) : story && allPosts.length > 0 ? (
+                <>
+                    {/* Quick Stats Bar */}
+                    {statsCard && (
+                        <View style={[styles.quickStats, { backgroundColor: isDark ? colors.surfaceVariant : accentColor + '0A' }]}>
+                            {statsCard.items.map((item, i) => (
+                                <View key={i} style={styles.quickStatItem}>
+                                    <Ionicons name={item.icon as any} size={14} color={accentColor} />
+                                    <Text style={[styles.quickStatValue, { color: colors.text.primary }]}>{item.value}</Text>
+                                    <Text style={[styles.quickStatLabel, { color: colors.text.tertiary }]}>{item.label}</Text>
+                                </View>
+                            ))}
+                            {coinsCard && (coinsCard.earned > 0 || coinsCard.given > 0) && (
+                                <View style={styles.quickStatItem}>
+                                    <Ionicons name="star" size={14} color="#F59E0B" />
+                                    <Text style={[styles.quickStatValue, { color: colors.text.primary }]}>{coinsCard.earned + coinsCard.given}</Text>
+                                    <Text style={[styles.quickStatLabel, { color: colors.text.tertiary }]}>coins</Text>
+                                </View>
+                            )}
                         </View>
-                    </LinearGradient>
-                </TouchableOpacity>
+                    )}
+
+                    {/* Posts Count */}
+                    <Text style={[styles.postsCountLabel, { color: colors.text.secondary }]}>
+                        {allPosts.length} {allPosts.length === 1 ? 'post' : 'posts'} {periodLabel}
+                    </Text>
+
+                    {/* All Posts Grid */}
+                    <View style={styles.postsGrid}>
+                        {allPosts.map((post) => {
+                            const uri = getImageUrl(post.imageUrl);
+                            return (
+                                <View key={post.id} style={styles.postTile}>
+                                    {uri ? (
+                                        <Image source={{ uri }} style={styles.postImage} resizeMode="cover" />
+                                    ) : (
+                                        <View style={[styles.postImagePlaceholder, { backgroundColor: isDark ? '#2A2A2A' : '#F3F4F6' }]}>
+                                            <Ionicons name="image-outline" size={20} color={colors.text.tertiary} />
+                                        </View>
+                                    )}
+                                    {/* Date overlay */}
+                                    <View style={styles.postDateOverlay}>
+                                        <Text style={styles.postDateText}>{formatPostDate(post.createdAt)}</Text>
+                                    </View>
+                                    {/* Engagement overlay */}
+                                    {(post.likesCount > 0 || post.commentsCount > 0) && (
+                                        <View style={styles.postEngOverlay}>
+                                            {post.likesCount > 0 && (
+                                                <View style={styles.postEngItem}>
+                                                    <Ionicons name="heart" size={10} color="#FFF" />
+                                                    <Text style={styles.postEngText}>{post.likesCount}</Text>
+                                                </View>
+                                            )}
+                                            {post.commentsCount > 0 && (
+                                                <View style={styles.postEngItem}>
+                                                    <Ionicons name="chatbubble" size={9} color="#FFF" />
+                                                    <Text style={styles.postEngText}>{post.commentsCount}</Text>
+                                                </View>
+                                            )}
+                                        </View>
+                                    )}
+                                </View>
+                            );
+                        })}
+                    </View>
+                </>
             ) : (
-                <View style={[styles.emptyCard, { backgroundColor: colors.surface }]}>
+                <View style={[styles.emptyCard, { backgroundColor: isDark ? colors.surfaceVariant : colors.surface }]}>
                     <Ionicons name="book-outline" size={24} color={colors.text.tertiary} />
                     <Text style={[styles.emptyText, { color: colors.text.tertiary }]}>
                         No story yet for this period
@@ -206,7 +286,7 @@ export default function StoryOfMeSection({ userId, isOwnProfile = false, rankGra
             <StoryViewerModal
                 visible={viewerVisible}
                 onClose={() => setViewerVisible(false)}
-                highlights={highlights}
+                highlights={highlights.filter(c => c.type !== 'all_posts')}
                 periodStart={story?.periodStart}
                 periodEnd={story?.periodEnd}
                 title={story?.title}
@@ -238,6 +318,18 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: '600',
     },
+    viewStoryBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 14,
+    },
+    viewStoryText: {
+        fontSize: 12,
+        fontWeight: '600',
+    },
     tabsRow: {
         flexDirection: 'row',
         gap: 8,
@@ -247,47 +339,107 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingVertical: 6,
         borderRadius: 16,
-        backgroundColor: '#F3F4F6',
-    },
-    periodTabActive: {
     },
     periodTabText: {
         fontSize: 13,
         fontWeight: '500',
-        color: '#6B7280',
-    },
-    periodTabTextActive: {
     },
     cardLoading: {
         padding: 24,
         alignItems: 'center',
     },
-    storyCard: {
-        borderRadius: 16,
-        padding: 20,
-    },
-    storyTitle: {
-        fontSize: 15,
-        fontWeight: '700',
-        color: '#fff',
-        marginBottom: 6,
-    },
-    openerTeaser: {
-        fontSize: 14,
-        color: 'rgba(255,255,255,0.85)',
-        lineHeight: 20,
-        marginBottom: 12,
-    },
-    tapHintRow: {
+
+    // Quick stats
+    quickStats: {
         flexDirection: 'row',
-        alignItems: 'center',
+        borderRadius: 12,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        marginBottom: 12,
         gap: 4,
     },
-    tapHint: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: 'rgba(255,255,255,0.7)',
+    quickStatItem: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
     },
+    quickStatValue: {
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    quickStatLabel: {
+        fontSize: 11,
+        fontWeight: '500',
+    },
+
+    // Posts count
+    postsCountLabel: {
+        fontSize: 12,
+        fontWeight: '500',
+        marginBottom: 8,
+    },
+
+    // Posts grid
+    postsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: GRID_GAP,
+    },
+    postTile: {
+        width: TILE_SIZE,
+        height: TILE_SIZE,
+        borderRadius: 8,
+        overflow: 'hidden',
+    },
+    postImage: {
+        width: '100%',
+        height: '100%',
+    },
+    postImagePlaceholder: {
+        width: '100%',
+        height: '100%',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    postDateOverlay: {
+        position: 'absolute',
+        top: 4,
+        left: 4,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        paddingHorizontal: 5,
+        paddingVertical: 2,
+        borderRadius: 6,
+    },
+    postDateText: {
+        fontSize: 9,
+        fontWeight: '600',
+        color: '#FFF',
+    },
+    postEngOverlay: {
+        position: 'absolute',
+        bottom: 4,
+        right: 4,
+        flexDirection: 'row',
+        gap: 6,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        paddingHorizontal: 5,
+        paddingVertical: 2,
+        borderRadius: 6,
+    },
+    postEngItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 2,
+    },
+    postEngText: {
+        fontSize: 9,
+        fontWeight: '600',
+        color: '#FFF',
+    },
+
+    // Empty
     emptyCard: {
         borderRadius: 14,
         padding: 24,

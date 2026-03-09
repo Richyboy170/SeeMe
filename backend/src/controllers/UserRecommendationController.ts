@@ -6,27 +6,7 @@ import { BlockedUser } from '../models/BlockedUser';
 import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
 import { AuthRequest } from '../middleware/auth';
 import { logger } from '../utils/logger';
-
-// Helper to format avatar data for API response
-function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
-  if (!avatar) return null;
-  return {
-    id: avatar.id,
-    style: avatar.style,
-    customizations: {
-      skinTone: avatar.skinTone,
-      eyeColor: avatar.eyeColor,
-      eyeSize: avatar.eyeSize,
-      hairColor: avatar.hairColor,
-      hairStyle: avatar.hairStyle,
-      accessories: {
-        glasses: avatar.glasses,
-        hat: avatar.hat,
-        earrings: avatar.earrings,
-      },
-    },
-  };
-}
+import { formatAvatarForResponse } from '../utils/formatAvatar';
 
 /**
  * User Recommendation Controller
@@ -35,18 +15,17 @@ function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
 export class UserRecommendationController {
   /**
    * Get recommended users for the authenticated user
-   * Algorithm considers:
-   * 1. Users with most followers (popular users)
-   * 2. Users with most posts (active users)
-   * 3. Recently joined users
-   * 4. Random sampling for diversity
+   * Algorithm prioritizes mutual connections first, then fills with any active users:
+   * 1. Mutual connections — friends of friends (users followed by people you follow)
+   * 2. Active users — any user with posts or coins (no mutual requirement)
+   * Filters out inactive/test accounts (no posts AND no coins)
    * Excludes: users already followed, blocked users, self
    */
   static async getRecommendedUsers(req: AuthRequest, res: Response): Promise<void> {
     try {
       const currentUserId = req.user!.id;
       const currentUsername = req.user!.username;
-      const limit = parseInt(req.query.limit as string) || 20;
+      const limit = Math.min(parseInt(req.query.limit as string) || 10, 10);
 
       logger.info('Getting recommendations for user', { currentUserId, currentUsername });
 
@@ -78,92 +57,66 @@ export class UserRecommendationController {
         excludedIds: excludedIds.slice(0, 5) // Log first 5 for debugging
       });
 
-      // Get popular users (by follower count)
-      const popularUsers = await User.findAll({
-        where: {
-          id: { [Op.notIn]: excludedIds },
-        },
-        attributes: [
-          'id',
-          'username',
-          'avatarUrl',
-          'activeAvatarId',
-          'positivityGiveCounter',
-          'positivityRank',
-          'createdAt',
-          [
-            literal(`(SELECT COUNT(*) FROM follows WHERE follows."following_id" = "User".id)`),
-            'followersCount'
-          ],
-          [
-            literal(`(SELECT COUNT(*) FROM posts WHERE posts."user_id" = "User".id)`),
-            'postsCount'
-          ]
+      // Shared attributes for all queries
+      const userAttributes = [
+        'id',
+        'username',
+        'avatarUrl',
+        'activeAvatarId',
+        'positivityGiveCounter',
+        'positivityRank',
+        'createdAt',
+        [
+          literal(`(SELECT COUNT(*) FROM follows WHERE follows."following_id" = "User".id)`),
+          'followersCount'
         ],
-        order: [[literal('"followersCount"'), 'DESC']],
-        limit: Math.ceil(limit / 3),
-      });
-
-      // Get active users (by post count) - exclude already fetched
-      const popularIds = popularUsers.map(u => u.id);
-      const activeUsers = await User.findAll({
-        where: {
-          id: { [Op.notIn]: [...excludedIds, ...popularIds] },
-        },
-        attributes: [
-          'id',
-          'username',
-          'avatarUrl',
-          'activeAvatarId',
-          'positivityGiveCounter',
-          'positivityRank',
-          'createdAt',
-          [
-            literal(`(SELECT COUNT(*) FROM follows WHERE follows."following_id" = "User".id)`),
-            'followersCount'
-          ],
-          [
-            literal(`(SELECT COUNT(*) FROM posts WHERE posts."user_id" = "User".id)`),
-            'postsCount'
-          ]
+        [
+          literal(`(SELECT COUNT(*) FROM posts WHERE posts."user_id" = "User".id)`),
+          'postsCount'
         ],
-        order: [[literal('"postsCount"'), 'DESC']],
-        limit: Math.ceil(limit / 3),
-      });
-
-      // Get recently joined users - exclude already fetched
-      const activeIds = activeUsers.map(u => u.id);
-      const recentUsers = await User.findAll({
-        where: {
-          id: { [Op.notIn]: [...excludedIds, ...popularIds, ...activeIds] },
-        },
-        attributes: [
-          'id',
-          'username',
-          'avatarUrl',
-          'activeAvatarId',
-          'positivityGiveCounter',
-          'positivityRank',
-          'createdAt',
-          [
-            literal(`(SELECT COUNT(*) FROM follows WHERE follows."following_id" = "User".id)`),
-            'followersCount'
-          ],
-          [
-            literal(`(SELECT COUNT(*) FROM posts WHERE posts."user_id" = "User".id)`),
-            'postsCount'
-          ]
+        [
+          literal(`(SELECT COUNT(*) FROM follows f1 INNER JOIN follows f2 ON f1."following_id" = f2."following_id" WHERE f1."follower_id" = '${currentUserId}' AND f2."follower_id" = "User".id AND f2."following_id" != '${currentUserId}')`),
+          'mutualCount'
         ],
-        order: [['createdAt', 'DESC']],
-        limit: Math.ceil(limit / 3),
-      });
+      ] as any[];
 
-      // Combine all recommendations
-      const allRecommendations = [...popularUsers, ...activeUsers, ...recentUsers];
+      // Only show users who are active (have at least 1 post OR coins > 0)
+      const activityFilter = literal(
+        `(SELECT COUNT(*) FROM posts WHERE posts."user_id" = "User".id) > 0 OR "User"."positivity_give_counter" > 0`
+      );
 
-      // Shuffle for diversity
-      const shuffled = allRecommendations.sort(() => Math.random() - 0.5);
-      const sliced = shuffled.slice(0, limit);
+      // 1. Friends of friends — users followed by people you follow (mutual connections, prioritized)
+      const mutualConnectionUsers = followedIds.length > 0 ? await User.findAll({
+        where: {
+          id: {
+            [Op.notIn]: excludedIds,
+            [Op.in]: literal(
+              `(SELECT DISTINCT f2."following_id" FROM follows f1 INNER JOIN follows f2 ON f1."following_id" = f2."follower_id" WHERE f1."follower_id" = '${currentUserId}' AND f2."following_id" NOT IN (${excludedIds.map(id => `'${id}'`).join(',')}))`
+            ),
+          },
+          [Op.and]: [activityFilter],
+        },
+        attributes: userAttributes,
+        order: [[literal('"mutualCount"'), 'DESC']],
+        limit,
+      }) : [];
+
+      // 2. Active users with posts and coins — fill remaining spots
+      const mutualIds = mutualConnectionUsers.map(u => u.id);
+      const remaining = limit - mutualConnectionUsers.length;
+      const activeUsers = remaining > 0 ? await User.findAll({
+        where: {
+          id: { [Op.notIn]: [...excludedIds, ...mutualIds] },
+          [Op.and]: [activityFilter],
+        },
+        attributes: userAttributes,
+        order: [[literal('"postsCount"'), 'DESC'], [literal('"followersCount"'), 'DESC']],
+        limit: remaining,
+      }) : [];
+
+      // Combine: mutual connections first, then active users
+      const allRecommendations = [...mutualConnectionUsers, ...activeUsers];
+      const sliced = allRecommendations.slice(0, limit);
 
       // Fetch active avatars for all recommended users
       const userIds = sliced.map(u => u.id);
@@ -180,6 +133,7 @@ export class UserRecommendationController {
         .filter(user => user.id !== currentUserId) // Extra safety check
         .map(user => {
           const userData = user.toJSON() as any;
+          const mutualCount = parseInt(userData.mutualCount) || 0;
           return {
             id: userData.id,
             username: userData.username,
@@ -190,6 +144,7 @@ export class UserRecommendationController {
             positivityRank: userData.positivityRank,
             followersCount: parseInt(userData.followersCount) || 0,
             postsCount: parseInt(userData.postsCount) || 0,
+            mutualCount,
             isFollowing: false,
             recommendationReason: getRecommendationReason(userData),
           };
@@ -222,18 +177,16 @@ export class UserRecommendationController {
  * Helper function to determine recommendation reason
  */
 function getRecommendationReason(user: any): string {
+  const mutualCount = parseInt(user.mutualCount) || 0;
   const followersCount = parseInt(user.followersCount) || 0;
   const postsCount = parseInt(user.postsCount) || 0;
-  const daysSinceJoined = Math.floor(
-    (Date.now() - new Date(user.createdAt).getTime()) / (1000 * 60 * 60 * 24)
-  );
 
-  if (followersCount >= 10) {
+  if (mutualCount > 0) {
+    return `${mutualCount} mutual`;
+  } else if (followersCount >= 10) {
     return 'Popular';
   } else if (postsCount >= 5) {
     return 'Active';
-  } else if (daysSinceJoined <= 7) {
-    return 'New';
   }
-  return 'Suggested';
+  return 'Active';
 }

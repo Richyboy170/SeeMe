@@ -85,16 +85,16 @@ export const TrustGauge: React.FC<TrustGaugeProps> = ({
 
       <Text style={[styles.statusText, { color: isLight ? colors.text.secondary : '#A5B4FC' }]}>
         {!isMutualFollow
-          ? 'Follow each other to unlock colors'
+          ? 'Become friends to unlock colors!'
           : trustScore >= 80
           ? 'Best friends forever!'
           : trustScore >= 60
-          ? 'Great consistency!'
+          ? 'You two are really close!'
           : trustScore >= 40
-          ? 'Building friendship'
+          ? 'Your friendship is growing!'
           : trustScore >= 20
-          ? 'Getting to know you'
-          : 'New connection'}
+          ? 'Getting to know each other'
+          : 'A new friendship begins!'}
       </Text>
     </View>
   );

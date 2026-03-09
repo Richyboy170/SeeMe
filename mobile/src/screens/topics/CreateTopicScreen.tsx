@@ -1,14 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity, ScrollView,
     TextInput, Alert, Share, ActivityIndicator, Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, getImageUrl } from '../../services/api';
 import { useTheme, Colors } from '../../theme';
 import { COMMUNITY_ICON_CATEGORIES } from '../../constants/communityIcons';
 import { useAccountContext } from '../../contexts/AccountContext';
+
+const COMMUNITY_DRAFT_KEY = '@seeme_community_draft';
 
 const CATEGORIES = [
     { id: 'creative', name: 'Creative', icon: '🎨' },
@@ -55,6 +58,89 @@ export default function CreateTopicScreen({ navigation }: any) {
     const [uploadingIcon, setUploadingIcon] = useState(false);
     const [createdTopic, setCreatedTopic] = useState<any>(null);
 
+    const [draftLoaded, setDraftLoaded] = useState(false);
+
+    // Check if the form has any content worth saving
+    const hasDraftContent = useCallback(() => {
+        return name.trim().length > 0 || description.trim().length > 0 || iconImageUrl != null;
+    }, [name, description, iconImageUrl]);
+
+    // Load draft on mount
+    useEffect(() => {
+        (async () => {
+            try {
+                const stored = await AsyncStorage.getItem(COMMUNITY_DRAFT_KEY);
+                if (stored) {
+                    const draft = JSON.parse(stored);
+                    if (draft.name) setName(draft.name);
+                    if (draft.description) setDescription(draft.description);
+                    if (draft.selectedIcon) setSelectedIcon(draft.selectedIcon);
+                    if (draft.iconImageUrl) setIconImageUrl(draft.iconImageUrl);
+                    if (draft.selectedCategory) setSelectedCategory(draft.selectedCategory);
+                    if (draft.iconMode) setIconMode(draft.iconMode);
+                    if (draft.topicType) setTopicType(draft.topicType);
+                    if (draft.selectedAdminIds) setSelectedAdminIds(draft.selectedAdminIds);
+                }
+            } catch (e) {
+                console.error('Error loading community draft:', e);
+            } finally {
+                setDraftLoaded(true);
+            }
+        })();
+    }, []);
+
+    // Intercept back navigation — prompt to save draft
+    useEffect(() => {
+        const unsubscribe = navigation.addListener('beforeRemove', (e: any) => {
+            // Allow leaving if community was created or form is empty
+            if (createdTopic || !hasDraftContent()) {
+                // Clear any existing draft since there's nothing to save
+                AsyncStorage.removeItem(COMMUNITY_DRAFT_KEY).catch(() => {});
+                return;
+            }
+
+            e.preventDefault();
+
+            Alert.alert(
+                'Save Draft?',
+                'You have unsaved changes. Would you like to save this community as a draft?',
+                [
+                    {
+                        text: 'Discard',
+                        style: 'destructive',
+                        onPress: () => {
+                            AsyncStorage.removeItem(COMMUNITY_DRAFT_KEY).catch(() => {});
+                            navigation.dispatch(e.data.action);
+                        },
+                    },
+                    {
+                        text: 'Save Draft',
+                        onPress: async () => {
+                            try {
+                                const draft = {
+                                    name, description, selectedIcon, iconImageUrl,
+                                    selectedCategory, iconMode, topicType, selectedAdminIds,
+                                };
+                                await AsyncStorage.setItem(COMMUNITY_DRAFT_KEY, JSON.stringify(draft));
+                            } catch (err) {
+                                console.error('Error saving community draft:', err);
+                            }
+                            navigation.dispatch(e.data.action);
+                        },
+                    },
+                ]
+            );
+        });
+        return unsubscribe;
+    }, [navigation, createdTopic, hasDraftContent, name, description, selectedIcon, iconImageUrl, selectedCategory, iconMode, topicType, selectedAdminIds]);
+
+    // Clear draft after successful creation
+    useEffect(() => {
+        if (createdTopic) {
+            AsyncStorage.removeItem(COMMUNITY_DRAFT_KEY).catch(() => {});
+        }
+    }, [createdTopic]);
+
     // Load friends when admin section is expanded
     useEffect(() => {
         if (showAdmins && friends.length === 0) {
@@ -85,7 +171,7 @@ export default function CreateTopicScreen({ navigation }: any) {
         }
 
         const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            mediaTypes: ['images'],
             allowsEditing: true,
             aspect: [1, 1],
             quality: 0.8,
@@ -95,11 +181,14 @@ export default function CreateTopicScreen({ navigation }: any) {
             setUploadingIcon(true);
             try {
                 const asset = result.assets[0];
+                const ext = asset.uri.split('.').pop()?.toLowerCase() || 'jpg';
+                const mimeMap: Record<string, string> = { png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif' };
+                const mimeType = mimeMap[ext] || 'image/jpeg';
                 const formData = new FormData();
                 formData.append('image', {
                     uri: asset.uri,
-                    type: 'image/jpeg',
-                    name: 'topic-icon.jpg',
+                    type: mimeType,
+                    name: `topic-icon.${ext === 'heif' || ext === 'heic' ? ext : (ext === 'png' ? 'png' : 'jpg')}`,
                 } as any);
 
                 const response = await api.uploadTopicIcon(formData);
@@ -185,6 +274,8 @@ export default function CreateTopicScreen({ navigation }: any) {
                 <Image
                     source={{ uri: resolvedUrl || imageUrl }}
                     style={{ width: size, height: size, borderRadius: size / 2 }}
+                    resizeMode="cover"
+                    onError={(e) => console.warn('Topic icon load error:', e.nativeEvent.error, resolvedUrl)}
                 />
             );
         }
@@ -276,6 +367,31 @@ export default function CreateTopicScreen({ navigation }: any) {
                  topicType === 'broadcast' ? 'A channel where only designated broadcasters post' :
                  'Start a new community around something you love'}
             </Text>
+
+            {/* Draft restored banner */}
+            {draftLoaded && hasDraftContent() && (
+                <View style={[styles.draftBanner, { backgroundColor: isDark ? '#2D3748' : '#EBF8FF' }]}>
+                    <Ionicons name="document-text-outline" size={16} color={Colors.brand.primary} />
+                    <Text style={[styles.draftBannerText, { color: colors.text.secondary }]}>
+                        Draft restored
+                    </Text>
+                    <TouchableOpacity
+                        onPress={() => {
+                            setName('');
+                            setDescription('');
+                            setSelectedIcon('star');
+                            setIconImageUrl(null);
+                            setSelectedCategory('creative');
+                            setIconMode('icons');
+                            setTopicType('community');
+                            setSelectedAdminIds([]);
+                            AsyncStorage.removeItem(COMMUNITY_DRAFT_KEY).catch(() => {});
+                        }}
+                    >
+                        <Text style={[styles.draftClearText, { color: Colors.common.error }]}>Clear</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
 
             {/* Type Selector */}
             <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -437,7 +553,8 @@ export default function CreateTopicScreen({ navigation }: any) {
                             <View style={styles.photoPreviewWrap}>
                                 <Image
                                     source={{ uri: getImageUrl(iconImageUrl) || iconImageUrl }}
-                                    style={styles.photoPreview}
+                                    style={[styles.photoPreview, { backgroundColor: colors.surfaceVariant }]}
+                                    resizeMode="cover"
                                 />
                                 <TouchableOpacity
                                     style={styles.photoRemoveBtn}
@@ -717,6 +834,24 @@ const styles = StyleSheet.create({
         fontSize: 16,
         marginBottom: 20,
     },
+    draftBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        borderRadius: 10,
+        marginBottom: 16,
+    },
+    draftBannerText: {
+        flex: 1,
+        fontSize: 13,
+        fontWeight: '500',
+    },
+    draftClearText: {
+        fontSize: 13,
+        fontWeight: '600',
+    },
 
     // Type selector
     typeCard: {
@@ -962,6 +1097,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         marginRight: 12,
+        overflow: 'hidden',
     },
     previewInfo: {
         flex: 1,

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,12 +7,38 @@ import {
   FlatList,
   RefreshControl,
   Image,
+  TextInput,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+  Animated,
+  Dimensions,
+  PanResponder,
 } from 'react-native';
 import { useNavigation, useFocusEffect, CommonActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../theme';
 import { api, getImageUrl } from '../../services/api';
 import { TrustConnectionItem } from '../../components/TrustConnectionItem';
+import FriendshipGuide, { SpotlightRect } from '../../components/friendship/FriendshipGuide';
+import PeopleTab from '../discover/PeopleTab';
+import SpinningWheelTab from '../discover/SpinningWheelTab';
+import GoalsTab from '../fillup/GoalsTab';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
+const VELOCITY_THRESHOLD = 0.5;
+const TAB_COUNT = 3;
+const SEGMENT_H_PADDING = 16;
+const SEGMENT_INNER_PADDING = 3;
+const SEGMENT_TAB_WIDTH = (SCREEN_WIDTH - SEGMENT_H_PADDING * 2 - SEGMENT_INNER_PADDING * 2) / TAB_COUNT;
+
+type FillupTab = 'meetup' | 'activities' | 'goals';
+
+// Persists across navigations so the tab doesn't reset when returning
+let lastActiveTab: FillupTab = 'meetup';
+
+const GUIDE_SEEN_KEY = 'friendship_guide_seen';
 
 interface TrustConnection {
   id: string;
@@ -30,13 +56,187 @@ interface TrustConnection {
 }
 
 export default function FriendshipHomeScreen() {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const navigation = useNavigation<any>();
+  const [activeTab, setActiveTabState] = useState<FillupTab>(lastActiveTab);
+  const setActiveTab = useCallback((tab: FillupTab) => {
+    lastActiveTab = tab;
+    setActiveTabState(tab);
+  }, []);
   const [history, setHistory] = useState<any[]>([]);
   const [trustConnections, setTrustConnections] = useState<TrustConnection[]>([]);
   const [showAllBonds, setShowAllBonds] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // People search
+  const [peopleSearchQuery, setPeopleSearchQuery] = useState('');
+
+  // Swipe animation
+  const initialIndex = lastActiveTab === 'meetup' ? 0 : lastActiveTab === 'activities' ? 1 : 2;
+  const slideAnim = useRef(new Animated.Value(initialIndex)).current;
+  const currentIndexRef = useRef(initialIndex);
+  const activeTabRef = useRef<FillupTab>(activeTab);
+
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  useEffect(() => {
+    const targetIndex = activeTab === 'meetup' ? 0 : activeTab === 'activities' ? 1 : 2;
+    if (currentIndexRef.current !== targetIndex) {
+      currentIndexRef.current = targetIndex;
+      Animated.spring(slideAnim, {
+        toValue: targetIndex,
+        useNativeDriver: true,
+        tension: 100,
+        friction: 15,
+      }).start();
+    }
+  }, [activeTab]);
+
+  const tabPanResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, { dx, dy }) =>
+        Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10,
+      onPanResponderMove: (_, { dx }) => {
+        const normalized = currentIndexRef.current - dx / SCREEN_WIDTH;
+        slideAnim.setValue(Math.max(0, Math.min(TAB_COUNT - 1, normalized)));
+      },
+      onPanResponderRelease: (_, { dx, vx }) => {
+        let targetIndex = currentIndexRef.current;
+
+        if (Math.abs(vx) > VELOCITY_THRESHOLD) {
+          targetIndex = vx < 0
+            ? Math.min(TAB_COUNT - 1, currentIndexRef.current + 1)
+            : Math.max(0, currentIndexRef.current - 1);
+        } else if (Math.abs(dx) > SWIPE_THRESHOLD) {
+          targetIndex = dx < 0
+            ? Math.min(TAB_COUNT - 1, currentIndexRef.current + 1)
+            : Math.max(0, currentIndexRef.current - 1);
+        }
+
+        targetIndex = Math.max(0, Math.min(TAB_COUNT - 1, targetIndex));
+        currentIndexRef.current = targetIndex;
+
+        Animated.spring(slideAnim, {
+          toValue: targetIndex,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 15,
+        }).start();
+
+        const tabs: FillupTab[] = ['meetup', 'activities', 'goals'];
+        const newTab = tabs[targetIndex];
+        if (newTab !== activeTabRef.current) {
+          setActiveTab(newTab);
+        }
+      },
+    })
+  ).current;
+
+  const contentTranslateX = slideAnim.interpolate({
+    inputRange: [0, 1, 2],
+    outputRange: [0, -SCREEN_WIDTH, -SCREEN_WIDTH * 2],
+  });
+
+  const segmentIndicatorX = slideAnim.interpolate({
+    inputRange: [0, 1, 2],
+    outputRange: [0, SEGMENT_TAB_WIDTH, SEGMENT_TAB_WIDTH * 2],
+  });
+
+  // Guide state
+  const [guideVisible, setGuideVisible] = useState(false);
+  const [spotlights, setSpotlights] = useState<Record<string, SpotlightRect>>({});
+  const scrollOffsetRef = useRef(0);
+  const flatListRef = useRef<FlatList>(null);
+  const containerRef = useRef<View>(null);
+  const containerInfoRef = useRef({ top: 0, height: 0 });
+
+  // Target refs
+  const heroRef = useRef<View>(null);
+  const startBtnRef = useRef<View>(null);
+  const joinBtnRef = useRef<View>(null);
+  const bondsRef = useRef<View>(null);
+  const recentRef = useRef<View>(null);
+
+  // Measure all targets and open guide
+  const measureAndShowGuide = useCallback(() => {
+    const refs: Record<string, React.RefObject<View | null>> = {
+      hero: heroRef,
+      startButton: startBtnRef,
+      joinButton: joinBtnRef,
+      bonds: bondsRef,
+      recentMeetups: recentRef,
+    };
+
+    const measured: Record<string, SpotlightRect> = {};
+    let pending = Object.keys(refs).length;
+
+    const onAllMeasured = () => {
+      if (Object.keys(measured).length > 0) {
+        setSpotlights(measured);
+        setGuideVisible(true);
+      }
+    };
+
+    for (const [key, ref] of Object.entries(refs)) {
+      if (!ref.current) {
+        pending--;
+        if (pending === 0) onAllMeasured();
+        continue;
+      }
+      ref.current.measureInWindow((x, y, width, height) => {
+        if (width > 0 && height > 0) {
+          measured[key] = { x, y, width, height, borderRadius: key === 'hero' ? 12 : 14 };
+        }
+        pending--;
+        if (pending === 0) onAllMeasured();
+      });
+    }
+  }, []);
+
+  // Check first visit
+  useEffect(() => {
+    AsyncStorage.getItem(GUIDE_SEEN_KEY).then((val) => {
+      if (!val) {
+        // Delay to let layout settle
+        setTimeout(() => measureAndShowGuide(), 1000);
+      }
+    });
+  }, []);
+
+  // Header help button
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity
+          onPress={() => {
+            // Scroll to top first so all targets are measurable
+            flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+            setTimeout(() => measureAndShowGuide(), 300);
+          }}
+          style={styles.helpBtn}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="help-circle-outline" size={24} color={colors.text.primary} />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, colors, measureAndShowGuide]);
+
+  const handleGuideDismiss = () => {
+    setGuideVisible(false);
+    AsyncStorage.setItem(GUIDE_SEEN_KEY, '1');
+  };
+
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+  };
+
+  const scrollToY = (y: number) => {
+    flatListRef.current?.scrollToOffset({ offset: Math.max(0, y), animated: true });
+  };
 
   const loadData = async () => {
     try {
@@ -152,10 +352,10 @@ export default function FriendshipHomeScreen() {
 
   const displayedConnections = showAllBonds ? trustConnections : trustConnections.slice(0, 3);
 
-  const ListHeader = () => (
+  const listHeader = (
     <>
       {/* Hero Section */}
-      <View style={styles.hero}>
+      <View ref={heroRef} collapsable={false} style={styles.hero}>
         <Text style={styles.heroEmoji}>{'\uD83E\uDD1D'}</Text>
         <Text style={[styles.heroTitle, { color: colors.text.primary }]}>Friendship Meetup</Text>
         <Text style={[styles.heroSubtitle, { color: colors.text.secondary }]}>
@@ -165,30 +365,34 @@ export default function FriendshipHomeScreen() {
 
       {/* Action Buttons */}
       <View style={styles.actions}>
-        <TouchableOpacity
-          style={[styles.primaryBtn, { backgroundColor: colors.text.link }]}
-          onPress={() => navigation.navigate('CreateSession')}
-        >
-          <Ionicons name="add-circle-outline" size={24} color="#FFF" />
-          <Text style={styles.primaryBtnText}>Start Meetup</Text>
-        </TouchableOpacity>
+        <View ref={startBtnRef} collapsable={false} style={styles.actionBtnWrap}>
+          <TouchableOpacity
+            style={[styles.primaryBtn, { backgroundColor: colors.text.link }]}
+            onPress={() => navigation.navigate('CreateSession')}
+          >
+            <Ionicons name="add-circle-outline" size={24} color="#FFF" />
+            <Text style={styles.primaryBtnText}>Start Meetup</Text>
+          </TouchableOpacity>
+        </View>
 
-        <TouchableOpacity
-          style={[styles.secondaryBtn, { backgroundColor: colors.surface, borderColor: colors.text.link }]}
-          onPress={() => navigation.navigate('JoinSession')}
-        >
-          <Ionicons name="scan-outline" size={24} color={colors.text.link} />
-          <Text style={[styles.secondaryBtnText, { color: colors.text.link }]}>Join Meetup</Text>
-        </TouchableOpacity>
+        <View ref={joinBtnRef} collapsable={false} style={styles.actionBtnWrap}>
+          <TouchableOpacity
+            style={[styles.secondaryBtn, { backgroundColor: colors.surface, borderColor: colors.text.link }]}
+            onPress={() => navigation.navigate('JoinSession')}
+          >
+            <Ionicons name="scan-outline" size={24} color={colors.text.link} />
+            <Text style={[styles.secondaryBtnText, { color: colors.text.link }]}>Join Meetup</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Bonds Section */}
+      {/* Your Friends Section (bonds) */}
       {trustConnections.length > 0 && (
-        <View style={styles.bondsSection}>
+        <View ref={bondsRef} collapsable={false} style={styles.bondsSection}>
           <View style={styles.bondsTitleRow}>
             <View style={styles.bondsAccent} />
             <Ionicons name="people" size={15} color="#8B5CF6" />
-            <Text style={[styles.bondsTitleText, { color: colors.text.primary }]}>Friendship Bonds</Text>
+            <Text style={[styles.bondsTitleText, { color: colors.text.primary }]}>Your Friends</Text>
             {trustConnections.length > 3 && (
               <TouchableOpacity
                 style={[styles.seeAllBtn, { backgroundColor: colors.surfaceVariant }]}
@@ -213,32 +417,157 @@ export default function FriendshipHomeScreen() {
       )}
 
       {/* Recent Meetups Header */}
-      <View style={styles.historyHeader}>
+      <View ref={recentRef} collapsable={false} style={styles.historyHeader}>
         <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Recent Meetups</Text>
       </View>
     </>
   );
 
-  return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <FlatList
-        data={history}
-        renderItem={renderHistoryItem}
-        keyExtractor={(item) => item.id}
-        ListHeaderComponent={ListHeader}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Ionicons name="people-outline" size={48} color={colors.text.tertiary} />
-            <Text style={[styles.emptyText, { color: colors.text.tertiary }]}>
-              {loading ? 'Loading...' : 'No meetups yet. Start one with a friend!'}
-            </Text>
-          </View>
-        }
-        contentContainerStyle={history.length === 0 ? styles.emptyContainer : styles.listContent}
+  const listFooter = (
+    <View style={styles.peopleSection}>
+      {/* Divider */}
+      <View style={[styles.peopleDivider, { backgroundColor: colors.border }]} />
+
+      {/* Find Friends Section Header */}
+      <View style={styles.peopleSectionHeader}>
+        <View style={styles.peopleTitleRow}>
+          <Ionicons name="search" size={20} color="#833AB4" />
+          <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Find Friends</Text>
+        </View>
+      </View>
+
+      {/* People Search Bar */}
+      <View style={styles.peopleSearchWrap}>
+        <View style={[styles.peopleSearchBar, { backgroundColor: colors.inputBackground }]}>
+          <Ionicons name="search" size={18} color={colors.text.secondary} />
+          <TextInput
+            style={[styles.peopleSearchInput, { color: colors.text.primary }]}
+            placeholder="Search up friends..."
+            placeholderTextColor={colors.text.secondary}
+            value={peopleSearchQuery}
+            onChangeText={setPeopleSearchQuery}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {peopleSearchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setPeopleSearchQuery('')}>
+              <Ionicons name="close-circle" size={18} color={colors.text.secondary} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* PeopleTab content (embedded mode) */}
+      <PeopleTab
+        searchQuery={peopleSearchQuery}
+        navigation={navigation}
+        embedded
       />
+    </View>
+  );
+
+  return (
+    <View ref={containerRef} style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Segmented Tab Bar */}
+      <View style={[styles.segmentedControlContainer, { backgroundColor: colors.surface }]}>
+        <View style={[styles.segmentedControl, { backgroundColor: colors.surfaceVariant }]}>
+          <Animated.View
+            style={[
+              styles.segmentedIndicator,
+              {
+                backgroundColor: colors.background,
+                width: SEGMENT_TAB_WIDTH,
+                transform: [{ translateX: segmentIndicatorX }],
+              },
+            ]}
+          />
+          <TouchableOpacity
+            style={styles.segmentedTab}
+            onPress={() => setActiveTab('meetup')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="people" size={14} color={activeTab === 'meetup' ? '#8B5CF6' : colors.text.secondary} />
+            <Text style={[
+              styles.segmentedTabText,
+              { color: activeTab === 'meetup' ? '#8B5CF6' : colors.text.secondary },
+              activeTab === 'meetup' && styles.segmentedTabTextActive,
+            ]}>Meetup</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.segmentedTab}
+            onPress={() => setActiveTab('activities')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="color-wand" size={14} color={activeTab === 'activities' ? '#EC4899' : colors.text.secondary} />
+            <Text style={[
+              styles.segmentedTabText,
+              { color: activeTab === 'activities' ? '#EC4899' : colors.text.secondary },
+              activeTab === 'activities' && styles.segmentedTabTextActive,
+            ]}>Activities</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.segmentedTab}
+            onPress={() => setActiveTab('goals')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="flag" size={14} color={activeTab === 'goals' ? '#10B981' : colors.text.secondary} />
+            <Text style={[
+              styles.segmentedTabText,
+              { color: activeTab === 'goals' ? '#10B981' : colors.text.secondary },
+              activeTab === 'goals' && styles.segmentedTabTextActive,
+            ]}>Goals</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Swipeable Tab Content */}
+      <View style={styles.tabContentContainer}>
+        <Animated.View
+          style={[styles.tabSlidingContainer, { transform: [{ translateX: contentTranslateX }] }]}
+          {...tabPanResponder.panHandlers}
+        >
+          <View style={styles.tabPage}>
+            <FlatList
+              ref={flatListRef}
+              data={history}
+              renderItem={renderHistoryItem}
+              keyExtractor={(item) => item.id}
+              ListHeaderComponent={listHeader}
+              ListFooterComponent={listFooter}
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
+              refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+              }
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <Ionicons name="people-outline" size={48} color={colors.text.tertiary} />
+                  <Text style={[styles.emptyText, { color: colors.text.tertiary }]}>
+                    {loading ? 'Loading...' : 'No meetups yet. Start one with a friend!'}
+                  </Text>
+                </View>
+              }
+              contentContainerStyle={history.length === 0 ? styles.emptyContainer : styles.listContent}
+            />
+            <FriendshipGuide
+              visible={guideVisible}
+              onClose={handleGuideDismiss}
+              spotlights={spotlights}
+              isDark={isDark}
+              scrollToY={scrollToY}
+              scrollOffset={scrollOffsetRef.current}
+              containerTop={containerInfoRef.current.top}
+              containerHeight={containerInfoRef.current.height}
+            />
+          </View>
+          <View style={styles.tabPage}>
+            <SpinningWheelTab navigation={navigation} />
+          </View>
+          <View style={styles.tabPage}>
+            <GoalsTab navigation={navigation} />
+          </View>
+        </Animated.View>
+      </View>
     </View>
   );
 }
@@ -246,6 +575,57 @@ export default function FriendshipHomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  segmentedControlContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  segmentedControl: {
+    flexDirection: 'row',
+    borderRadius: 20,
+    padding: 3,
+    position: 'relative',
+  },
+  segmentedIndicator: {
+    position: 'absolute',
+    top: 3,
+    bottom: 3,
+    left: 3,
+    borderRadius: 17,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  segmentedTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 7,
+    borderRadius: 17,
+    gap: 5,
+  },
+  segmentedTabText: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  segmentedTabTextActive: {
+    fontWeight: '700',
+  },
+  tabContentContainer: {
+    flex: 1,
+    overflow: 'hidden',
+  },
+  tabSlidingContainer: {
+    flexDirection: 'row',
+    width: SCREEN_WIDTH * TAB_COUNT,
+    height: '100%',
+  },
+  tabPage: {
+    width: SCREEN_WIDTH,
   },
   listContent: {
     paddingHorizontal: 16,
@@ -275,8 +655,10 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 24,
   },
-  primaryBtn: {
+  actionBtnWrap: {
     flex: 1,
+  },
+  primaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -290,7 +672,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   secondaryBtn: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -402,5 +783,42 @@ const styles = StyleSheet.create({
   emptyContainer: {
     flex: 1,
     paddingHorizontal: 16,
+  },
+  helpBtn: {
+    marginRight: 8,
+  },
+
+  // People section
+  peopleSection: {
+    marginTop: 8,
+    paddingBottom: 24,
+  },
+  peopleDivider: {
+    height: 1,
+    marginVertical: 16,
+  },
+  peopleSectionHeader: {
+    marginBottom: 10,
+  },
+  peopleTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  peopleSearchWrap: {
+    marginBottom: 8,
+  },
+  peopleSearchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 38,
+    gap: 8,
+  },
+  peopleSearchInput: {
+    flex: 1,
+    fontSize: 15,
+    paddingVertical: 0,
   },
 });

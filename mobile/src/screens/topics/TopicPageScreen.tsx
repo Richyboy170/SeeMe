@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import {
     View, Text, StyleSheet, FlatList, TouchableOpacity,
     Image, ScrollView, RefreshControl, Share, ActivityIndicator,
-    Dimensions
+    Dimensions, TextInput, Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -93,6 +93,15 @@ export default function TopicPageScreen({ route, navigation }: any) {
     const [showEditModal, setShowEditModal] = useState(false);
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
+    // Activities state
+    const [activities, setActivities] = useState<any[]>([]);
+    const [loadingActivities, setLoadingActivities] = useState(false);
+    const [editingActivity, setEditingActivity] = useState<any>(null);
+    const [showAddActivity, setShowAddActivity] = useState(false);
+    const [activityForm, setActivityForm] = useState({ title: '', description: '', researchBasis: '' });
+    const [savingActivity, setSavingActivity] = useState(false);
+    const [generatingActivities, setGeneratingActivities] = useState(false);
+
     // Check if current user is admin
     const isAdmin = topic?.isAdmin || (currentUserId && (topic?.creatorId === currentUserId || topic?.creator?.id === currentUserId));
 
@@ -121,6 +130,9 @@ export default function TopicPageScreen({ route, navigation }: any) {
     useEffect(() => {
         if (topic && activeTab === 'encouragers') {
             loadLeaderboard();
+        }
+        if (topic && activeTab === 'about') {
+            loadActivities();
         }
     }, [activeTab, leaderboardView, topic]);
 
@@ -212,6 +224,80 @@ export default function TopicPageScreen({ route, navigation }: any) {
         setTopic(prev => prev ? { ...prev, ...updates } : null);
     };
 
+    // Activity management functions
+    const loadActivities = async () => {
+        if (!topic) return;
+        setLoadingActivities(true);
+        try {
+            const res = await api.getCommunityActivities(topic.id);
+            setActivities(res.activities || []);
+        } catch (error) {
+            console.error('Error loading activities:', error);
+        } finally {
+            setLoadingActivities(false);
+        }
+    };
+
+    const handleSaveActivity = async () => {
+        if (!topic || !activityForm.title.trim()) return;
+        setSavingActivity(true);
+        try {
+            if (editingActivity) {
+                await api.updateCommunityActivity(editingActivity.id, {
+                    title: activityForm.title,
+                    description: activityForm.description || undefined,
+                    researchBasis: activityForm.researchBasis || undefined,
+                });
+            } else {
+                await api.createCommunityActivity(topic.id, {
+                    title: activityForm.title,
+                    description: activityForm.description || undefined,
+                    researchBasis: activityForm.researchBasis || undefined,
+                });
+            }
+            setShowAddActivity(false);
+            setEditingActivity(null);
+            setActivityForm({ title: '', description: '', researchBasis: '' });
+            await loadActivities();
+        } catch (error) {
+            console.error('Error saving activity:', error);
+        } finally {
+            setSavingActivity(false);
+        }
+    };
+
+    const handleDeleteActivity = async (activityId: string) => {
+        try {
+            await api.deleteCommunityActivity(activityId);
+            setActivities(prev => prev.filter(a => a.id !== activityId));
+        } catch (error) {
+            console.error('Error deleting activity:', error);
+        }
+    };
+
+    const handleGenerateActivities = async () => {
+        if (!topic) return;
+        setGeneratingActivities(true);
+        try {
+            await api.generateCommunityActivities(topic.id);
+            await loadActivities();
+        } catch (error) {
+            console.error('Error generating activities:', error);
+        } finally {
+            setGeneratingActivities(false);
+        }
+    };
+
+    const startEditActivity = (activity: any) => {
+        setEditingActivity(activity);
+        setActivityForm({
+            title: activity.title,
+            description: activity.description || '',
+            researchBasis: activity.researchBasis || '',
+        });
+        setShowAddActivity(true);
+    };
+
     const renderHeader = () => (
         <View>
             {/* Cover Image */}
@@ -228,17 +314,6 @@ export default function TopicPageScreen({ route, navigation }: any) {
                     </View>
                 )}
                 <View style={styles.coverOverlay} />
-
-                {/* Admin Edit Button on Cover */}
-                {isAdmin && (
-                    <TouchableOpacity
-                        style={[styles.editCoverButton, { top: Math.max(insets.top + 4, 12) }]}
-                        onPress={() => setShowEditModal(true)}
-                    >
-                        <Ionicons name="pencil" size={18} color="#FFFFFF" />
-                        <Text style={styles.editCoverText}>Edit</Text>
-                    </TouchableOpacity>
-                )}
             </View>
 
             {/* Info Card */}
@@ -327,7 +402,7 @@ export default function TopicPageScreen({ route, navigation }: any) {
                 {topic?.creator && (
                     <TouchableOpacity
                         style={styles.creatorRow}
-                        onPress={() => navigation.navigate('Profile', { userId: topic.creator!.id })}
+                        onPress={() => navigation.navigate('UserProfile', { userId: topic.creator!.id, username: topic.creator!.username })}
                     >
                         <Image
                             source={{ uri: topic.creator.avatarUrl || 'https://via.placeholder.com/24' }}
@@ -339,6 +414,25 @@ export default function TopicPageScreen({ route, navigation }: any) {
                     </TouchableOpacity>
                 )}
             </View>
+
+            {/* Back button - rendered after infoCard so it's above the overlay */}
+            <TouchableOpacity
+                style={[styles.backButton, { top: Math.max(insets.top + 4, 12) }]}
+                onPress={() => navigation.goBack()}
+            >
+                <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+
+            {/* Admin Edit Button - rendered after infoCard so it's on top */}
+            {isAdmin && (
+                <TouchableOpacity
+                    style={[styles.editCoverButton, { top: Math.max(insets.top + 4, 12) }]}
+                    onPress={() => setShowEditModal(true)}
+                >
+                    <Ionicons name="pencil" size={18} color="#FFFFFF" />
+                    <Text style={styles.editCoverText}>Edit</Text>
+                </TouchableOpacity>
+            )}
 
             {/* Tabs */}
             <View style={[styles.tabsContainer, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
@@ -426,7 +520,7 @@ export default function TopicPageScreen({ route, navigation }: any) {
                         <TouchableOpacity
                             key={entry.user.id}
                             style={[styles.encouragerItem, { backgroundColor: colors.card }]}
-                            onPress={() => navigation.navigate('Profile', { userId: entry.user.id })}
+                            onPress={() => navigation.navigate('UserProfile', { userId: entry.user.id, username: entry.user.username })}
                         >
                             <View style={styles.rankContainer}>
                                 {index === 0 && <Text style={styles.medal}>🥇</Text>}
@@ -517,6 +611,172 @@ export default function TopicPageScreen({ route, navigation }: any) {
                         <Text style={styles.copyButtonText}>Share</Text>
                     </TouchableOpacity>
                 </View>
+            </View>
+
+            {/* Activities Section */}
+            <View style={[styles.aboutSection, { backgroundColor: colors.card }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={[styles.aboutSectionTitle, { color: colors.text.primary }]}>
+                        Wheel Activities
+                    </Text>
+                    {isAdmin && (
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                            <TouchableOpacity
+                                style={styles.activityHeaderBtn}
+                                onPress={() => {
+                                    setEditingActivity(null);
+                                    setActivityForm({ title: '', description: '', researchBasis: '' });
+                                    setShowAddActivity(true);
+                                }}
+                            >
+                                <Ionicons name="add-circle" size={22} color="#7C3AED" />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.activityHeaderBtn}
+                                onPress={() => {
+                                    Alert.alert(
+                                        'Generate Activities',
+                                        'Use AI to generate research-backed activities for this community?',
+                                        [
+                                            { text: 'Cancel', style: 'cancel' },
+                                            { text: 'Generate', onPress: handleGenerateActivities },
+                                        ]
+                                    );
+                                }}
+                                disabled={generatingActivities}
+                            >
+                                {generatingActivities ? (
+                                    <ActivityIndicator size="small" color="#7C3AED" />
+                                ) : (
+                                    <Ionicons name="sparkles" size={20} color="#7C3AED" />
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    )}
+                </View>
+                <Text style={[styles.activitySubtext, { color: colors.text.secondary }]}>
+                    These activities appear on the spinning wheel for members.
+                </Text>
+
+                {/* Add/Edit Activity Form */}
+                {showAddActivity && isAdmin && (
+                    <View style={[styles.activityFormCard, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
+                        <Text style={[styles.activityFormTitle, { color: colors.text.primary }]}>
+                            {editingActivity ? 'Edit Activity' : 'New Activity'}
+                        </Text>
+                        <TextInput
+                            style={[styles.activityInput, { color: colors.text.primary, borderColor: colors.border, backgroundColor: colors.card }]}
+                            placeholder="Activity title (max 40 chars)"
+                            placeholderTextColor={colors.text.tertiary}
+                            value={activityForm.title}
+                            onChangeText={t => setActivityForm(f => ({ ...f, title: t }))}
+                            maxLength={40}
+                        />
+                        <TextInput
+                            style={[styles.activityInput, styles.activityInputMulti, { color: colors.text.primary, borderColor: colors.border, backgroundColor: colors.card }]}
+                            placeholder="Short description (what to do)"
+                            placeholderTextColor={colors.text.tertiary}
+                            value={activityForm.description}
+                            onChangeText={t => setActivityForm(f => ({ ...f, description: t }))}
+                            multiline
+                        />
+                        <TextInput
+                            style={[styles.activityInput, styles.activityInputMulti, { color: colors.text.primary, borderColor: colors.border, backgroundColor: colors.card }]}
+                            placeholder="Why it helps (research basis)"
+                            placeholderTextColor={colors.text.tertiary}
+                            value={activityForm.researchBasis}
+                            onChangeText={t => setActivityForm(f => ({ ...f, researchBasis: t }))}
+                            multiline
+                        />
+                        <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+                            <TouchableOpacity
+                                style={[styles.activityFormBtn, { backgroundColor: '#E5E7EB' }]}
+                                onPress={() => {
+                                    setShowAddActivity(false);
+                                    setEditingActivity(null);
+                                    setActivityForm({ title: '', description: '', researchBasis: '' });
+                                }}
+                            >
+                                <Text style={{ color: '#374151', fontWeight: '600' }}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.activityFormBtn, { backgroundColor: '#7C3AED', opacity: activityForm.title.trim() ? 1 : 0.5 }]}
+                                onPress={handleSaveActivity}
+                                disabled={!activityForm.title.trim() || savingActivity}
+                            >
+                                {savingActivity ? (
+                                    <ActivityIndicator size="small" color="#FFF" />
+                                ) : (
+                                    <Text style={{ color: '#FFF', fontWeight: '600' }}>
+                                        {editingActivity ? 'Save' : 'Add'}
+                                    </Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                )}
+
+                {/* Activity List */}
+                {loadingActivities ? (
+                    <ActivityIndicator size="small" color="#7C3AED" style={{ marginTop: 16 }} />
+                ) : activities.length === 0 ? (
+                    <View style={styles.activityEmpty}>
+                        <Ionicons name="dice-outline" size={32} color={colors.text.tertiary} />
+                        <Text style={[styles.activityEmptyText, { color: colors.text.secondary }]}>
+                            No activities yet.{isAdmin ? ' Add or generate some!' : ''}
+                        </Text>
+                    </View>
+                ) : (
+                    activities.map(activity => (
+                        <View key={activity.id} style={[styles.activityItem, { borderColor: colors.border }]}>
+                            <View style={{ flex: 1 }}>
+                                <Text style={[styles.activityItemTitle, { color: colors.text.primary }]}>
+                                    {activity.title}
+                                </Text>
+                                {activity.description && (
+                                    <Text style={[styles.activityItemDesc, { color: colors.text.secondary }]} numberOfLines={2}>
+                                        {activity.description}
+                                    </Text>
+                                )}
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                                    <View style={styles.activityBadge}>
+                                        <Text style={styles.activityBadgeText}>
+                                            {activity.completionCount || 0} done
+                                        </Text>
+                                    </View>
+                                    <Text style={{ fontSize: 11, color: colors.text.tertiary }}>
+                                        {activity.source === 'ai_generated' ? 'AI generated' : 'Admin'}
+                                    </Text>
+                                </View>
+                            </View>
+                            {isAdmin && (
+                                <View style={{ flexDirection: 'row', gap: 4 }}>
+                                    <TouchableOpacity
+                                        style={styles.activityActionBtn}
+                                        onPress={() => startEditActivity(activity)}
+                                    >
+                                        <Ionicons name="pencil" size={16} color="#7C3AED" />
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={styles.activityActionBtn}
+                                        onPress={() => {
+                                            Alert.alert(
+                                                'Remove Activity',
+                                                `Remove "${activity.title}" from the wheel?`,
+                                                [
+                                                    { text: 'Cancel', style: 'cancel' },
+                                                    { text: 'Remove', style: 'destructive', onPress: () => handleDeleteActivity(activity.id) },
+                                                ]
+                                            );
+                                        }}
+                                    >
+                                        <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+                        </View>
+                    ))
+                )}
             </View>
 
             {/* Admin Management Section */}
@@ -777,6 +1037,16 @@ const styles = StyleSheet.create({
         right: 0,
         bottom: 0,
         backgroundColor: 'rgba(0,0,0,0.2)'
+    },
+    backButton: {
+        position: 'absolute',
+        left: 12,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     editCoverButton: {
         position: 'absolute',
@@ -1318,5 +1588,81 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         fontSize: 11,
         fontWeight: '700',
+    },
+    // Activity management styles
+    activityHeaderBtn: {
+        padding: 4,
+    },
+    activitySubtext: {
+        fontSize: 12,
+        marginTop: 4,
+        marginBottom: 8,
+    },
+    activityFormCard: {
+        marginTop: 12,
+        padding: 14,
+        borderRadius: 12,
+        borderWidth: 1,
+    },
+    activityFormTitle: {
+        fontSize: 15,
+        fontWeight: '700',
+        marginBottom: 10,
+    },
+    activityInput: {
+        borderWidth: 1,
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        fontSize: 14,
+        marginBottom: 8,
+    },
+    activityInputMulti: {
+        minHeight: 60,
+        textAlignVertical: 'top',
+    },
+    activityFormBtn: {
+        flex: 1,
+        paddingVertical: 10,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    activityEmpty: {
+        alignItems: 'center',
+        paddingVertical: 24,
+        gap: 8,
+    },
+    activityEmptyText: {
+        fontSize: 13,
+        textAlign: 'center',
+    },
+    activityItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 12,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    activityItemTitle: {
+        fontSize: 14,
+        fontWeight: '600',
+    },
+    activityItemDesc: {
+        fontSize: 12,
+        marginTop: 2,
+    },
+    activityBadge: {
+        backgroundColor: '#F3E8FF',
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 8,
+    },
+    activityBadgeText: {
+        color: '#7C3AED',
+        fontSize: 11,
+        fontWeight: '600',
+    },
+    activityActionBtn: {
+        padding: 8,
     },
 });

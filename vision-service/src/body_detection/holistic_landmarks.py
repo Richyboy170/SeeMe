@@ -166,25 +166,72 @@ class HolisticLandmarksExtractor:
         return output
 
     def extract_all(self, image: np.ndarray) -> List[Dict[str, Any]]:
-        """Extract landmarks for ALL detected people."""
+        """Extract landmarks for ALL detected people.
+        Uses pose detection as primary, with face detection as fallback
+        for selfie scenarios where full body isn't visible.
+        """
         if self._is_closed:
             raise RuntimeError("Extractor has been closed")
 
         mp_image = self._prepare_image(image)
         pose_results = self.pose_landmarker.detect(mp_image)
 
-        if not pose_results.pose_landmarks:
-            return []
-
         people = []
-        for i, landmarks in enumerate(pose_results.pose_landmarks):
-            person = {
-                "pose_landmarks": self._convert_landmarks(landmarks),
-                "pose_world_landmarks": None,
-            }
-            if pose_results.pose_world_landmarks and i < len(pose_results.pose_world_landmarks):
-                person["pose_world_landmarks"] = self._convert_landmarks(pose_results.pose_world_landmarks[i])
-            people.append(person)
+        if pose_results.pose_landmarks:
+            for i, landmarks in enumerate(pose_results.pose_landmarks):
+                person = {
+                    "pose_landmarks": self._convert_landmarks(landmarks),
+                    "pose_world_landmarks": None,
+                }
+                if pose_results.pose_world_landmarks and i < len(pose_results.pose_world_landmarks):
+                    person["pose_world_landmarks"] = self._convert_landmarks(pose_results.pose_world_landmarks[i])
+                people.append(person)
+
+        # Fallback: if pose detected fewer than 2 people, use face detection
+        # to supplement the count. Selfies often show faces clearly but not
+        # enough body for pose landmarker to pick up both people.
+        if len(people) < 2:
+            face_results = self.face_landmarker.detect(mp_image)
+            face_count = len(face_results.face_landmarks) if face_results.face_landmarks else 0
+
+            if face_count > len(people):
+                # Build minimal pose landmarks from face positions so the
+                # validator has something to work with
+                existing_face_xs = set()
+                for p in people:
+                    nose = p["pose_landmarks"][0] if p["pose_landmarks"] else None
+                    if nose:
+                        existing_face_xs.add(round(nose["x"], 1))
+
+                for face_landmarks in face_results.face_landmarks:
+                    if len(people) >= face_count:
+                        break
+                    # Use face center (nose tip = index 1) to check for duplicates
+                    face_center_x = round(float(face_landmarks[1].x), 1)
+                    if face_center_x in existing_face_xs:
+                        continue
+                    existing_face_xs.add(face_center_x)
+
+                    # Create synthetic pose landmarks from face position
+                    face_lms = self._convert_landmarks(face_landmarks)
+                    # Build a minimal 33-point pose array with face-derived positions
+                    nose_lm = face_lms[1] if len(face_lms) > 1 else face_lms[0]
+                    synthetic_pose = []
+                    for idx in range(33):
+                        if idx == 0:  # nose
+                            synthetic_pose.append(nose_lm)
+                        else:
+                            # Fill with low-visibility placeholders
+                            synthetic_pose.append({
+                                "x": nose_lm["x"],
+                                "y": nose_lm["y"] + 0.1 * (idx / 33),
+                                "z": 0.0,
+                                "visibility": 0.1
+                            })
+                    people.append({
+                        "pose_landmarks": synthetic_pose,
+                        "pose_world_landmarks": None,
+                    })
 
         return people
 

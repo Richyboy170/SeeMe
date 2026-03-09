@@ -4,14 +4,13 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, TouchableOpacity, View, Text } from 'react-native';
+import { StyleSheet, TouchableOpacity, View, Text, StatusBar, Platform } from 'react-native';
 import { useTheme } from '../theme';
 
 // Account management
 import { AccountProvider, useAccountContext } from '../contexts/AccountContext';
 import { accountManager, StoredAccount } from '../services/accountManager';
 import AccountSwitcherModal from '../components/AccountSwitcherModal';
-import ProfileTabButton from '../components/ProfileTabButton';
 
 // Auth screens
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -100,11 +99,12 @@ export {
   MainTabParamList,
 } from './types';
 
+// Note: ProfileStackParamList kept for backwards compatibility but Profile is now inside CoinsStack
+
 const AuthStack = createStackNavigator<AuthStackParamList>();
 const CoinsStack = createStackNavigator<CoinsStackParamList>();
 const DiscoverStack = createStackNavigator<DiscoverStackParamList>();
 const FeedStack = createStackNavigator<FeedStackParamList>();
-const ProfileStack = createStackNavigator<ProfileStackParamList>();
 const CreatePostStack = createStackNavigator<CreatePostStackParamList>();
 const FriendshipStack = createStackNavigator<FriendshipMeetupStackParamList>();
 const MainTab = createBottomTabNavigator<MainTabParamList>();
@@ -168,6 +168,14 @@ function CoinsNavigator() {
           headerBackTitle: 'Back'
         })}
       />
+      <CoinsStack.Screen
+        name="UserProfile"
+        component={ProfileScreen}
+        options={({ route }) => ({
+          title: `@${route.params.username}`,
+          headerBackTitle: 'Back'
+        })}
+      />
     </CoinsStack.Navigator>
   );
 }
@@ -201,12 +209,9 @@ function DiscoverNavigator() {
       <DiscoverStack.Screen
         name="TopicPage"
         component={TopicPageScreen}
-        options={({ route }) => ({
-          title: '',
-          headerBackTitle: 'Back',
-          headerTransparent: true,
-          headerTintColor: '#FFFFFF'
-        })}
+        options={{
+          headerShown: false,
+        }}
       />
       <DiscoverStack.Screen
         name="CreateTopic"
@@ -245,6 +250,38 @@ function DiscoverNavigator() {
         component={BroadcasterManagementScreen}
         options={{
           title: 'Manage Broadcasters',
+          headerBackTitle: 'Back'
+        }}
+      />
+      <DiscoverStack.Screen
+        name="MyProfile"
+        component={ProfileScreen}
+        options={{
+          title: 'Profile',
+          headerBackTitle: 'Back'
+        }}
+      />
+      <DiscoverStack.Screen
+        name="AvatarCustomization"
+        component={AvatarCustomizationScreen}
+        options={{
+          headerShown: false,
+          presentation: 'modal'
+        }}
+      />
+      <DiscoverStack.Screen
+        name="FollowRequests"
+        component={FollowRequestsScreen}
+        options={{
+          title: 'Follow Requests',
+          headerBackTitle: 'Back'
+        }}
+      />
+      <DiscoverStack.Screen
+        name="ArchivedPosts"
+        component={ArchivedPostsScreen}
+        options={{
+          title: 'Archive',
           headerBackTitle: 'Back'
         }}
       />
@@ -299,8 +336,7 @@ function FeedNavigator() {
         name="TopicPage"
         component={TopicPageScreen}
         options={{
-          title: '',
-          headerBackTitle: 'Back',
+          headerShown: false,
         }}
       />
       <FeedStack.Screen
@@ -376,7 +412,7 @@ function FriendshipMeetupNavigator() {
         name="FriendshipHome"
         component={FriendshipHomeScreen}
         options={{
-          title: 'Friendship',
+          title: 'Fill-up',
           headerShown: true
         }}
       />
@@ -430,51 +466,6 @@ function FriendshipMeetupNavigator() {
   );
 }
 
-function ProfileNavigator() {
-  const { colors } = useTheme();
-  return (
-    <ProfileStack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.background },
-        headerTintColor: colors.text.primary,
-        headerTitleStyle: { color: colors.text.primary },
-      }}
-    >
-      <ProfileStack.Screen
-        name="ProfileHome"
-        component={ProfileScreen}
-        options={{
-          title: 'Profile',
-          headerShown: true
-        }}
-      />
-      <ProfileStack.Screen
-        name="AvatarCustomization"
-        component={AvatarCustomizationScreen}
-        options={{
-          headerShown: false,
-          presentation: 'modal'
-        }}
-      />
-      <ProfileStack.Screen
-        name="FollowRequests"
-        component={FollowRequestsScreen}
-        options={{
-          title: 'Follow Requests',
-          headerBackTitle: 'Back'
-        }}
-      />
-      <ProfileStack.Screen
-        name="ArchivedPosts"
-        component={ArchivedPostsScreen}
-        options={{
-          title: 'Archive',
-          headerBackTitle: 'Back'
-        }}
-      />
-    </ProfileStack.Navigator>
-  );
-}
 
 function MainNavigator() {
   const { colors } = useTheme();
@@ -490,12 +481,10 @@ function MainNavigator() {
             iconName = focused ? 'compass' : 'compass-outline';
           } else if (route.name === 'CreatePost') {
             iconName = focused ? 'add-circle' : 'add-circle-outline';
-          } else if (route.name === 'Friendship') {
-            iconName = focused ? 'people' : 'people-outline';
+          } else if (route.name === 'Fillup') {
+            iconName = focused ? 'bicycle' : 'bicycle-outline';
           } else if (route.name === 'Coins') {
             iconName = focused ? 'heart' : 'heart-outline';
-          } else if (route.name === 'Profile') {
-            iconName = focused ? 'person' : 'person-outline';
           }
 
           return <Ionicons name={iconName} size={size} color={color} />;
@@ -511,15 +500,9 @@ function MainNavigator() {
         options={{ headerShown: false }}
       />
       <MainTab.Screen
-        name="Discover"
-        component={DiscoverNavigator}
-        options={{ headerShown: false }}
-      />
-      <MainTab.Screen name="CreatePost" component={CreatePostNavigator} options={{ headerShown: false }} />
-      <MainTab.Screen
-        name="Friendship"
+        name="Fillup"
         component={FriendshipMeetupNavigator}
-        options={{ headerShown: false }}
+        options={{ headerShown: false, title: 'Fillup' }}
       />
       <MainTab.Screen
         name="Coins"
@@ -527,11 +510,18 @@ function MainNavigator() {
         options={{ headerShown: false, unmountOnBlur: true } as any}
       />
       <MainTab.Screen
-        name="Profile"
-        component={ProfileNavigator}
+        name="Discover"
+        component={DiscoverNavigator}
+        options={{ headerShown: false }}
+      />
+      {/* Hidden tab — navigated to via FAB on Feed screen */}
+      <MainTab.Screen
+        name="CreatePost"
+        component={CreatePostNavigator}
         options={{
           headerShown: false,
-          tabBarButton: (props) => <ProfileTabButton {...props} />,
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: 'none' },
         }}
       />
     </MainTab.Navigator>
@@ -606,7 +596,7 @@ function RootNavigatorContent() {
           await AsyncStorage.removeItem('navigate_to_profile');
           setTimeout(() => {
             if (navigationRef.current) {
-              navigationRef.current.navigate('Profile' as never);
+              navigationRef.current.navigate('Discover' as never);
             }
           }, 100);
         }
@@ -811,10 +801,10 @@ function RootNavigatorContent() {
         setIsAuthenticated(false);
         setTimeout(() => {
           setIsAuthenticated(true);
-          // Navigate to Profile tab so user knows which account they're on
+          // Navigate to Discover tab so user can access profile
           setTimeout(() => {
             if (navigationRef.current) {
-              navigationRef.current.navigate('Profile' as never);
+              navigationRef.current.navigate('Discover' as never);
             }
           }, 100);
         }, 50);
@@ -847,6 +837,17 @@ function RootNavigatorContent() {
     },
   }), [isDark, colors]);
 
+  // Set correct status bar style on theme change and on mount
+  useEffect(() => {
+    StatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content', true);
+  }, [isDark]);
+
+  // Re-assert correct status bar style on every navigation change.
+  // Some screens (camera, image viewer) set light-content which sticks on iOS.
+  const handleNavigationStateChange = useCallback(() => {
+    StatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content', true);
+  }, [isDark]);
+
   if (isLoading) {
     return null; // Or a loading screen
   }
@@ -859,7 +860,7 @@ function RootNavigatorContent() {
 
   return (
     <UnreadContext.Provider value={contextValue}>
-      <NavigationContainer ref={navigationRef} theme={navigationTheme}>
+      <NavigationContainer ref={navigationRef} theme={navigationTheme} onStateChange={handleNavigationStateChange}>
         {isAuthenticated ? <MainNavigator /> : <AuthNavigator />}
       </NavigationContainer>
 

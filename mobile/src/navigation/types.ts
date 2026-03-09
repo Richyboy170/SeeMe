@@ -31,6 +31,10 @@ export type CoinsStackParamList = {
     otherUsername: string;
     otherAvatarUrl?: string;
   };
+  UserProfile: {
+    userId: string;
+    username: string;
+  };
 };
 
 export type ChatStackParamList = {
@@ -54,7 +58,8 @@ export type SearchStackParamList = {
 };
 
 export type DiscoverStackParamList = {
-  DiscoverHome: { initialTab?: 'communities' | 'people' } | undefined;
+  DiscoverHome: undefined;
+  MyProfile: undefined;
   UserProfile: {
     userId: string;
     username: string;
@@ -77,6 +82,11 @@ export type DiscoverStackParamList = {
   BroadcasterManagement: {
     topicId: string;
   };
+  AvatarCustomization: {
+    avatarId?: string;
+  };
+  FollowRequests: undefined;
+  ArchivedPosts: undefined;
 };
 
 export type FeedStackParamList = {
@@ -117,7 +127,15 @@ export type ProfileStackParamList = {
 };
 
 export type CreatePostStackParamList = {
-  CreatePostHome: { resumeDraftId?: string } | undefined;
+  CreatePostHome: {
+    resumeDraftId?: string;
+    activityId?: string;
+    activityTitle?: string;
+    activityDescription?: string;
+    activityResearch?: string;
+    activityTopicId?: string;
+    activityTopicName?: string;
+  } | undefined;
   DraftsGallery: undefined;
   FullBodyAvatar: {
     imageUri?: string;
@@ -162,7 +180,6 @@ export type MainTabParamList = {
   Feed: undefined;
   Discover: undefined;
   CreatePost: undefined;
-  Friendship: undefined;
+  Fillup: undefined;
   Coins: undefined;
-  Profile: undefined;
 };

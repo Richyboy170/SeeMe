@@ -1,6 +1,8 @@
 import { Response } from 'express';
 import { Op } from 'sequelize';
 import { Post, PostStatus, PostVisibility } from '../models/Post';
+import { CommunityActivity } from '../models/CommunityActivity';
+import { Goal } from '../models/Goal';
 import { User } from '../models/User';
 import { Follow } from '../models/Follow';
 import { Like } from '../models/Like';
@@ -11,6 +13,7 @@ import { PostTopic } from '../models/PostTopic';
 import { AuthRequest } from '../middleware/auth';
 import { redisClient, redisAvailable } from '../config/redis';
 import { logger } from '../utils/logger';
+import { formatAvatarForResponse } from '../utils/formatAvatar';
 import { FeedAlgorithmService } from '../services/FeedAlgorithmService';
 import { InteractionType } from '../models/UserInteraction';
 import { DecorationService } from '../services/DecorationService';
@@ -102,26 +105,6 @@ async function batchFetchRecentComments(
   return map;
 }
 
-// Helper to format avatar data for API response
-function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
-  if (!avatar) return null;
-  return {
-    id: avatar.id,
-    style: avatar.style,
-    customizations: {
-      skinTone: avatar.skinTone,
-      eyeColor: avatar.eyeColor,
-      eyeSize: avatar.eyeSize,
-      hairColor: avatar.hairColor,
-      hairStyle: avatar.hairStyle,
-      accessories: {
-        glasses: avatar.glasses,
-        hat: avatar.hat,
-        earrings: avatar.earrings,
-      },
-    },
-  };
-}
 
 /**
  * Feed Controller
@@ -190,6 +173,18 @@ export class FeedController {
             as: 'topics',
             attributes: ['id', 'name', 'slug', 'iconEmoji', 'iconImageUrl', 'type'],
             through: { attributes: [] }
+          },
+          {
+            model: CommunityActivity,
+            as: 'activity',
+            attributes: ['id', 'title', 'description', 'researchBasis', 'topicId'],
+            required: false,
+          },
+          {
+            model: Goal,
+            as: 'goal',
+            attributes: ['id', 'title', 'isVisible', 'userId'],
+            required: false,
           }
         ],
         order: [['createdAt', 'DESC']],
@@ -206,7 +201,11 @@ export class FeedController {
           'commentsCount',
           'locationName',
           'photoTakenAt',
-          'createdAt'
+          'createdAt',
+          'postType',
+          'activityId',
+          'goalId',
+          'goalVisible'
         ]
       });
 
@@ -246,15 +245,32 @@ export class FeedController {
       // Filter posts
       const filteredPosts = posts.filter(p => !privatePostIds.has(p.id));
 
-      // Fetch active avatars for all post authors
+      // Fetch active avatars for all post authors using activeAvatarId (consistent with profile endpoints)
       const authorIds = [...new Set(filteredPosts.map(p => p.userId))];
-      const avatars = await AvatarConfigSQL.findAll({
-        where: {
-          userId: authorIds,
-          isActive: true,
-        },
-      });
+      const activeAvatarIds = filteredPosts
+        .map(p => {
+          const u = p.get('user') as any;
+          return u?.activeAvatarId || u?.dataValues?.activeAvatarId;
+        })
+        .filter(Boolean) as string[];
+      const uniqueAvatarIds = [...new Set(activeAvatarIds)];
+      const avatars = uniqueAvatarIds.length > 0
+        ? await AvatarConfigSQL.findAll({ where: { id: uniqueAvatarIds } })
+        : [];
       const avatarsByUserId = new Map(avatars.map(a => [a.userId, a]));
+
+      // Fallback: for users without activeAvatarId, try isActive lookup
+      const usersWithoutAvatar = authorIds.filter(uid => !avatarsByUserId.has(uid));
+      if (usersWithoutAvatar.length > 0) {
+        const fallbackAvatars = await AvatarConfigSQL.findAll({
+          where: { userId: usersWithoutAvatar, isActive: true }
+        });
+        for (const a of fallbackAvatars) {
+          if (!avatarsByUserId.has(a.userId)) {
+            avatarsByUserId.set(a.userId, a);
+          }
+        }
+      }
 
       // Fetch active decorations for all post authors
       const decorationsByUserId = await DecorationService.batchResolveActiveDecorations(authorIds);
@@ -288,6 +304,22 @@ export class FeedController {
               id: t.id, name: t.name, slug: t.slug, iconEmoji: t.iconEmoji, iconImageUrl: t.iconImageUrl,
               type: t.type,
             })),
+            postType: (post as any).postType || 'regular',
+            activity: (post as any).postType === 'activity' && (post as any).activity ? {
+              id: (post as any).activity.id,
+              title: (post as any).activity.title,
+              description: (post as any).activity.description,
+              researchBasis: (post as any).activity.researchBasis,
+              topicId: (post as any).activity.topicId,
+            } : null,
+            goal: (post as any).goalId && (post as any).goal ? {
+              id: (post as any).goal.id,
+              title: (post as any).goal.userId === userId || (post as any).goalVisible !== false
+                ? (post as any).goal.title
+                : null,
+              isVisible: (post as any).goalVisible !== false,
+              isOwner: (post as any).goal.userId === userId,
+            } : null,
             decoration: decorationsByUserId.get(post.userId) || null,
             recentComments: recentCommentsByPostId.get(post.id) || [],
           };
@@ -370,6 +402,18 @@ export class FeedController {
             as: 'topics',
             attributes: ['id', 'name', 'slug', 'iconEmoji', 'iconImageUrl', 'type'],
             through: { attributes: [] }
+          },
+          {
+            model: CommunityActivity,
+            as: 'activity',
+            attributes: ['id', 'title', 'description', 'researchBasis', 'topicId'],
+            required: false,
+          },
+          {
+            model: Goal,
+            as: 'goal',
+            attributes: ['id', 'title', 'isVisible', 'userId'],
+            required: false,
           }
         ],
         order: [['createdAt', 'DESC']],
@@ -386,7 +430,11 @@ export class FeedController {
           'commentsCount',
           'locationName',
           'photoTakenAt',
-          'createdAt'
+          'createdAt',
+          'postType',
+          'activityId',
+          'goalId',
+          'goalVisible'
         ]
       });
 
@@ -413,15 +461,32 @@ export class FeedController {
       const privateGroupPostIds = new Set(privateTopicPostLinks.map(pt => pt.postId));
       const discoverFilteredPosts = posts.filter(p => !privateGroupPostIds.has(p.id));
 
-      // Fetch active avatars for all post authors
+      // Fetch active avatars for all post authors using activeAvatarId (consistent with profile endpoints)
       const authorIds = [...new Set(discoverFilteredPosts.map(p => p.userId))];
-      const avatars = await AvatarConfigSQL.findAll({
-        where: {
-          userId: authorIds,
-          isActive: true,
-        },
-      });
+      const discoverActiveAvatarIds = discoverFilteredPosts
+        .map(p => {
+          const u = p.get('user') as any;
+          return u?.activeAvatarId || u?.dataValues?.activeAvatarId;
+        })
+        .filter(Boolean) as string[];
+      const uniqueDiscoverAvatarIds = [...new Set(discoverActiveAvatarIds)];
+      const avatars = uniqueDiscoverAvatarIds.length > 0
+        ? await AvatarConfigSQL.findAll({ where: { id: uniqueDiscoverAvatarIds } })
+        : [];
       const avatarsByUserId = new Map(avatars.map(a => [a.userId, a]));
+
+      // Fallback: for users without activeAvatarId, try isActive lookup
+      const usersWithoutAvatar = authorIds.filter(uid => !avatarsByUserId.has(uid));
+      if (usersWithoutAvatar.length > 0) {
+        const fallbackAvatars = await AvatarConfigSQL.findAll({
+          where: { userId: usersWithoutAvatar, isActive: true }
+        });
+        for (const a of fallbackAvatars) {
+          if (!avatarsByUserId.has(a.userId)) {
+            avatarsByUserId.set(a.userId, a);
+          }
+        }
+      }
 
       // Fetch active decorations for all post authors
       const decorationsByUserId = await DecorationService.batchResolveActiveDecorations(authorIds);
@@ -455,6 +520,22 @@ export class FeedController {
               id: t.id, name: t.name, slug: t.slug, iconEmoji: t.iconEmoji, iconImageUrl: t.iconImageUrl,
               type: t.type,
             })),
+            postType: (post as any).postType || 'regular',
+            activity: (post as any).postType === 'activity' && (post as any).activity ? {
+              id: (post as any).activity.id,
+              title: (post as any).activity.title,
+              description: (post as any).activity.description,
+              researchBasis: (post as any).activity.researchBasis,
+              topicId: (post as any).activity.topicId,
+            } : null,
+            goal: (post as any).goalId && (post as any).goal ? {
+              id: (post as any).goal.id,
+              title: (post as any).goal.userId === userId || (post as any).goalVisible !== false
+                ? (post as any).goal.title
+                : null,
+              isVisible: (post as any).goalVisible !== false,
+              isOwner: (post as any).goal.userId === userId,
+            } : null,
             decoration: decorationsByUserId.get(post.userId) || null,
             recentComments: recentCommentsByPostId.get(post.id) || [],
           };

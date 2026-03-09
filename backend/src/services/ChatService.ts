@@ -7,28 +7,8 @@ import BlockedUser from '../models/BlockedUser';
 import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
 import { redisClient, redisAvailable } from '../config/redis';
 import { logger } from '../utils/logger';
+import { formatAvatarForResponse } from '../utils/formatAvatar';
 import { PushNotificationService } from './PushNotificationService';
-
-// Helper to format avatar data for API response
-function formatAvatarForResponse(avatar: AvatarConfigSQL | null) {
-  if (!avatar) return null;
-  return {
-    id: avatar.id,
-    style: avatar.style,
-    customizations: {
-      skinTone: avatar.skinTone,
-      eyeColor: avatar.eyeColor,
-      eyeSize: avatar.eyeSize,
-      hairColor: avatar.hairColor,
-      hairStyle: avatar.hairStyle,
-      accessories: {
-        glasses: avatar.glasses,
-        hat: avatar.hat,
-        earrings: avatar.earrings,
-      },
-    },
-  };
-}
 
 // Helper to add avatar data to user objects
 async function addAvatarToUsers(userIds: string[]): Promise<Map<string, any>> {

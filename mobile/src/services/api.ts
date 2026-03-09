@@ -241,7 +241,11 @@ class ApiClient {
     locationName?: string,
     locationLat?: number,
     locationLng?: number,
-    photoTakenAt?: string
+    photoTakenAt?: string,
+    activityId?: string,
+    postType?: 'regular' | 'activity',
+    goalId?: string,
+    goalVisible?: boolean,
   ) {
     try {
       const formData = new FormData();
@@ -302,6 +306,18 @@ class ApiClient {
       }
       if (photoTakenAt) {
         formData.append('photoTakenAt', photoTakenAt);
+      }
+      if (activityId) {
+        formData.append('activityId', activityId);
+      }
+      if (postType) {
+        formData.append('postType', postType);
+      }
+      if (goalId) {
+        formData.append('goalId', goalId);
+        if (goalVisible !== undefined) {
+          formData.append('goalVisible', goalVisible.toString());
+        }
       }
 
       console.log('Creating post with image:', filename, 'caption:', caption, 'visibility:', visibility, 'topics:', topicIds);
@@ -1153,6 +1169,90 @@ class ApiClient {
 
   async checkFriendshipDailyLimit(partnerId: string) {
     const response = await this.client.get(`/friendship-meetup/daily-check/${partnerId}`);
+    return response.data;
+  }
+
+  // ===== ACTIVITY WHEEL METHODS =====
+
+  async getWheelActivities() {
+    const response = await this.client.get('/activities/wheel');
+    return response.data;
+  }
+
+  async getCommunityActivities(topicId: string) {
+    const response = await this.client.get(`/activities/community/${topicId}`);
+    return response.data;
+  }
+
+  async createCommunityActivity(topicId: string, data: { title: string; description?: string; researchBasis?: string }) {
+    const response = await this.client.post(`/activities/community/${topicId}`, data);
+    return response.data;
+  }
+
+  async generateCommunityActivities(topicId: string) {
+    const response = await this.client.post(`/activities/community/${topicId}/generate`);
+    return response.data;
+  }
+
+  async updateCommunityActivity(activityId: string, data: { title?: string; description?: string; researchBasis?: string }) {
+    const response = await this.client.put(`/activities/${activityId}`, data);
+    return response.data;
+  }
+
+  async deleteCommunityActivity(activityId: string) {
+    const response = await this.client.delete(`/activities/${activityId}`);
+    return response.data;
+  }
+
+  async completeActivity(activityId: string, postId: string) {
+    const response = await this.client.post(`/activities/${activityId}/complete`, { postId });
+    return response.data;
+  }
+
+  // ===== Goals API =====
+
+  async getMyGoals() {
+    const response = await this.client.get('/goals');
+    return response.data;
+  }
+
+  async createGoal(title: string) {
+    const response = await this.client.post('/goals', { title });
+    return response.data;
+  }
+
+  async getGoal(goalId: string) {
+    const response = await this.client.get(`/goals/${goalId}`);
+    return response.data;
+  }
+
+  async updateGoal(goalId: string, data: { title?: string }) {
+    const response = await this.client.put(`/goals/${goalId}`, data);
+    return response.data;
+  }
+
+  async deleteGoal(goalId: string) {
+    const response = await this.client.delete(`/goals/${goalId}`);
+    return response.data;
+  }
+
+  async updatePostGoalVisibility(postId: string, goalVisible: boolean) {
+    const response = await this.client.put(`/posts/${postId}`, { goalVisible });
+    return response.data;
+  }
+
+  async finishGoal(goalId: string, showOnProfile: boolean) {
+    const response = await this.client.post(`/goals/${goalId}/finish`, { showOnProfile });
+    return response.data;
+  }
+
+  async deleteGoalCollection(goalId: string) {
+    const response = await this.client.delete(`/goals/${goalId}/collection`);
+    return response.data;
+  }
+
+  async getGoalPosts(goalId: string, page: number = 1) {
+    const response = await this.client.get(`/goals/${goalId}/posts`, { params: { page } });
     return response.data;
   }
 }
