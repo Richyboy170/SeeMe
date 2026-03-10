@@ -19,7 +19,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "SeeMe needs camera access to take photos for avatar processing",
         "NSPhotoLibraryUsageDescription": "SeeMe needs photo library access to select photos for avatar processing",
-        "NSLocationWhenInUseUsageDescription": "SeeMe can add your current location to posts when you choose to share it"
+        "NSLocationWhenInUseUsageDescription": "SeeMe can add your current location to posts when you choose to share it",
+        "LSApplicationQueriesSchemes": ["instagram", "instagram-stories"]
       }
     },
     "android": {

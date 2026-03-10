@@ -619,7 +619,7 @@ export default function PostCard({
         <SharePostExternalModal
           visible={externalShareVisible}
           onClose={() => setExternalShareVisible(false)}
-          post={post}
+          post={{ ...post, likesCount, commentsCount: post.commentsCount }}
         />
 
         {renderImageViewer()}
@@ -691,7 +691,7 @@ export default function PostCard({
         <SharePostExternalModal
           visible={externalShareVisible}
           onClose={() => setExternalShareVisible(false)}
-          post={post}
+          post={{ ...post, likesCount, commentsCount: post.commentsCount }}
         />
 
         {renderImageViewer()}
@@ -765,7 +765,7 @@ export default function PostCard({
         <SharePostExternalModal
           visible={externalShareVisible}
           onClose={() => setExternalShareVisible(false)}
-          post={post}
+          post={{ ...post, likesCount, commentsCount: post.commentsCount }}
         />
 
         {renderImageViewer()}
@@ -886,7 +886,7 @@ export default function PostCard({
       <SharePostExternalModal
         visible={externalShareVisible}
         onClose={() => setExternalShareVisible(false)}
-        post={post}
+        post={{ ...post, likesCount, commentsCount: post.commentsCount }}
       />
 
       {renderImageViewer()}

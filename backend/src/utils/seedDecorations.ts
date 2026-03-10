@@ -273,7 +273,7 @@ const decorationItems = [
   {
     name: 'Neon Pop',
     category: 'icon_color',
-    themeMode: 'any',
+    themeMode: 'dark',
     priceSkyCoins: 8,
     previewOrder: 1,
     styleData: JSON.stringify({
@@ -288,7 +288,7 @@ const decorationItems = [
   {
     name: 'Pastel Soft',
     category: 'icon_color',
-    themeMode: 'any',
+    themeMode: 'dark',
     priceSkyCoins: 5,
     previewOrder: 2,
     styleData: JSON.stringify({
@@ -303,7 +303,7 @@ const decorationItems = [
   {
     name: 'Ocean Vibes',
     category: 'icon_color',
-    themeMode: 'any',
+    themeMode: 'dark',
     priceSkyCoins: 8,
     previewOrder: 3,
     styleData: JSON.stringify({
@@ -982,6 +982,7 @@ export async function seedDecorations(): Promise<void> {
 
     // Existing data – add any new items that don't exist yet
     let addedCount = 0;
+    let updatedCount = 0;
     for (const item of decorationItems) {
       const exists = await PostDecoration.findOne({
         where: { name: item.name, category: item.category },
@@ -992,13 +993,16 @@ export async function seedDecorations(): Promise<void> {
           ...item,
         } as any);
         addedCount++;
+      } else if (exists.themeMode !== item.themeMode) {
+        await exists.update({ themeMode: item.themeMode });
+        updatedCount++;
       }
     }
 
-    if (addedCount > 0) {
-      logger.info(`Added ${addedCount} new decoration store items`);
+    if (addedCount > 0 || updatedCount > 0) {
+      logger.info(`Decorations: added ${addedCount}, updated themeMode for ${updatedCount}`);
     } else {
-      logger.info(`${existingCount} decorations already exist, no new items to add`);
+      logger.info(`${existingCount} decorations already exist, no changes needed`);
     }
 
     // Strip cornerDecorations from all frames (corners now handled by per-corner icon system)

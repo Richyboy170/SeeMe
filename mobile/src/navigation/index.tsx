@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { NavigationContainer, NavigationContainerRef, DefaultTheme, DarkTheme } from '@react-navigation/native';
+import { NavigationContainer, NavigationContainerRef, DefaultTheme, DarkTheme, LinkingOptions } from '@react-navigation/native';
+import * as ExpoLinking from 'expo-linking';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -108,6 +109,23 @@ const FeedStack = createStackNavigator<FeedStackParamList>();
 const CreatePostStack = createStackNavigator<CreatePostStackParamList>();
 const FriendshipStack = createStackNavigator<FriendshipMeetupStackParamList>();
 const MainTab = createBottomTabNavigator<MainTabParamList>();
+
+// Deep linking configuration — handles seeme:// and https://seeme.app URLs
+const linking: LinkingOptions<any> = {
+  prefixes: [
+    ExpoLinking.createURL('/'),    // seeme://
+    'https://seeme.app',           // Universal/App Links
+  ],
+  config: {
+    screens: {
+      Feed: {
+        screens: {
+          Comments: 'post/:postId',
+        },
+      },
+    },
+  },
+};
 
 function AuthNavigator() {
   return (
@@ -860,7 +878,7 @@ function RootNavigatorContent() {
 
   return (
     <UnreadContext.Provider value={contextValue}>
-      <NavigationContainer ref={navigationRef} theme={navigationTheme} onStateChange={handleNavigationStateChange}>
+      <NavigationContainer ref={navigationRef} theme={navigationTheme} onStateChange={handleNavigationStateChange} linking={linking}>
         {isAuthenticated ? <MainNavigator /> : <AuthNavigator />}
       </NavigationContainer>
 

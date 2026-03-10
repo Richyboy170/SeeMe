@@ -36,9 +36,10 @@ import ChatDrawer, { ChatDrawerRef } from '../../components/chat/ChatDrawer';
 import ImageEditor from '../../components/ImageEditor';
 import { api, getImageUrl } from '../../services/api';
 import { useCoinCelebration } from '../../contexts/CoinCelebrationContext';
-import { sharePost, ShareablePost } from '../../services/shareService';
+// shareService no longer used — share is now image-based via SharePostExternalModal
+import SharePostExternalModal from '../../components/SharePostExternalModal';
 import { RepostType } from '../../services/repostService';
-import { trackShare } from '../../services/postInteractionService';
+// trackShare removed — share tracking now happens in SharePostExternalModal actions
 import { useDoubleTap } from '../../hooks/useDoubleTap';
 import { FeedStackParamList, useUnreadCount } from '../../navigation/types';
 import { AvatarCustomizations } from '../../components/AvatarRenderer';
@@ -206,6 +207,8 @@ function isOlderDivider(item: FeedItem): item is OlderPostsDivider {
 
 // Check if feed is "stale" — newest post is older than 24 hours
 const STALE_FEED_HOURS = 24;
+// Seen posts older than this are shown below the "Older posts" divider
+const OLD_POST_HOURS = 7 * 24; // 7 days
 function isFeedStale(posts: Post[]): boolean {
   if (posts.length === 0) return false;
   const newest = posts.reduce((latest, p) => {
@@ -2959,6 +2962,126 @@ const floatingBarStyles = StyleSheet.create({
   },
 });
 
+// --- Story Circles (Instagram-style filter) ---
+function StoryCircles({
+  friends,
+  selectedFriendIds,
+  onToggleFriend,
+  onClearFilters,
+  colors,
+}: {
+  friends: FriendEntry[];
+  selectedFriendIds: Set<string>;
+  onToggleFriend: (userId: string) => void;
+  onClearFilters: () => void;
+  colors: FeedColors;
+}) {
+  const filterActive = selectedFriendIds.size > 0;
+
+  return (
+    <View style={[storyStyles.container, { borderBottomColor: colors.separator }]}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={storyStyles.scrollContent}
+      >
+        {/* Clear-all circle when filter is active */}
+        {filterActive && (
+          <TouchableOpacity
+            style={storyStyles.item}
+            onPress={onClearFilters}
+            activeOpacity={0.7}
+          >
+            <View style={[storyStyles.ring, { borderColor: colors.accent }]}>
+              <View style={[storyStyles.clearCircle, { backgroundColor: colors.accent + '18' }]}>
+                <Ionicons name="close" size={24} color={colors.accent} />
+              </View>
+            </View>
+            <Text style={[storyStyles.username, { color: colors.accent }]} numberOfLines={1}>
+              All
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {friends.map(friend => {
+          const isSelected = selectedFriendIds.has(friend.userId);
+          const hasUnseen = friend.totalPosts - friend.seenPosts > 0;
+          const showAccentRing = isSelected || (hasUnseen && !filterActive);
+          const dimmed = filterActive && !isSelected;
+
+          return (
+            <TouchableOpacity
+              key={friend.userId}
+              style={[storyStyles.item, dimmed && { opacity: 0.35 }]}
+              onPress={() => onToggleFriend(friend.userId)}
+              activeOpacity={0.7}
+            >
+              <View
+                style={[
+                  storyStyles.ring,
+                  { borderColor: showAccentRing ? colors.accent : colors.separator },
+                ]}
+              >
+                <Avatar
+                  size={50}
+                  avatarUrl={friend.avatarUrl}
+                  username={friend.username}
+                  customizations={friend.avatar?.customizations}
+                  avatarStyle={friend.avatar?.style}
+                />
+              </View>
+              <Text
+                style={[storyStyles.username, { color: isSelected ? colors.accent : colors.textSecondary }]}
+                numberOfLines={1}
+              >
+                {friend.username}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
+const storyStyles = StyleSheet.create({
+  container: {
+    borderBottomWidth: 1,
+    backgroundColor: 'transparent',
+  },
+  scrollContent: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 12,
+  },
+  item: {
+    alignItems: 'center',
+    width: 68,
+  },
+  ring: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    borderWidth: 2.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 1.5,
+  },
+  clearCircle: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  username: {
+    fontSize: 11,
+    marginTop: 4,
+    maxWidth: 64,
+    textAlign: 'center',
+  },
+});
+
 export default function FeedScreen() {
   const navigation = useNavigation<FeedScreenNavigationProp>();
   const { width } = useWindowDimensions();
@@ -2995,6 +3118,7 @@ export default function FeedScreen() {
   const [imageViewerVisible, setImageViewerVisible] = React.useState(false);
   const [repostModalVisible, setRepostModalVisible] = React.useState(false);
   const [repostModalPost, setRepostModalPost] = React.useState<Post | null>(null);
+  const [shareModalPost, setShareModalPost] = React.useState<Post | null>(null);
   const [chatDrawerVisible, setChatDrawerVisible] = React.useState(false);
   const [currentUserId, setCurrentUserId] = React.useState<string>('');
   const [followingCount, setFollowingCount] = React.useState<number>(0);
@@ -3197,8 +3321,6 @@ export default function FeedScreen() {
   const totalCommunityUnseen = communities.reduce((sum, c) => sum + (c.totalPosts - c.seenPosts), 0);
   const totalUnseen = totalFriendUnseen + totalCommunityUnseen;
 
-  const [filterDropdownVisible, setFilterDropdownVisible] = useState(false);
-
   // Feed filter selections (empty = show all posts, non-empty = show only selected)
   const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set());
   const [selectedCommunityIds, setSelectedCommunityIds] = useState<Set<string>>(new Set());
@@ -3229,9 +3351,7 @@ export default function FeedScreen() {
   }, []);
 
   // Apply user-selected filters to posts
-  // Filter only applies when the bar is open. Closing the bar returns to full feed.
-  // Selections stay cached so reopening the bar restores them.
-  const isFilterActive = filterDropdownVisible;
+  const isFilterActive = selectedFriendIds.size > 0 || selectedCommunityIds.size > 0;
   const filteredPosts = useMemo(() => {
     if (!isFilterActive) return posts;
     // Filter mode: only show posts from selected friends/communities
@@ -3256,7 +3376,7 @@ export default function FeedScreen() {
       return [];
     }
     const now = Date.now();
-    const staleThreshold = STALE_FEED_HOURS * 60 * 60 * 1000;
+    const staleThreshold = OLD_POST_HOURS * 60 * 60 * 1000;
     const unseen: Post[] = [];
     const recentlySeen: Post[] = [];  // seen + created < 24h ago
     const oldSeen: Post[] = [];       // seen + created 24h+ ago
@@ -3274,6 +3394,13 @@ export default function FeedScreen() {
         }
       }
     }
+    // Sort each bucket newest-first
+    const byNewest = (a: Post, b: Post) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    unseen.sort(byNewest);
+    recentlySeen.sort(byNewest);
+    oldSeen.sort(byNewest);
+
     const stale = isFeedStale(filteredPosts);
     const caughtUpCard: CaughtUpItem = { _type: 'caught_up', id: '__caught_up__', feedStale: stale };
     const olderDivider: OlderPostsDivider = { _type: 'older_divider', id: '__older_divider__' };
@@ -3424,33 +3551,6 @@ export default function FeedScreen() {
       title: 'Home',
       headerLeft: () => (
         <View style={styles.headerLeftGroup}>
-          {!isTablet && (
-            <TouchableOpacity
-              style={styles.filterToggleButton}
-              onPress={() => setFilterDropdownVisible(v => !v)}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name={hasActiveFilters ? 'funnel' : filterDropdownVisible ? 'funnel-outline' : 'people-outline'}
-                size={22}
-                color={hasActiveFilters || filterDropdownVisible ? colors.accent : colors.text}
-              />
-              {hasActiveFilters && !filterDropdownVisible && (
-                <View style={[styles.filterBadge, { backgroundColor: colors.accent }]}>
-                  <Text style={styles.filterBadgeText}>
-                    {totalActiveFilters}
-                  </Text>
-                </View>
-              )}
-              {!hasActiveFilters && totalUnseen > 0 && !filterDropdownVisible && (
-                <View style={styles.filterBadge}>
-                  <Text style={styles.filterBadgeText}>
-                    {totalUnseen > 99 ? '99+' : totalUnseen}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          )}
           <TouchableOpacity
             onPress={() => setShowFeedGuide(true)}
             style={styles.headerGuideButton}
@@ -3477,7 +3577,7 @@ export default function FeedScreen() {
         </TouchableOpacity>
       ),
     });
-  }, [navigation, colors, isTablet, hasActiveFilters, filterDropdownVisible, totalActiveFilters, totalUnseen, unreadCount]);
+  }, [navigation, colors, unreadCount]);
 
   // Listen for tab press: close chat drawer, scroll-to-top, or refresh
   React.useEffect(() => {
@@ -3727,25 +3827,8 @@ export default function FeedScreen() {
     }
   };
 
-  const handleShare = useCallback(async (post: Post) => {
-    try {
-      const shareablePost: ShareablePost = {
-        id: post.id,
-        caption: post.caption,
-        user: post.user,
-        imageUrl: post.imageUrl,
-        originalImageUrl: post.originalImageUrl,
-        thumbnailUrl: post.thumbnailUrl,
-      };
-
-      const result = await sharePost(shareablePost);
-
-      if (result.success && result.action === 'sharedAction') {
-        trackShare(post.id);
-      }
-    } catch (error) {
-      console.error('Error sharing post:', error);
-    }
+  const handleShare = useCallback((post: Post) => {
+    setShareModalPost(post);
   }, []);
 
   const handleNavigateToProfile = useCallback((userId: string, username: string) => {
@@ -3936,25 +4019,37 @@ export default function FeedScreen() {
   }, []);
 
   // Stable ListHeaderComponent
-  const listHeader = useMemo(() =>
-    followingCount === 0 ? (
-      <TouchableOpacity
-        style={[styles.findFriendsBanner, { backgroundColor: colors.cardBackground, borderBottomColor: colors.separator }]}
-        onPress={navigateToFindFriends}
-        activeOpacity={0.7}
-      >
-        <Ionicons name="people-outline" size={22} color={colors.accent} />
-        <View style={styles.findFriendsBannerText}>
-          <Text style={[styles.findFriendsBannerTitle, { color: colors.text }]}>
-            Connect with friends
-          </Text>
-          <Text style={[styles.findFriendsBannerSubtitle, { color: colors.textSecondary }]}>
-            Find people you know and grow your community
-          </Text>
-        </View>
-        <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-      </TouchableOpacity>
-    ) : null, [followingCount, colors]);
+  const listHeader = useMemo(() => (
+    <>
+      {friends.length > 0 && (
+        <StoryCircles
+          friends={friends}
+          selectedFriendIds={selectedFriendIds}
+          onToggleFriend={handleToggleFriend}
+          onClearFilters={handleClearFilters}
+          colors={colors}
+        />
+      )}
+      {followingCount === 0 && (
+        <TouchableOpacity
+          style={[styles.findFriendsBanner, { backgroundColor: colors.cardBackground, borderBottomColor: colors.separator }]}
+          onPress={navigateToFindFriends}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="people-outline" size={22} color={colors.accent} />
+          <View style={styles.findFriendsBannerText}>
+            <Text style={[styles.findFriendsBannerTitle, { color: colors.text }]}>
+              Connect with friends
+            </Text>
+            <Text style={[styles.findFriendsBannerSubtitle, { color: colors.textSecondary }]}>
+              Find people you know and grow your community
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+        </TouchableOpacity>
+      )}
+    </>
+  ), [friends, selectedFriendIds, handleToggleFriend, handleClearFilters, followingCount, colors]);
 
   // Stable ListFooterComponent
   const listFooter = useMemo(() =>
@@ -3975,11 +4070,11 @@ export default function FeedScreen() {
         />
       </View>
       <Text style={[styles.emptyTitle, { color: colors.text }]}>
-        {isFilterActive ? 'Select who to see' : 'Your feed is empty'}
+        {isFilterActive ? 'No matching posts' : 'Your feed is empty'}
       </Text>
       <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
         {isFilterActive
-          ? 'Pick friends or communities from the filter below to show their posts'
+          ? 'No posts from selected friends in your feed right now'
           : 'Follow people to see their posts here. Start by finding friends!'}
       </Text>
     </View>
@@ -4068,23 +4163,6 @@ export default function FeedScreen() {
         )}
       </View>
 
-      {/* Floating filter bar for non-tablet screens */}
-      {!isTablet && (
-        <FeedFloatingBar
-          visible={filterDropdownVisible}
-          onClose={() => setFilterDropdownVisible(false)}
-          friends={friends}
-          communities={communities}
-          selectedFriendIds={selectedFriendIds}
-          selectedCommunityIds={selectedCommunityIds}
-          onToggleFriend={handleToggleFriend}
-          onToggleCommunity={handleToggleCommunity}
-          onClearFilters={handleClearFilters}
-          colors={colors}
-          bottomInset={insets.bottom}
-        />
-      )}
-
       {/* Full-Screen Image Viewer */}
       <ImageViewerModal
         visible={imageViewerVisible}
@@ -4113,6 +4191,15 @@ export default function FeedScreen() {
           onRepostSuccess={handleRepostSuccess}
           originalCaption={repostModalPost.caption}
           originalUsername={repostModalPost.user.username}
+        />
+      )}
+
+      {/* External Share Modal (image share from image viewer) */}
+      {shareModalPost && (
+        <SharePostExternalModal
+          visible={!!shareModalPost}
+          onClose={() => setShareModalPost(null)}
+          post={shareModalPost}
         />
       )}
 

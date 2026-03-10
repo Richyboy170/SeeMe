@@ -6,6 +6,11 @@
 import { Share, Platform } from 'react-native';
 import { getImageUrl } from './api';
 
+// App store URLs — update these once the app is published
+export const APP_STORE_URL = 'https://apps.apple.com/app/seeme/id000000000'; // Replace with real App Store ID
+export const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.richy.seeme';
+export const APP_DOWNLOAD_URL = Platform.OS === 'ios' ? APP_STORE_URL : PLAY_STORE_URL;
+
 export interface ShareablePost {
   id: string;
   caption?: string;
@@ -39,15 +44,17 @@ export function getPostShareUrl(postId: string): string {
 export function generateShareMessage(post: ShareablePost): string {
   const postUrl = getPostShareUrl(post.id);
 
+  let message: string;
   if (post.caption) {
-    // Include caption in share message
     const truncatedCaption = post.caption.length > 100
       ? post.caption.substring(0, 100) + '...'
       : post.caption;
-    return `"${truncatedCaption}" - @${post.user.username} on SeeMe\n\n${postUrl}`;
+    message = `"${truncatedCaption}" - @${post.user.username} on SeeMe`;
+  } else {
+    message = `Check out this post by @${post.user.username} on SeeMe!`;
   }
 
-  return `Check out this post by @${post.user.username} on SeeMe!\n\n${postUrl}`;
+  return `${message}\n\n${postUrl}\n\nDownload SeeMe: ${APP_DOWNLOAD_URL}`;
 }
 
 /**

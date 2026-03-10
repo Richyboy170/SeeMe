@@ -407,34 +407,34 @@ export default function DecorationStoreContent({ skyCoins, onPurchase }: Decorat
       </View>
 
       {/* Category Tabs */}
-      <View style={styles.categoryRow}>
+      <View style={[styles.categoryRow, { backgroundColor: colors.surfaceVariant }]}>
         {CATEGORIES.map((cat) => {
           const selected = activeCategory === cat.key;
           return (
             <TouchableOpacity
               key={cat.key}
               style={[
-                styles.categoryPill,
-                {
-                  backgroundColor: selected ? colors.background : colors.surfaceVariant,
-                  borderColor: selected ? colors.border : 'transparent',
-                },
-                selected && styles.categoryPillActive,
+                styles.categoryTab,
+                selected && [
+                  styles.categoryTabActive,
+                  { backgroundColor: colors.background },
+                ],
               ]}
               activeOpacity={0.7}
               onPress={() => setActiveCategory(cat.key)}
             >
               <Ionicons
                 name={cat.icon}
-                size={14}
+                size={17}
                 color={selected ? colors.text.primary : colors.text.secondary}
               />
               <Text
                 style={[
-                  styles.categoryPillText,
+                  styles.categoryTabText,
                   { color: selected ? colors.text.primary : colors.text.secondary },
-                  selected && styles.categoryPillTextActive,
+                  selected && styles.categoryTabTextActive,
                 ]}
+                numberOfLines={1}
               >
                 {cat.label}
               </Text>
@@ -606,36 +606,35 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // Category pills
+  // Category tabs (segmented control)
   categoryRow: {
     flexDirection: 'row',
     marginHorizontal: 16,
-    marginBottom: 8,
-    gap: 8,
+    marginBottom: 10,
+    borderRadius: 14,
+    padding: 3,
   },
-  categoryPill: {
+  categoryTab: {
     flex: 1,
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    gap: 5,
+    borderRadius: 11,
+    gap: 3,
   },
-  categoryPillActive: {
+  categoryTabActive: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 3,
   },
-  categoryPillText: {
-    fontSize: 12,
+  categoryTabText: {
+    fontSize: 11,
     fontWeight: '500',
+    letterSpacing: 0.1,
   },
-  categoryPillTextActive: {
+  categoryTabTextActive: {
     fontWeight: '700',
   },
 
