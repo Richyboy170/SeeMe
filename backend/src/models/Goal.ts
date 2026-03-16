@@ -1,10 +1,16 @@
 import { DataTypes, Model, Optional } from 'sequelize';
 import { sequelize } from '../config/database';
 
+export type GoalRank = 'gold' | 'silver' | 'bronze';
+
 export interface GoalAttributes {
   id: string;
   userId: string;
   title: string;
+  rank: GoalRank;
+  sortOrder: number;
+  deadline: Date | null;
+  deadlineChangedAt: Date | null;
   isVisible: boolean;
   isActive: boolean;
   isCompleted: boolean;
@@ -17,13 +23,17 @@ export interface GoalAttributes {
 
 interface GoalCreationAttributes extends Optional<
   GoalAttributes,
-  'id' | 'isVisible' | 'isActive' | 'isCompleted' | 'showOnProfile' | 'completedAt' | 'postsCount' | 'createdAt' | 'updatedAt'
+  'id' | 'rank' | 'sortOrder' | 'deadline' | 'deadlineChangedAt' | 'isVisible' | 'isActive' | 'isCompleted' | 'showOnProfile' | 'completedAt' | 'postsCount' | 'createdAt' | 'updatedAt'
 > {}
 
 export class Goal extends Model<GoalAttributes, GoalCreationAttributes> implements GoalAttributes {
   public id!: string;
   public userId!: string;
   public title!: string;
+  public rank!: GoalRank;
+  public sortOrder!: number;
+  public deadline!: Date | null;
+  public deadlineChangedAt!: Date | null;
   public isVisible!: boolean;
   public isActive!: boolean;
   public isCompleted!: boolean;
@@ -50,6 +60,24 @@ Goal.init(
     title: {
       type: DataTypes.STRING(200),
       allowNull: false,
+    },
+    rank: {
+      type: DataTypes.STRING(10),
+      allowNull: false,
+      defaultValue: 'gold',
+    },
+    sortOrder: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    deadline: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    deadlineChangedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
     isVisible: {
       type: DataTypes.BOOLEAN,
@@ -95,6 +123,7 @@ Goal.init(
     sequelize,
     tableName: 'goals',
     timestamps: true,
+    underscored: true,
   }
 );
 

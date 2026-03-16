@@ -122,7 +122,7 @@ export default function FollowRequestsScreen() {
     return `${Math.floor(diffInSeconds / 604800)}w`;
   };
 
-  const renderRequestItem = ({ item }: { item: FollowRequest }) => {
+  const renderRequestItem = useCallback(({ item }: { item: FollowRequest }) => {
     const isLoading = actionLoading === item.id;
 
     return (
@@ -168,7 +168,7 @@ export default function FollowRequestsScreen() {
         </View>
       </View>
     );
-  };
+  }, [actionLoading, colors, navigation]);
 
   if (loading && requests.length === 0) {
     return (
@@ -185,6 +185,9 @@ export default function FollowRequestsScreen() {
         keyExtractor={(item) => item.id}
         renderItem={renderRequestItem}
         contentContainerStyle={requests.length === 0 ? styles.emptyContainer : styles.listContent}
+        removeClippedSubviews
+        maxToRenderPerBatch={10}
+        windowSize={7}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }

@@ -7,6 +7,8 @@ import { PositivityCoins } from '../models/PositivityCoins';
 import { CoinTransaction } from '../models/CoinTransaction';
 import { Follow } from '../models/Follow';
 import { User } from '../models/User';
+import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
+import { formatAvatarForResponse } from '../utils/formatAvatar';
 import { TrustScoreService } from './TrustScoreService';
 import { logger } from '../utils/logger';
 
@@ -364,8 +366,8 @@ export class FriendshipMeetupService {
         ]
       },
       include: [
-        { model: User, as: 'userA', attributes: ['id', 'username', 'avatarUrl'] },
-        { model: User, as: 'userB', attributes: ['id', 'username', 'avatarUrl'] },
+        { model: User, as: 'userA', attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId'] },
+        { model: User, as: 'userB', attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId'] },
         { model: FriendshipPhoto, as: 'photos' }
       ],
       order: [['completedAt', 'DESC']],
@@ -373,7 +375,44 @@ export class FriendshipMeetupService {
       offset
     });
 
-    return { meetups: rows, total: count };
+    // Add active avatar data to meetup users
+    const userIds = new Set<string>();
+    rows.forEach(m => {
+      const mj = m.toJSON() as any;
+      if (mj.userA?.id) userIds.add(mj.userA.id);
+      if (mj.userB?.id) userIds.add(mj.userB.id);
+    });
+
+    const avatarConfigs = await AvatarConfigSQL.findAll({
+      where: { userId: { [Op.in]: [...userIds] }, isActive: true },
+    });
+    const avatarMap = new Map(avatarConfigs.map(a => [a.userId, formatAvatarForResponse(a)]));
+
+    // Fallback for users with activeAvatarId but inactive config
+    const allUsers = rows.flatMap(m => {
+      const mj = m.toJSON() as any;
+      return [mj.userA, mj.userB].filter(Boolean);
+    });
+    const missing = allUsers.filter(u => u.activeAvatarId && !avatarMap.has(u.id));
+    if (missing.length > 0) {
+      const fallbackConfigs = await AvatarConfigSQL.findAll({
+        where: { id: { [Op.in]: missing.map(u => u.activeAvatarId) } },
+      });
+      for (const fc of fallbackConfigs) {
+        if (!avatarMap.has(fc.userId)) {
+          avatarMap.set(fc.userId, formatAvatarForResponse(fc));
+        }
+      }
+    }
+
+    const meetups = rows.map(m => {
+      const mj = m.toJSON() as any;
+      if (mj.userA) mj.userA.activeAvatar = avatarMap.get(mj.userA.id) || null;
+      if (mj.userB) mj.userB.activeAvatar = avatarMap.get(mj.userB.id) || null;
+      return mj;
+    });
+
+    return { meetups, total: count };
   }
 }
 

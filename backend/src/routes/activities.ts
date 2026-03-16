@@ -7,6 +7,15 @@ const router = Router();
 // Get spinning wheel activities for current user
 router.get('/wheel', authenticateToken, ActivityController.getWheelActivities);
 
+// Wheel selection management
+router.get('/wheel/selections', authenticateToken, ActivityController.getWheelSelections);
+router.post('/wheel/add', authenticateToken, ActivityController.addToWheel);
+router.post('/wheel/remove', authenticateToken, ActivityController.removeFromWheel);
+router.delete('/wheel/selections', authenticateToken, ActivityController.clearWheelSelections);
+
+// Browse available activities from joined communities
+router.get('/available', authenticateToken, ActivityController.getAvailableActivities);
+
 // Get all activities for a specific community
 router.get('/community/:topicId', authenticateToken, ActivityController.getCommunityActivities);
 

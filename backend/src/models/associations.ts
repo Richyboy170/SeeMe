@@ -45,6 +45,7 @@ import { CornerIconPlacement } from './CornerIconPlacement';
 // Activity Wheel imports
 import { CommunityActivity } from './CommunityActivity';
 import { ActivityCompletion } from './ActivityCompletion';
+import { UserWheelSelection } from './UserWheelSelection';
 
 // Goal imports
 import { Goal } from './Goal';
@@ -874,6 +875,14 @@ export const setupAssociations = () => {
   // Post -> CommunityActivity: Many-to-One
   Post.belongsTo(CommunityActivity, { foreignKey: 'activityId', as: 'activity' });
   CommunityActivity.hasMany(Post, { foreignKey: 'activityId', as: 'posts', onDelete: 'SET NULL' });
+
+  // UserWheelSelection -> User: Many-to-One
+  UserWheelSelection.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+  User.hasMany(UserWheelSelection, { foreignKey: 'userId', as: 'wheelSelections', onDelete: 'CASCADE' });
+
+  // UserWheelSelection -> CommunityActivity: Many-to-One
+  UserWheelSelection.belongsTo(CommunityActivity, { foreignKey: 'activityId', as: 'activity' });
+  CommunityActivity.hasMany(UserWheelSelection, { foreignKey: 'activityId', as: 'wheelSelections', onDelete: 'CASCADE' });
 
   // ===== GOALS ASSOCIATIONS =====
 

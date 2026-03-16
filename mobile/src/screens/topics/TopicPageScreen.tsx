@@ -913,6 +913,10 @@ export default function TopicPageScreen({ route, navigation }: any) {
                         <RefreshControl refreshing={refreshing} onRefresh={loadTopicPage} />
                     }
                     contentContainerStyle={styles.postsGrid}
+                    removeClippedSubviews
+                    maxToRenderPerBatch={9}
+                    windowSize={5}
+                    initialNumToRender={9}
                     ListEmptyComponent={
                         <View style={[styles.emptyPosts, { backgroundColor: colors.card }]}>
                             <View style={styles.emptyIconContainer}>

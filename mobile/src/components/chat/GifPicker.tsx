@@ -216,6 +216,9 @@ export default function GifPicker({ visible, onClose, onSelectGif }: GifPickerPr
             numColumns={GIF_COLUMNS}
             contentContainerStyle={styles.gifList}
             showsVerticalScrollIndicator={false}
+            removeClippedSubviews
+            maxToRenderPerBatch={9}
+            windowSize={5}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
                 <Ionicons name="images-outline" size={48} color={colors.text.secondary} />

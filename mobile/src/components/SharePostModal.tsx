@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -107,7 +107,7 @@ export default function SharePostModal({
     }
   };
 
-  const renderConversation = ({ item }: { item: Conversation }) => (
+  const renderConversation = useCallback(({ item }: { item: Conversation }) => (
     <TouchableOpacity
       style={[styles.conversationItem, { borderBottomColor: colors.separator }]}
       onPress={() => handleSend(item)}
@@ -136,7 +136,7 @@ export default function SharePostModal({
         </View>
       )}
     </TouchableOpacity>
-  );
+  ), [sending, colors]);
 
   return (
     <Modal
@@ -199,6 +199,9 @@ export default function SharePostModal({
             renderItem={renderConversation}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
+            removeClippedSubviews
+            maxToRenderPerBatch={10}
+            windowSize={7}
           />
         ) : (
           <View style={styles.emptyContainer}>

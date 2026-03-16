@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,10 +7,10 @@ import {
   Image,
   Modal,
   Dimensions,
-  PanResponder,
   StatusBar,
   ActivityIndicator,
 } from 'react-native';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -35,7 +35,10 @@ interface CropRect {
   height: number;
 }
 
-type DragTarget = 'none' | 'move' | 'tl' | 'tr' | 'bl' | 'br';
+const MAX_SCALE = 5;
+const CROP_ASPECT = 4 / 3; // width:height matches feed post image display
+
+type DragTarget = 'none' | 'move' | 'pan' | 'tl' | 'tr' | 'bl' | 'br';
 
 // L-shaped corner bracket
 const CornerBracket = ({ position }: { position: 'tl' | 'tr' | 'bl' | 'br' }) => {
@@ -72,7 +75,7 @@ const CornerBracket = ({ position }: { position: 'tl' | 'tr' | 'bl' | 'br' }) =>
   );
 };
 
-export default function ImageEditor({ imageUri, visible, onComplete, onCancel }: ImageEditorProps) {
+function ImageEditor({ imageUri, visible, onComplete, onCancel }: ImageEditorProps) {
   const insets = useSafeAreaInsets();
 
   // Image display dimensions (position on screen)
@@ -89,20 +92,31 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
   const [defaultCrop, setDefaultCrop] = useState<CropRect>({ x: 0, y: 0, width: 0, height: 0 });
   const [isDragging, setIsDragging] = useState(false);
 
+  // Zoom/pan
+  const [imageScale, setImageScale] = useState(1);
+  const [imageOffset, setImageOffset] = useState({ x: 0, y: 0 });
+
   // Processing
   const [processing, setProcessing] = useState(false);
 
-  // Drag state refs (stable across re-renders for PanResponder)
+  // Drag state refs
   const dragTargetRef = useRef<DragTarget>('none');
-  const dragStartRef = useRef({ x: 0, y: 0 });
   const cropStartRef = useRef<CropRect>({ x: 0, y: 0, width: 0, height: 0 });
   const imageLayoutRef = useRef(imageLayout);
   const cropRef = useRef(crop);
   const canvasOffsetRef = useRef({ x: 0, y: 0 });
+  const imageScaleRef = useRef(1);
+  const imageOffsetRef = useRef({ x: 0, y: 0 });
+  const pinchStartScaleRef = useRef(1);
+  const pinchStartOffsetRef = useRef({ x: 0, y: 0 });
+  const pinchFocalStartRef = useRef({ x: 0, y: 0 });
+  const panStartOffsetRef = useRef({ x: 0, y: 0 });
 
   // Keep refs in sync
   useEffect(() => { imageLayoutRef.current = imageLayout; }, [imageLayout]);
   useEffect(() => { cropRef.current = crop; }, [crop]);
+  useEffect(() => { imageScaleRef.current = imageScale; }, [imageScale]);
+  useEffect(() => { imageOffsetRef.current = imageOffset; }, [imageOffset]);
 
   // Load image dimensions and set default centered square crop
   useEffect(() => {
@@ -139,11 +153,16 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
           setImageLayout(layout);
           imageLayoutRef.current = layout;
 
-          // Default square crop centered in the image
-          const side = Math.min(displayWidth, displayHeight);
-          const cropX = (displayWidth - side) / 2;
-          const cropY = (displayHeight - side) / 2;
-          const cropRect: CropRect = { x: cropX, y: cropY, width: side, height: side };
+          // Default 4:3 crop centered in the image
+          let cropW = displayWidth;
+          let cropH = cropW / CROP_ASPECT;
+          if (cropH > displayHeight) {
+            cropH = displayHeight;
+            cropW = cropH * CROP_ASPECT;
+          }
+          const cropX = (displayWidth - cropW) / 2;
+          const cropY = (displayHeight - cropH) / 2;
+          const cropRect: CropRect = { x: cropX, y: cropY, width: cropW, height: cropH };
 
           setCrop(cropRect);
           cropRef.current = cropRect;
@@ -155,6 +174,10 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
       setFlipH(false);
       setFlipV(false);
       setRotation(0);
+      setImageScale(1);
+      imageScaleRef.current = 1;
+      setImageOffset({ x: 0, y: 0 });
+      imageOffsetRef.current = { x: 0, y: 0 };
     }
   }, [imageUri, visible]);
 
@@ -169,154 +192,244 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
   }, [crop, imageLayout]);
 
   const hasTransforms = useCallback(() => {
-    return flipH || flipV || rotation !== 0 || isCropped();
-  }, [flipH, flipV, rotation, isCropped]);
+    return flipH || flipV || rotation !== 0 || imageScale !== 1 || isCropped();
+  }, [flipH, flipV, rotation, imageScale, isCropped]);
+
+  const getRenderedBounds = (scale?: number, offset?: { x: number; y: number }) => {
+    const base = imageLayoutRef.current;
+    const s = scale ?? imageScaleRef.current;
+    const off = offset ?? imageOffsetRef.current;
+    const w = base.width * s;
+    const h = base.height * s;
+    return {
+      x: base.x + off.x - (w - base.width) / 2,
+      y: base.y + off.y - (h - base.height) / 2,
+      width: w,
+      height: h,
+    };
+  };
 
   const getDragTarget = (touchX: number, touchY: number): DragTarget => {
-    const layout = imageLayoutRef.current;
+    const bounds = getRenderedBounds();
     const c = cropRef.current;
 
-    // Convert screen touch to image-relative coordinates
-    // pageX/pageY are screen-absolute, so subtract canvas offset first
-    const relX = touchX - canvasOffsetRef.current.x - layout.x;
-    const relY = touchY - canvasOffsetRef.current.y - layout.y;
+    const relX = touchX - canvasOffsetRef.current.x - bounds.x;
+    const relY = touchY - canvasOffsetRef.current.y - bounds.y;
 
     const r = HANDLE_HIT_AREA;
 
-    // Check corners first (higher priority)
     if (Math.abs(relX - c.x) < r && Math.abs(relY - c.y) < r) return 'tl';
     if (Math.abs(relX - (c.x + c.width)) < r && Math.abs(relY - c.y) < r) return 'tr';
     if (Math.abs(relX - c.x) < r && Math.abs(relY - (c.y + c.height)) < r) return 'bl';
     if (Math.abs(relX - (c.x + c.width)) < r && Math.abs(relY - (c.y + c.height)) < r) return 'br';
 
-    // Check inside crop area for move
     if (relX >= c.x && relX <= c.x + c.width && relY >= c.y && relY <= c.y + c.height) return 'move';
+
+    // When zoomed, allow panning the image by dragging outside the crop
+    if (imageScaleRef.current > 1) return 'pan';
 
     return 'none';
   };
 
-  // Clamp crop to stay within image bounds and enforce square (1:1)
-  const clampSquareCrop = (newCrop: CropRect): CropRect => {
-    const layout = imageLayoutRef.current;
-    let { x, y, width, height } = newCrop;
+  // Clamp crop to stay within image bounds and enforce 4:3 aspect ratio
+  const clampCrop = (newCrop: CropRect, bounds?: { width: number; height: number }): CropRect => {
+    const b = bounds || getRenderedBounds();
+    let { x, y, width } = newCrop;
 
-    // Enforce square: use the smaller dimension
-    const side = Math.max(MIN_CROP_SIZE, Math.min(width, height, layout.width, layout.height));
-    width = side;
-    height = side;
+    // Enforce 4:3 aspect ratio
+    width = Math.max(MIN_CROP_SIZE, Math.min(width, b.width));
+    let height = width / CROP_ASPECT;
 
-    // Clamp position
-    x = Math.max(0, Math.min(x, layout.width - side));
-    y = Math.max(0, Math.min(y, layout.height - side));
+    // If height exceeds bounds, scale down
+    if (height > b.height) {
+      height = b.height;
+      width = height * CROP_ASPECT;
+    }
 
-    return { x, y, width: side, height: side };
+    x = Math.max(0, Math.min(x, b.width - width));
+    y = Math.max(0, Math.min(y, b.height - height));
+
+    return { x, y, width, height };
   };
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > 2 || Math.abs(gs.dy) > 2,
-      onPanResponderGrant: (evt) => {
-        const { pageX, pageY } = evt.nativeEvent;
-        dragTargetRef.current = getDragTarget(pageX, pageY);
-        dragStartRef.current = { x: pageX, y: pageY };
-        cropStartRef.current = { ...cropRef.current };
-        setIsDragging(dragTargetRef.current !== 'none');
-      },
-      onPanResponderMove: (evt) => {
-        if (dragTargetRef.current === 'none') return;
+  // Pinch gesture for zoom
+  const pinchGesture = useMemo(() => Gesture.Pinch()
+    .runOnJS(true)
+    .onStart((e) => {
+      pinchStartScaleRef.current = imageScaleRef.current;
+      pinchStartOffsetRef.current = { ...imageOffsetRef.current };
+      pinchFocalStartRef.current = { x: e.focalX, y: e.focalY };
+      dragTargetRef.current = 'none';
+      setIsDragging(false);
+    })
+    .onUpdate((e) => {
+      const oldBounds = getRenderedBounds(imageScaleRef.current, imageOffsetRef.current);
+      const newScale = Math.max(1, Math.min(MAX_SCALE, pinchStartScaleRef.current * e.scale));
 
-        const { pageX, pageY } = evt.nativeEvent;
-        const dx = pageX - dragStartRef.current.x;
-        const dy = pageY - dragStartRef.current.y;
-        const prev = cropStartRef.current;
+      // Pan from focal point movement
+      const panDx = e.focalX - pinchFocalStartRef.current.x;
+      const panDy = e.focalY - pinchFocalStartRef.current.y;
+      const newOffset = {
+        x: pinchStartOffsetRef.current.x + panDx,
+        y: pinchStartOffsetRef.current.y + panDy,
+      };
 
-        let newCrop: CropRect;
+      const newBounds = getRenderedBounds(newScale, newOffset);
 
-        switch (dragTargetRef.current) {
-          case 'move':
-            // Move the square crop without changing size
-            newCrop = clampSquareCrop({
-              x: prev.x + dx,
-              y: prev.y + dy,
-              width: prev.width,
-              height: prev.height,
-            });
-            break;
+      // Recalculate crop to maintain screen position
+      const c = cropRef.current;
+      const screenCropX = oldBounds.x + c.x;
+      const screenCropY = oldBounds.y + c.y;
+      const newCrop = clampCrop({
+        x: screenCropX - newBounds.x,
+        y: screenCropY - newBounds.y,
+        width: c.width,
+        height: c.height,
+      }, newBounds);
 
-          case 'tl': {
-            // Drag top-left corner: use the dominant axis to resize square
-            const delta = Math.max(dx, dy); // positive = shrink, negative = grow
-            const newSide = Math.max(MIN_CROP_SIZE, prev.width - delta);
-            // Anchor bottom-right corner
-            const anchorRight = prev.x + prev.width;
-            const anchorBottom = prev.y + prev.height;
-            newCrop = clampSquareCrop({
-              x: anchorRight - newSide,
-              y: anchorBottom - newSide,
-              width: newSide,
-              height: newSide,
-            });
-            break;
-          }
+      setImageScale(newScale);
+      imageScaleRef.current = newScale;
+      setImageOffset(newOffset);
+      imageOffsetRef.current = newOffset;
+      setCrop(newCrop);
+      cropRef.current = newCrop;
+    })
+    .onEnd(() => {
+      if (imageScaleRef.current <= 1) {
+        setImageScale(1);
+        imageScaleRef.current = 1;
+        setImageOffset({ x: 0, y: 0 });
+        imageOffsetRef.current = { x: 0, y: 0 };
+      }
+    }), []);
 
-          case 'tr': {
-            // Drag top-right corner
-            const delta = Math.max(-dx, dy); // right=grow uses -dx, down=shrink uses dy
-            const newSide = Math.max(MIN_CROP_SIZE, prev.width - delta);
-            // Anchor bottom-left corner
-            const anchorBottom = prev.y + prev.height;
-            newCrop = clampSquareCrop({
-              x: prev.x,
-              y: anchorBottom - newSide,
-              width: newSide,
-              height: newSide,
-            });
-            break;
-          }
+  // Pan gesture for crop move/resize and image pan when zoomed
+  const panGesture = useMemo(() => Gesture.Pan()
+    .maxPointers(1)
+    .runOnJS(true)
+    .onStart((e) => {
+      const target = getDragTarget(e.absoluteX, e.absoluteY);
+      dragTargetRef.current = target;
+      cropStartRef.current = { ...cropRef.current };
+      panStartOffsetRef.current = { ...imageOffsetRef.current };
+      setIsDragging(target !== 'none' && target !== 'pan');
+    })
+    .onUpdate((e) => {
+      const dx = e.translationX;
+      const dy = e.translationY;
 
-          case 'bl': {
-            // Drag bottom-left corner
-            const delta = Math.max(dx, -dy); // right=shrink uses dx, up=shrink uses -dy
-            const newSide = Math.max(MIN_CROP_SIZE, prev.width - delta);
-            // Anchor top-right corner
-            const anchorRight = prev.x + prev.width;
-            newCrop = clampSquareCrop({
-              x: anchorRight - newSide,
-              y: prev.y,
-              width: newSide,
-              height: newSide,
-            });
-            break;
-          }
+      // Handle image pan when zoomed (1 finger outside crop)
+      if (dragTargetRef.current === 'pan') {
+        const newOffset = {
+          x: panStartOffsetRef.current.x + dx,
+          y: panStartOffsetRef.current.y + dy,
+        };
 
-          case 'br': {
-            // Drag bottom-right corner
-            const delta = Math.max(-dx, -dy); // left=shrink uses -dx, up=shrink uses -dy
-            const newSide = Math.max(MIN_CROP_SIZE, prev.width - delta);
-            // Anchor top-left corner
-            newCrop = clampSquareCrop({
-              x: prev.x,
-              y: prev.y,
-              width: newSide,
-              height: newSide,
-            });
-            break;
-          }
+        const startBounds = getRenderedBounds(imageScaleRef.current, panStartOffsetRef.current);
+        const newBounds = getRenderedBounds(imageScaleRef.current, newOffset);
 
-          default:
-            return;
-        }
+        const sc = cropStartRef.current;
+        const screenCropX = startBounds.x + sc.x;
+        const screenCropY = startBounds.y + sc.y;
+        const newCrop = clampCrop({
+          x: screenCropX - newBounds.x,
+          y: screenCropY - newBounds.y,
+          width: sc.width,
+          height: sc.height,
+        }, newBounds);
 
+        setImageOffset(newOffset);
+        imageOffsetRef.current = newOffset;
         setCrop(newCrop);
         cropRef.current = newCrop;
-      },
-      onPanResponderRelease: () => {
-        dragTargetRef.current = 'none';
-        setIsDragging(false);
-      },
+        return;
+      }
+
+      if (dragTargetRef.current === 'none') return;
+
+      const prev = cropStartRef.current;
+      const bounds = getRenderedBounds();
+
+      let newCrop: CropRect;
+
+      switch (dragTargetRef.current) {
+        case 'move':
+          newCrop = clampCrop({
+            x: prev.x + dx,
+            y: prev.y + dy,
+            width: prev.width,
+            height: prev.height,
+          }, bounds);
+          break;
+
+        case 'tl': {
+          const delta = Math.max(dx, dy * CROP_ASPECT);
+          const newW = Math.max(MIN_CROP_SIZE, prev.width - delta);
+          const anchorRight = prev.x + prev.width;
+          const anchorBottom = prev.y + prev.height;
+          newCrop = clampCrop({
+            x: anchorRight - newW,
+            y: anchorBottom - newW / CROP_ASPECT,
+            width: newW,
+            height: newW / CROP_ASPECT,
+          }, bounds);
+          break;
+        }
+
+        case 'tr': {
+          const delta = Math.max(-dx, dy * CROP_ASPECT);
+          const newW = Math.max(MIN_CROP_SIZE, prev.width - delta);
+          const anchorBottom = prev.y + prev.height;
+          newCrop = clampCrop({
+            x: prev.x,
+            y: anchorBottom - newW / CROP_ASPECT,
+            width: newW,
+            height: newW / CROP_ASPECT,
+          }, bounds);
+          break;
+        }
+
+        case 'bl': {
+          const delta = Math.max(dx, -dy * CROP_ASPECT);
+          const newW = Math.max(MIN_CROP_SIZE, prev.width - delta);
+          const anchorRight = prev.x + prev.width;
+          newCrop = clampCrop({
+            x: anchorRight - newW,
+            y: prev.y,
+            width: newW,
+            height: newW / CROP_ASPECT,
+          }, bounds);
+          break;
+        }
+
+        case 'br': {
+          const delta = Math.max(-dx, -dy * CROP_ASPECT);
+          const newW = Math.max(MIN_CROP_SIZE, prev.width - delta);
+          newCrop = clampCrop({
+            x: prev.x,
+            y: prev.y,
+            width: newW,
+            height: newW / CROP_ASPECT,
+          }, bounds);
+          break;
+        }
+
+        default:
+          return;
+      }
+
+      setCrop(newCrop);
+      cropRef.current = newCrop;
     })
-  ).current;
+    .onEnd(() => {
+      dragTargetRef.current = 'none';
+      setIsDragging(false);
+    }), []);
+
+  const composedGesture = useMemo(
+    () => Gesture.Simultaneous(pinchGesture, panGesture),
+    [pinchGesture, panGesture]
+  );
 
   const handleFlipH = () => setFlipH(prev => !prev);
   const handleFlipV = () => setFlipV(prev => !prev);
@@ -327,6 +440,10 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
     setFlipH(false);
     setFlipV(false);
     setRotation(0);
+    setImageScale(1);
+    imageScaleRef.current = 1;
+    setImageOffset({ x: 0, y: 0 });
+    imageOffsetRef.current = { x: 0, y: 0 };
     setCrop(defaultCrop);
     cropRef.current = defaultCrop;
   };
@@ -367,8 +484,9 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
       }
 
       // Always apply crop (since we default to square)
-      const scaleX = imageNaturalSize.width / imageLayout.width;
-      const scaleY = imageNaturalSize.height / imageLayout.height;
+      const rendered = getRenderedBounds();
+      const scaleX = imageNaturalSize.width / rendered.width;
+      const scaleY = imageNaturalSize.height / rendered.height;
 
       actions.push({
         crop: {
@@ -401,9 +519,17 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
   if (flipV) imageTransform.push({ scaleY: -1 });
   if (rotation !== 0) imageTransform.push({ rotate: `${rotation}deg` });
 
+  // Rendered bounds accounting for zoom
+  const renderedBounds = {
+    x: imageLayout.x + imageOffset.x - (imageLayout.width * (imageScale - 1)) / 2,
+    y: imageLayout.y + imageOffset.y - (imageLayout.height * (imageScale - 1)) / 2,
+    width: imageLayout.width * imageScale,
+    height: imageLayout.height * imageScale,
+  };
+
   // Crop dimensions for display
-  const scaleX = imageNaturalSize.width / imageLayout.width;
-  const scaleY = imageNaturalSize.height / imageLayout.height;
+  const scaleX = imageNaturalSize.width / renderedBounds.width;
+  const scaleY = imageNaturalSize.height / renderedBounds.height;
   const cropPixelW = Math.round(crop.width * scaleX);
   const cropPixelH = Math.round(crop.height * scaleY);
 
@@ -412,8 +538,8 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
   const thirdH = crop.height / 3;
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onCancel}>
-      <View style={styles.container}>
+    <Modal visible={visible} animationType="fade" onRequestClose={onCancel}>
+      <GestureHandlerRootView style={styles.container}>
         <StatusBar barStyle="light-content" />
 
         {/* Top bar */}
@@ -424,7 +550,7 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
 
           <View style={styles.titleArea}>
             <Text style={styles.title}>Adjust Crop</Text>
-            <Text style={styles.subtitle}>{cropPixelW} x {cropPixelH}</Text>
+            <Text style={styles.subtitle}>{cropPixelW} x {cropPixelH}{imageScale > 1 ? ` · ${imageScale.toFixed(1)}x` : ''}</Text>
           </View>
 
           <View style={styles.topRight}>
@@ -446,9 +572,9 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
         </View>
 
         {/* Image canvas with crop overlay */}
+        <GestureDetector gesture={composedGesture}>
         <View
           style={styles.canvasArea}
-          {...panResponder.panHandlers}
           onLayout={(e) => {
             const { x, y } = e.nativeEvent.layout;
             canvasOffsetRef.current = { x, y };
@@ -460,10 +586,10 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
             style={[
               {
                 position: 'absolute',
-                left: imageLayout.x,
-                top: imageLayout.y,
-                width: imageLayout.width,
-                height: imageLayout.height,
+                left: renderedBounds.x,
+                top: renderedBounds.y,
+                width: renderedBounds.width,
+                height: renderedBounds.height,
               },
               imageTransform.length > 0 ? { transform: imageTransform } : {},
             ]}
@@ -473,30 +599,30 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
           {/* Dark overlays around crop region */}
           {/* Top strip */}
           <View style={[styles.darkOverlay, {
-            left: imageLayout.x, top: imageLayout.y,
-            width: imageLayout.width, height: crop.y,
+            left: renderedBounds.x, top: renderedBounds.y,
+            width: renderedBounds.width, height: crop.y,
           }]} />
           {/* Bottom strip */}
           <View style={[styles.darkOverlay, {
-            left: imageLayout.x, top: imageLayout.y + crop.y + crop.height,
-            width: imageLayout.width, height: imageLayout.height - crop.y - crop.height,
+            left: renderedBounds.x, top: renderedBounds.y + crop.y + crop.height,
+            width: renderedBounds.width, height: renderedBounds.height - crop.y - crop.height,
           }]} />
           {/* Left strip */}
           <View style={[styles.darkOverlay, {
-            left: imageLayout.x, top: imageLayout.y + crop.y,
+            left: renderedBounds.x, top: renderedBounds.y + crop.y,
             width: crop.x, height: crop.height,
           }]} />
           {/* Right strip */}
           <View style={[styles.darkOverlay, {
-            left: imageLayout.x + crop.x + crop.width, top: imageLayout.y + crop.y,
-            width: imageLayout.width - crop.x - crop.width, height: crop.height,
+            left: renderedBounds.x + crop.x + crop.width, top: renderedBounds.y + crop.y,
+            width: renderedBounds.width - crop.x - crop.width, height: crop.height,
           }]} />
 
           {/* Crop border */}
           <View
             style={[styles.cropBorder, {
-              left: imageLayout.x + crop.x,
-              top: imageLayout.y + crop.y,
+              left: renderedBounds.x + crop.x,
+              top: renderedBounds.y + crop.y,
               width: crop.width,
               height: crop.height,
             }]}
@@ -505,27 +631,27 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
           {/* Rule of thirds grid lines (always visible) */}
           {/* Vertical lines */}
           <View style={[styles.gridLine, {
-            left: imageLayout.x + crop.x + thirdW,
-            top: imageLayout.y + crop.y,
+            left: renderedBounds.x + crop.x + thirdW,
+            top: renderedBounds.y + crop.y,
             width: StyleSheet.hairlineWidth,
             height: crop.height,
           }]} />
           <View style={[styles.gridLine, {
-            left: imageLayout.x + crop.x + thirdW * 2,
-            top: imageLayout.y + crop.y,
+            left: renderedBounds.x + crop.x + thirdW * 2,
+            top: renderedBounds.y + crop.y,
             width: StyleSheet.hairlineWidth,
             height: crop.height,
           }]} />
           {/* Horizontal lines */}
           <View style={[styles.gridLine, {
-            left: imageLayout.x + crop.x,
-            top: imageLayout.y + crop.y + thirdH,
+            left: renderedBounds.x + crop.x,
+            top: renderedBounds.y + crop.y + thirdH,
             width: crop.width,
             height: StyleSheet.hairlineWidth,
           }]} />
           <View style={[styles.gridLine, {
-            left: imageLayout.x + crop.x,
-            top: imageLayout.y + crop.y + thirdH * 2,
+            left: renderedBounds.x + crop.x,
+            top: renderedBounds.y + crop.y + thirdH * 2,
             width: crop.width,
             height: StyleSheet.hairlineWidth,
           }]} />
@@ -533,41 +659,42 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
           {/* L-shaped corner brackets */}
           <View style={{
             position: 'absolute',
-            left: imageLayout.x + crop.x - CORNER_THICKNESS / 2,
-            top: imageLayout.y + crop.y - CORNER_THICKNESS / 2,
+            left: renderedBounds.x + crop.x - CORNER_THICKNESS / 2,
+            top: renderedBounds.y + crop.y - CORNER_THICKNESS / 2,
           }}>
             <CornerBracket position="tl" />
           </View>
           <View style={{
             position: 'absolute',
-            left: imageLayout.x + crop.x + crop.width - CORNER_LENGTH + CORNER_THICKNESS / 2,
-            top: imageLayout.y + crop.y - CORNER_THICKNESS / 2,
+            left: renderedBounds.x + crop.x + crop.width - CORNER_LENGTH + CORNER_THICKNESS / 2,
+            top: renderedBounds.y + crop.y - CORNER_THICKNESS / 2,
           }}>
             <CornerBracket position="tr" />
           </View>
           <View style={{
             position: 'absolute',
-            left: imageLayout.x + crop.x - CORNER_THICKNESS / 2,
-            top: imageLayout.y + crop.y + crop.height - CORNER_LENGTH + CORNER_THICKNESS / 2,
+            left: renderedBounds.x + crop.x - CORNER_THICKNESS / 2,
+            top: renderedBounds.y + crop.y + crop.height - CORNER_LENGTH + CORNER_THICKNESS / 2,
           }}>
             <CornerBracket position="bl" />
           </View>
           <View style={{
             position: 'absolute',
-            left: imageLayout.x + crop.x + crop.width - CORNER_LENGTH + CORNER_THICKNESS / 2,
-            top: imageLayout.y + crop.y + crop.height - CORNER_LENGTH + CORNER_THICKNESS / 2,
+            left: renderedBounds.x + crop.x + crop.width - CORNER_LENGTH + CORNER_THICKNESS / 2,
+            top: renderedBounds.y + crop.y + crop.height - CORNER_LENGTH + CORNER_THICKNESS / 2,
           }}>
             <CornerBracket position="br" />
           </View>
 
           {/* "1:1" aspect ratio label */}
           <View style={[styles.aspectBadge, {
-            left: imageLayout.x + crop.x + crop.width / 2 - 18,
-            top: imageLayout.y + crop.y + crop.height - 28,
+            left: renderedBounds.x + crop.x + crop.width / 2 - 18,
+            top: renderedBounds.y + crop.y + crop.height - 28,
           }]}>
-            <Text style={styles.aspectText}>1:1</Text>
+            <Text style={styles.aspectText}>4:3</Text>
           </View>
         </View>
+        </GestureDetector>
 
         {/* Tools bar */}
         <View style={[styles.toolsBar, { paddingBottom: insets.bottom + 10 }]}>
@@ -606,10 +733,12 @@ export default function ImageEditor({ imageUri, visible, onComplete, onCancel }:
             <Text style={styles.toolLabel}>Reset</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }
+
+export default React.memo(ImageEditor);
 
 const styles = StyleSheet.create({
   container: {
@@ -674,6 +803,7 @@ const styles = StyleSheet.create({
   },
   canvasArea: {
     flex: 1,
+    overflow: 'hidden',
   },
   darkOverlay: {
     position: 'absolute',

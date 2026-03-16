@@ -58,6 +58,20 @@ router.patch('/me', authenticateToken, UserController.updateCurrentUser);
 router.post('/me/avatar', authenticateToken, upload.single('image'), UserController.uploadProfileImage);
 
 /**
+ * @route   GET /api/users/me/interests
+ * @desc    Get current user's interests
+ * @access  Private
+ */
+router.get('/me/interests', authenticateToken, UserController.getInterests);
+
+/**
+ * @route   PUT /api/users/me/interests
+ * @desc    Update current user's interests
+ * @access  Private
+ */
+router.put('/me/interests', authenticateToken, UserController.updateInterests);
+
+/**
  * @route   POST /api/users/fcm-token
  * @desc    Register FCM token for push notifications
  * @access  Private

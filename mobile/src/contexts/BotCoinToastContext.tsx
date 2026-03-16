@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useMemo, ReactNode } from 'react';
 import BotCoinToast from '../components/coins/BotCoinToast';
 
 interface BotCoinNotification {
@@ -54,7 +54,7 @@ export function BotCoinToastProvider({ children }: BotCoinToastProviderProps) {
   }, [showNext]);
 
   return (
-    <BotCoinToastContext.Provider value={{ showBotCoinToast }}>
+    <BotCoinToastContext.Provider value={useMemo(() => ({ showBotCoinToast }), [showBotCoinToast])}>
       {children}
       <BotCoinToast
         visible={visible}

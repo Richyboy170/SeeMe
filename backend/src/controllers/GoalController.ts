@@ -18,7 +18,7 @@ export class GoalController {
 
       const allGoals = await Goal.findAll({
         where: { userId, isActive: true },
-        order: [['createdAt', 'ASC']],
+        order: [['sortOrder', 'ASC'], ['createdAt', 'ASC']],
       });
 
       const goals = allGoals.filter(g => !g.isCompleted);
@@ -37,7 +37,7 @@ export class GoalController {
   static async createGoal(req: AuthRequest, res: Response): Promise<void> {
     try {
       const userId = req.user!.id;
-      const { title } = req.body;
+      const { title, rank, deadline } = req.body;
 
       if (!title || typeof title !== 'string' || title.trim().length === 0) {
         res.status(400).json({ error: 'Goal title is required' });
@@ -49,16 +49,36 @@ export class GoalController {
         return;
       }
 
-      // Check active goal count
-      const activeCount = await Goal.count({ where: { userId, isActive: true } });
-      if (activeCount >= MAX_GOALS) {
+      const validRanks = ['gold', 'silver', 'bronze'];
+      const goalRank = rank && validRanks.includes(rank) ? rank : 'gold';
+
+      // Validate deadline if provided
+      let goalDeadline: Date | null = null;
+      if (deadline) {
+        const parsed = new Date(deadline);
+        if (isNaN(parsed.getTime())) {
+          res.status(400).json({ error: 'Invalid deadline date' });
+          return;
+        }
+        goalDeadline = parsed;
+      }
+
+      // Check active goal count (only non-completed)
+      const activeGoals = await Goal.findAll({ where: { userId, isActive: true, isCompleted: false } });
+      if (activeGoals.length >= MAX_GOALS) {
         res.status(400).json({ error: `You can have at most ${MAX_GOALS} active goals` });
         return;
       }
 
+      // Set sortOrder to be after all existing active goals
+      const maxOrder = activeGoals.reduce((max, g) => Math.max(max, g.sortOrder), -1);
+
       const goal = await Goal.create({
         userId,
         title: title.trim(),
+        rank: goalRank,
+        sortOrder: maxOrder + 1,
+        deadline: goalDeadline,
       });
 
       res.status(201).json({ success: true, goal });
@@ -107,7 +127,7 @@ export class GoalController {
     try {
       const userId = req.user!.id;
       const { goalId } = req.params;
-      const { title } = req.body;
+      const { title, rank, deadline } = req.body;
 
       const goal = await Goal.findByPk(goalId);
       if (!goal) {
@@ -130,6 +150,33 @@ export class GoalController {
           return;
         }
         goal.title = title.trim();
+      }
+
+      if (rank !== undefined) {
+        const validRanks = ['gold', 'silver', 'bronze'];
+        if (!validRanks.includes(rank)) {
+          res.status(400).json({ error: 'Rank must be gold, silver, or bronze' });
+          return;
+        }
+        goal.rank = rank;
+      }
+
+      if (deadline !== undefined) {
+        if (goal.deadlineChangedAt) {
+          res.status(400).json({ error: 'Deadline can only be adjusted once per goal' });
+          return;
+        }
+        if (deadline === null) {
+          goal.deadline = null;
+        } else {
+          const parsed = new Date(deadline);
+          if (isNaN(parsed.getTime())) {
+            res.status(400).json({ error: 'Invalid deadline date' });
+            return;
+          }
+          goal.deadline = parsed;
+        }
+        goal.deadlineChangedAt = new Date();
       }
 
       await goal.save();
@@ -238,6 +285,50 @@ export class GoalController {
     } catch (error) {
       logger.error('Error deleting collection:', { error });
       res.status(500).json({ error: 'Failed to delete collection' });
+    }
+  }
+
+  /**
+   * Reorder goals (set sortOrder for each goal)
+   */
+  static async reorderGoals(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.id;
+      const { order } = req.body;
+
+      if (!Array.isArray(order)) {
+        res.status(400).json({ error: 'Order must be an array of goal IDs' });
+        return;
+      }
+
+      // Verify all goals belong to user
+      const goals = await Goal.findAll({ where: { userId, isActive: true, isCompleted: false } });
+      const goalIds = new Set(goals.map(g => g.id));
+
+      for (let i = 0; i < order.length; i++) {
+        if (!goalIds.has(order[i])) {
+          res.status(400).json({ error: 'Invalid goal ID in order' });
+          return;
+        }
+      }
+
+      // Update sort orders
+      await Promise.all(
+        order.map((goalId: string, index: number) =>
+          Goal.update({ sortOrder: index }, { where: { id: goalId, userId } })
+        )
+      );
+
+      // Return updated goals
+      const updatedGoals = await Goal.findAll({
+        where: { userId, isActive: true, isCompleted: false },
+        order: [['sortOrder', 'ASC']],
+      });
+
+      res.json({ success: true, goals: updatedGoals });
+    } catch (error) {
+      logger.error('Error reordering goals:', { error });
+      res.status(500).json({ error: 'Failed to reorder goals' });
     }
   }
 

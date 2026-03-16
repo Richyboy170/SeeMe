@@ -25,40 +25,36 @@ export const up = async (queryInterface: QueryInterface): Promise<void> => {
           defaultValue: DataTypes.UUIDV4,
           primaryKey: true,
         },
-        userId: {
+        user_id: {
           type: DataTypes.UUID,
           allowNull: false,
-          field: 'userId',
           references: {
             model: 'users',
             key: 'id'
           },
           onDelete: 'CASCADE',
         },
-        targetUserId: {
+        target_user_id: {
           type: DataTypes.UUID,
           allowNull: true,
-          field: 'targetUserId',
           references: {
             model: 'users',
             key: 'id'
           },
           onDelete: 'CASCADE',
         },
-        targetPostId: {
+        target_post_id: {
           type: DataTypes.UUID,
           allowNull: true,
-          field: 'targetPostId',
           references: {
             model: 'posts',
             key: 'id'
           },
           onDelete: 'CASCADE',
         },
-        interactionType: {
+        interaction_type: {
           type: DataTypes.STRING(20),
           allowNull: false,
-          field: 'interactionType',
         },
         weight: {
           type: DataTypes.FLOAT,
@@ -69,7 +65,7 @@ export const up = async (queryInterface: QueryInterface): Promise<void> => {
           type: DataTypes.JSON,
           allowNull: true,
         },
-        createdAt: {
+        created_at: {
           type: DataTypes.DATE,
           allowNull: false,
           defaultValue: DataTypes.NOW,

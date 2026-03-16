@@ -540,6 +540,7 @@ function MainNavigator() {
           headerShown: false,
           tabBarButton: () => null,
           tabBarItemStyle: { display: 'none' },
+          tabBarStyle: { display: 'none' },
         }}
       />
     </MainTab.Navigator>
@@ -866,15 +867,15 @@ function RootNavigatorContent() {
     StatusBar.setBarStyle(isDark ? 'light-content' : 'dark-content', true);
   }, [isDark]);
 
-  if (isLoading) {
-    return null; // Or a loading screen
-  }
-
-  const contextValue: UnreadContextType = {
+  const contextValue = useMemo(() => ({
     unreadCount,
     refreshUnreadCount,
     decrementUnreadCount,
-  };
+  }), [unreadCount, refreshUnreadCount, decrementUnreadCount]);
+
+  if (isLoading) {
+    return null; // Or a loading screen
+  }
 
   return (
     <UnreadContext.Provider value={contextValue}>

@@ -112,6 +112,9 @@ export default function PendingRequestsScreen({ route, navigation }: any) {
           renderItem={renderRequest}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.list}
+          removeClippedSubviews
+          maxToRenderPerBatch={10}
+          windowSize={7}
         />
       )}
     </View>

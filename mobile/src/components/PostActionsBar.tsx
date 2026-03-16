@@ -34,7 +34,7 @@ export interface PostActionsBarProps {
   style?: ViewStyle;
 }
 
-export default function PostActionsBar({
+function PostActionsBar({
   isLiked,
   isSaved,
   likesCount,
@@ -106,6 +106,8 @@ export default function PostActionsBar({
     </View>
   );
 }
+
+export default React.memo(PostActionsBar);
 
 const styles = StyleSheet.create({
   container: {

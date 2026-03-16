@@ -284,6 +284,9 @@ export default function CommentsScreen() {
         keyExtractor={(item) => item.id}
         renderItem={renderComment}
         contentContainerStyle={styles.list}
+        removeClippedSubviews
+        maxToRenderPerBatch={10}
+        windowSize={7}
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Ionicons name="chatbubbles-outline" size={64} color={colors.disabled} />

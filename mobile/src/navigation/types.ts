@@ -30,6 +30,11 @@ export type CoinsStackParamList = {
     otherUserId: string;
     otherUsername: string;
     otherAvatarUrl?: string;
+    otherActiveAvatar?: {
+      id: string;
+      style: 'cartoon' | 'anime' | 'minimalist';
+      customizations: any;
+    } | null;
   };
   UserProfile: {
     userId: string;
@@ -75,6 +80,11 @@ export type DiscoverStackParamList = {
     otherUserId: string;
     otherUsername: string;
     otherAvatarUrl?: string;
+    otherActiveAvatar?: {
+      id: string;
+      style: 'cartoon' | 'anime' | 'minimalist';
+      customizations: any;
+    } | null;
   };
   PendingRequests: {
     topicId: string;
@@ -114,6 +124,11 @@ export type FeedStackParamList = {
     otherUserId: string;
     otherUsername: string;
     otherAvatarUrl?: string;
+    otherActiveAvatar?: {
+      id: string;
+      style: 'cartoon' | 'anime' | 'minimalist';
+      customizations: any;
+    } | null;
   };
 };
 
@@ -173,6 +188,11 @@ export type FriendshipMeetupStackParamList = {
     otherUserId: string;
     otherUsername: string;
     otherAvatarUrl?: string;
+    otherActiveAvatar?: {
+      id: string;
+      style: 'cartoon' | 'anime' | 'minimalist';
+      customizations: any;
+    } | null;
   };
 };
 

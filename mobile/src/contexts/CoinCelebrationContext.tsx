@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
 import CoinCelebration from '../components/coins/CoinCelebration';
 
 type CelebrationSource = 'post' | 'comment' | 'ad' | 'claim' | 'gift' | 'received' | 'friendship';
@@ -34,16 +34,18 @@ export function CoinCelebrationProvider({ children }: CoinCelebrationProviderPro
     setVisible(false);
   }, []);
 
+  const contextValue = useMemo(() => ({ showCelebration }), [showCelebration]);
+
   return (
-    <CoinCelebrationContext.Provider value={{ showCelebration }}>
+    <CoinCelebrationContext.Provider value={contextValue}>
       {children}
-      <CoinCelebration
+      {visible && <CoinCelebration
         visible={visible}
         amount={amount}
         source={source}
         recipientUsername={recipientUsername}
         onClose={handleClose}
-      />
+      />}
     </CoinCelebrationContext.Provider>
   );
 }

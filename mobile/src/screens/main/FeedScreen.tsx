@@ -15,6 +15,7 @@ import {
   ScrollView,
   Alert,
   Animated,
+  Easing,
   PanResponder,
   Dimensions,
   TextInput,
@@ -30,6 +31,7 @@ import { ResolvedDecoration, DecorationStyleBackground, DecorationStyleFrame, De
 import CornerDecorations from '../../components/CornerDecorations';
 import Avatar from '../../components/Avatar';
 import CoinCelebration from '../../components/coins/CoinCelebration';
+import KindnessCoin from '../../components/coins/KindnessCoin';
 import { CommentPreview } from '../../components/feed/CommentPreview';
 import { RepostOptionsModal } from '../../components/feed/RepostOptionsModal';
 import ChatDrawer, { ChatDrawerRef } from '../../components/chat/ChatDrawer';
@@ -212,7 +214,8 @@ const OLD_POST_HOURS = 7 * 24; // 7 days
 function isFeedStale(posts: Post[]): boolean {
   if (posts.length === 0) return false;
   const newest = posts.reduce((latest, p) => {
-    const d = new Date(p.createdAt).getTime();
+    const ts = p.isRepost && p.repostCreatedAt ? p.repostCreatedAt : p.createdAt;
+    const d = new Date(ts).getTime();
     return d > latest ? d : latest;
   }, 0);
   return Date.now() - newest > STALE_FEED_HOURS * 60 * 60 * 1000;
@@ -412,33 +415,89 @@ const olderDividerStyles = StyleSheet.create({
   },
 });
 
-const ENCOURAGING_MESSAGES = [
-  "You're awesome!",
+// Encouraging — hope, strength, keep going
+const ENCOURAGING_POOL = [
+  "Better days are coming.",
+  "Don't give up!",
+  "Good things are ahead.",
+  "Keep going, it's worth it.",
+  "Tomorrow is a new start.",
+  "Hope is always there.",
+  "Great things are coming!",
+  "Stay strong!",
+  "You are not alone.",
+  "You can get through this.",
+  "One step at a time.",
+  "You are braver than you feel.",
+  "Let your light shine!",
   "Keep shining!",
-  "You inspire me!",
-  "Stay amazing!",
-  "You made my day!",
-  "Love your energy!",
-  "You're a star!",
-  "Keep being you!",
-  "So proud of you!",
-  "You're incredible!",
-  "Thanks for being you!",
-  "You rock!",
-  "Spreading positivity!",
-  "You're the best!",
-  "Keep up the great work!",
-  "You brighten my day!",
-  "Sending good vibes!",
-  "You're appreciated!",
-  "Stay wonderful!",
-  "You make a difference!",
-  "Keep doing great things!",
-  "You're a legend!",
-  "Much love!",
-  "You're unstoppable!",
-  "Stay blessed!",
+  "Be the light today.",
+  "Trust the process.",
+  "One day at a time.",
+  "Keep believing!",
+  "Good things take time.",
+  "You were made for good.",
+  "You are here for a reason.",
+  "You matter so much.",
+  "The world needs you!",
 ];
+
+// Love-intense — warmth, care, affection
+const LOVE_POOL = [
+  "You are so loved!",
+  "Sending you love!",
+  "Love never gives up.",
+  "You deserve kindness.",
+  "Love makes us stronger.",
+  "You are cared for.",
+  "So much love for you!",
+  "Your kindness matters.",
+  "Kindness goes a long way.",
+  "Thank you for being kind.",
+  "Small acts, big heart.",
+  "Keep spreading kindness!",
+  "Your heart is beautiful.",
+  "Keep caring for others.",
+  "A kind heart changes lives.",
+  "Joy looks good on you!",
+  "A happy heart helps others.",
+  "You brighten people's lives.",
+];
+
+// Blessing — gratitude, grace, peace
+const BLESSING_POOL = [
+  "Peace to you today!",
+  "Wishing you a calm day.",
+  "May your day be peaceful.",
+  "You deserve some rest.",
+  "Every day is a fresh start.",
+  "New day, new blessings.",
+  "Grace for today!",
+  "It's okay to start over.",
+  "So thankful for you!",
+  "You are a blessing!",
+  "Grateful you're here.",
+  "Blessings to you!",
+  "What a gift you are!",
+  "Choose joy today!",
+  "Today is a gift!",
+  "Smile — you earned it!",
+  "You don't have to be perfect.",
+  "Take a deep breath.",
+];
+
+const ENCOURAGING_MESSAGES = [...ENCOURAGING_POOL, ...LOVE_POOL, ...BLESSING_POOL];
+
+function pickOne(pool: string[]): string {
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+/** Always returns 1 encouraging + 1 love + 1 blessing (shuffled order) */
+function pickRandomSuggestions(count: number): string[] {
+  const picks = [pickOne(ENCOURAGING_POOL), pickOne(LOVE_POOL), pickOne(BLESSING_POOL)];
+  // Shuffle so the order isn't always the same category
+  return picks.sort(() => Math.random() - 0.5);
+}
 
 // Twitter-style Tweet Card Component
 const TweetCard = React.memo(function TweetCard({
@@ -457,6 +516,7 @@ const TweetCard = React.memo(function TweetCard({
   currentUserId,
   colors,
   isStale,
+  sidebarVisible = true,
 }: {
   post: Post;
   onLike: (postId: string) => void;
@@ -473,6 +533,7 @@ const TweetCard = React.memo(function TweetCard({
   currentUserId: string;
   colors: ThemeColors;
   isStale?: boolean;
+  sidebarVisible?: boolean;
 }) {
   const { width } = useWindowDimensions();
   const { isDark } = useTheme();
@@ -560,6 +621,8 @@ const TweetCard = React.memo(function TweetCard({
   const [pendingCoinAmount, setPendingCoinAmount] = React.useState(0);
   const [coinMessage, setCoinMessage] = React.useState('');
   const [isSendingCoins, setIsSendingCoins] = React.useState(false);
+  const [messageSuggestions, setMessageSuggestions] = React.useState<string[]>(() => pickRandomSuggestions(3));
+  const [showCustomMessageInput, setShowCustomMessageInput] = React.useState(false);
 
   // Envelope animation refs
   const envelopeScale = React.useRef(new Animated.Value(0)).current;
@@ -567,6 +630,14 @@ const TweetCard = React.memo(function TweetCard({
   const overlayOpacity = React.useRef(new Animated.Value(0)).current;
   const messageInputOpacity = React.useRef(new Animated.Value(0)).current;
   const flapRotate = React.useRef(new Animated.Value(0)).current;
+  // Extra animations for fun
+  const envelopeCoinBounce = React.useRef(new Animated.Value(0)).current;
+  const chipAnims = React.useRef([0, 1, 2].map(() => new Animated.Value(0))).current;
+  const shuffleSpinAnim = React.useRef(new Animated.Value(0)).current;
+  const sendButtonPulse = React.useRef(new Animated.Value(1)).current;
+  const heartBurstAnims = React.useRef([0, 1, 2, 3, 4].map(() => new Animated.Value(0))).current;
+  const [heartBurstKey, setHeartBurstKey] = React.useState(0);
+  const customInputAnim = React.useRef(new Animated.Value(0)).current;
 
   // Check if this is user's own post
   const isOwnPost = post.user.id === currentUserId || (post.isRepost && post.repostedBy?.id === currentUserId);
@@ -674,12 +745,35 @@ const TweetCard = React.memo(function TweetCard({
   React.useEffect(() => { hoveredCoinIndexRef.current = hoveredCoinIndex; }, [hoveredCoinIndex]);
 
   // Show message overlay with envelope animation — everything runs in parallel for speed
+  const animateChipsIn = () => {
+    chipAnims.forEach(a => a.setValue(0));
+    Animated.stagger(50, chipAnims.map(anim =>
+      Animated.timing(anim, { toValue: 1, duration: 280, easing: Easing.out(Easing.quad), useNativeDriver: true })
+    )).start();
+  };
+
+  const triggerHeartBurst = () => {
+    setHeartBurstKey(k => k + 1);
+    heartBurstAnims.forEach(a => a.setValue(0));
+    heartBurstAnims.forEach((anim, i) => {
+      Animated.timing(anim, {
+        toValue: 1,
+        duration: 1000 + i * 100,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+        delay: i * 50,
+      }).start();
+    });
+  };
+
   const playEnvelopeAnimation = () => {
     envelopeScale.setValue(0.5);
     envelopeTranslateY.setValue(40);
     overlayOpacity.setValue(0);
     messageInputOpacity.setValue(0);
     flapRotate.setValue(0);
+    envelopeCoinBounce.setValue(0);
+    chipAnims.forEach(a => a.setValue(0));
 
     Animated.parallel([
       Animated.timing(overlayOpacity, { toValue: 1, duration: 150, useNativeDriver: true }),
@@ -691,6 +785,21 @@ const TweetCard = React.memo(function TweetCard({
         Animated.timing(messageInputOpacity, { toValue: 1, duration: 150, useNativeDriver: true }),
       ]),
     ]).start();
+
+    // Chips start early — just a tiny delay so the envelope is visible first
+    setTimeout(animateChipsIn, 80);
+
+    // Coin bounce loop
+    Animated.loop(Animated.sequence([
+      Animated.timing(envelopeCoinBounce, { toValue: -5, duration: 1000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      Animated.timing(envelopeCoinBounce, { toValue: 0, duration: 1000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+    ])).start();
+
+    // Send button pulse
+    Animated.loop(Animated.sequence([
+      Animated.timing(sendButtonPulse, { toValue: 1.05, duration: 800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      Animated.timing(sendButtonPulse, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+    ])).start();
   };
 
   const playDismissAnimation = (onComplete: () => void) => {
@@ -718,6 +827,8 @@ const TweetCard = React.memo(function TweetCard({
   const openMessageOverlay = (amount: number) => {
     setPendingCoinAmount(amount);
     setCoinMessage('');
+    setShowCustomMessageInput(false);
+    setMessageSuggestions(pickRandomSuggestions(3));
     setShowMessageOverlay(true);
     setTimeout(playEnvelopeAnimation, 16);
   };
@@ -834,8 +945,8 @@ const TweetCard = React.memo(function TweetCard({
   }, []);
 
   const imageUri = getImageUrl(post.thumbnailUrl) || getImageUrl(post.imageUrl) || getImageUrl(post.originalImageUrl);
-  // On large screens, account for sidebar; cap image at reasonable max
-  const feedWidth = width >= TABLET_BREAKPOINT ? width - SIDEBAR_WIDTH : width;
+  // On large screens, account for sidebar when visible; cap image at reasonable max
+  const feedWidth = width >= TABLET_BREAKPOINT && sidebarVisible ? width - SIDEBAR_WIDTH : width;
   const imageWidth = Math.min(feedWidth - 82, 700);
 
   const recipientUsername = post.isRepost && post.repostedBy ? post.repostedBy.username : post.user.username;
@@ -948,6 +1059,30 @@ const TweetCard = React.memo(function TweetCard({
   };
 
   // Message overlay with envelope animation
+  const heartEmojis = ['❤️', '💛', '🧡', '💖', '✨'];
+  const heartBurstPositions = [
+    { x: -40, rot: '-20deg' }, { x: 20, rot: '15deg' }, { x: -15, rot: '-10deg' },
+    { x: 35, rot: '25deg' }, { x: 0, rot: '5deg' },
+  ];
+
+  const shuffleMessageSuggestions = () => {
+    shuffleSpinAnim.setValue(0);
+    Animated.timing(shuffleSpinAnim, { toValue: 1, duration: 500, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    setMessageSuggestions(pickRandomSuggestions(3));
+    setCoinMessage('');
+    setShowCustomMessageInput(false);
+    animateChipsIn();
+  };
+
+  const selectMessageSuggestion = (text: string) => {
+    const deselecting = coinMessage === text;
+    setCoinMessage(deselecting ? '' : text);
+    setShowCustomMessageInput(false);
+    if (!deselecting) triggerHeartBurst();
+  };
+
+  const shuffleSpinRotation = shuffleSpinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '720deg'] });
+
   const renderMessageOverlay = () => (
     <Modal
       visible={showMessageOverlay}
@@ -992,46 +1127,137 @@ const TweetCard = React.memo(function TweetCard({
               },
             ]} />
 
-            {/* Amount badge */}
-            <View style={styles.envelopeAmountBadge}>
-              <Ionicons name="gift" size={16} color="#FBBF24" style={styles.envelopeCoinIcon} />
-              <Text style={styles.envelopeAmountText}>{pendingCoinAmount}</Text>
-            </View>
-
             {/* Content */}
             <Animated.View style={[styles.envelopeContent, { opacity: messageInputOpacity }]}>
-              <Text style={[styles.envelopeTitle, { color: colors.text }]}>Add a message?</Text>
-              <Text style={[styles.envelopeSubtitle, { color: colors.textSecondary }]}>
-                to @{recipientUsername}
-              </Text>
+              {/* Hero coin with bounce */}
+              <Animated.View style={{ transform: [{ translateY: envelopeCoinBounce }], marginBottom: 8 }}>
+                <KindnessCoin size={44} showGlow />
+              </Animated.View>
 
-              <View style={[styles.envelopeInputContainer, { borderColor: colors.border }]}>
-                <TextInput
-                  style={[styles.envelopeInput, { color: colors.text }]}
-                  placeholder="Write an encouraging message..."
-                  placeholderTextColor={colors.textSecondary}
-                  value={coinMessage}
-                  onChangeText={(text) => setCoinMessage(text.slice(0, 200))}
-                  maxLength={200}
-                  multiline
-                  numberOfLines={3}
-                />
-                <Text style={[styles.envelopeCharCount, { color: colors.textSecondary }]}>
-                  {coinMessage.length}/200
-                </Text>
+              {/* Heart burst */}
+              <View style={styles.heartBurstContainer} pointerEvents="none">
+                {heartBurstAnims.map((anim, i) => (
+                  <Animated.Text
+                    key={`${heartBurstKey}-${i}`}
+                    style={{
+                      position: 'absolute',
+                      fontSize: 16,
+                      opacity: anim.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0, 1, 0] }),
+                      transform: [
+                        { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [0, -80] }) },
+                        { translateX: heartBurstPositions[i].x },
+                        { scale: anim.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0.3, 1.2, 0.5] }) },
+                        { rotate: heartBurstPositions[i].rot },
+                      ],
+                    }}
+                  >
+                    {heartEmojis[i]}
+                  </Animated.Text>
+                ))}
               </View>
 
-              {/* Random message button */}
-              <Pressable
-                style={styles.envelopeRandomButton}
-                onPress={() => {
-                  const msg = ENCOURAGING_MESSAGES[Math.floor(Math.random() * ENCOURAGING_MESSAGES.length)];
-                  setCoinMessage(msg);
-                }}
-              >
-                <Ionicons name="shuffle" size={16} color="#8B5CF6" />
-                <Text style={styles.envelopeRandomText}>Random</Text>
-              </Pressable>
+              {/* Amount badge */}
+              <View style={styles.envelopeAmountBadge}>
+                <Ionicons name="gift" size={14} color="#FBBF24" />
+                <Text style={styles.envelopeAmountText}>{pendingCoinAmount} {pendingCoinAmount === 1 ? 'coin' : 'coins'}</Text>
+              </View>
+
+              <Text style={[styles.envelopeTitle, { color: colors.text }]}>Add a message?</Text>
+              <Text style={[styles.envelopeSubtitle, { color: colors.textSecondary }]}>
+                to <Text style={{ color: '#F59E0B', fontWeight: '600' }}>@{recipientUsername}</Text>
+              </Text>
+
+              {/* Suggestion chips — tap to select */}
+              <View style={styles.envelopeSuggestionsArea}>
+                <View style={styles.envelopeSuggestionsHeader}>
+                  <Text style={[styles.envelopeSuggestionsLabel, { color: colors.textSecondary }]}>Quick picks</Text>
+                  <Pressable style={styles.envelopeShuffleButton} onPress={shuffleMessageSuggestions}>
+                    <Animated.View style={{ transform: [{ rotate: shuffleSpinRotation }] }}>
+                      <Ionicons name="sparkles" size={13} color="#8B5CF6" />
+                    </Animated.View>
+                    <Text style={styles.envelopeShuffleText}>Shuffle</Text>
+                  </Pressable>
+                </View>
+
+                {messageSuggestions.map((text, i) => {
+                  const isSelected = coinMessage === text;
+                  return (
+                    <Animated.View
+                      key={`${text}-${i}`}
+                      style={{
+                        opacity: chipAnims[i],
+                        transform: [
+                          { translateY: chipAnims[i].interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) },
+                          { scale: chipAnims[i].interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+                        ],
+                      }}
+                    >
+                      <Pressable
+                        style={[
+                          styles.envelopeSuggestionChip,
+                          {
+                            backgroundColor: isSelected ? 'rgba(139, 92, 246, 0.15)' : 'rgba(139, 92, 246, 0.06)',
+                            borderColor: isSelected ? '#8B5CF6' : 'rgba(139, 92, 246, 0.15)',
+                          },
+                        ]}
+                        onPress={() => selectMessageSuggestion(text)}
+                      >
+                        {isSelected && <Ionicons name="checkmark-circle" size={14} color="#8B5CF6" style={{ marginRight: 6 }} />}
+                        <Text style={[
+                          styles.envelopeSuggestionText,
+                          { color: isSelected ? '#8B5CF6' : colors.text, fontWeight: isSelected ? '700' : '500' },
+                        ]}>
+                          {text}
+                        </Text>
+                      </Pressable>
+                    </Animated.View>
+                  );
+                })}
+              </View>
+
+              {/* Write your own */}
+              {!showCustomMessageInput ? (
+                <Pressable
+                  style={styles.envelopeWriteOwnButton}
+                  onPress={() => {
+                    setShowCustomMessageInput(true);
+                    setCoinMessage('');
+                    customInputAnim.setValue(0);
+                    Animated.spring(customInputAnim, { toValue: 1, friction: 7, tension: 80, useNativeDriver: true }).start();
+                  }}
+                >
+                  <Ionicons name="create-outline" size={14} color={colors.textSecondary} />
+                  <Text style={[styles.envelopeWriteOwnText, { color: colors.textSecondary }]}>Write your own</Text>
+                </Pressable>
+              ) : (
+                <Animated.View style={{
+                  width: '100%',
+                  opacity: customInputAnim,
+                  transform: [{ translateY: customInputAnim.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }],
+                }}>
+                  <View style={[styles.envelopeInputContainer, { borderColor: colors.border }]}>
+                    <TextInput
+                      style={[styles.envelopeInput, { color: colors.text }]}
+                      placeholder="Write something kind..."
+                      placeholderTextColor={colors.textSecondary}
+                      value={coinMessage}
+                      onChangeText={(text) => setCoinMessage(text.slice(0, 200))}
+                      maxLength={200}
+                      multiline
+                      numberOfLines={3}
+                      autoFocus
+                    />
+                    <View style={styles.envelopeInputFooter}>
+                      <Pressable onPress={() => { setShowCustomMessageInput(false); setCoinMessage(''); }}>
+                        <Text style={[styles.envelopeInputCancelText, { color: colors.textSecondary }]}>Cancel</Text>
+                      </Pressable>
+                      <Text style={[styles.envelopeCharCount, { color: coinMessage.length > 180 ? '#EF4444' : colors.textSecondary }]}>
+                        {coinMessage.length}/200
+                      </Text>
+                    </View>
+                  </View>
+                </Animated.View>
+              )}
 
               {/* Action buttons */}
               <View style={styles.envelopeActions}>
@@ -1049,29 +1275,31 @@ const TweetCard = React.memo(function TweetCard({
                   <Text style={[styles.envelopeCancelButtonText, { color: colors.textSecondary }]}>Cancel</Text>
                 </Pressable>
 
-                <Pressable
-                  style={[styles.envelopeSkipButton, { borderColor: colors.border }]}
-                  onPress={() => handleSendWithMessage()}
-                  disabled={isSendingCoins}
-                >
-                  {isSendingCoins && !coinMessage.trim() ? (
-                    <ActivityIndicator size="small" color={colors.text} />
-                  ) : (
-                    <Text style={[styles.envelopeSkipButtonText, { color: colors.text }]}>Skip</Text>
-                  )}
-                </Pressable>
-
-                <Pressable
-                  style={[styles.envelopeSendButton, { opacity: coinMessage.trim() ? 1 : 0.5 }]}
-                  onPress={() => handleSendWithMessage(coinMessage)}
-                  disabled={isSendingCoins || !coinMessage.trim()}
-                >
-                  {isSendingCoins && coinMessage.trim() ? (
-                    <ActivityIndicator size="small" color="#FFF" />
-                  ) : (
-                    <Text style={styles.envelopeSendButtonText}>Send</Text>
-                  )}
-                </Pressable>
+                <Animated.View style={{ flex: 2, transform: [{ scale: sendButtonPulse }] }}>
+                  <Pressable
+                    style={styles.envelopeSendButton}
+                    onPress={() => handleSendWithMessage(coinMessage.trim() || undefined)}
+                    disabled={isSendingCoins}
+                  >
+                    <LinearGradient
+                      colors={['#FBBF24', '#F59E0B', '#D97706']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.envelopeSendButtonGradient}
+                    >
+                      {isSendingCoins ? (
+                        <ActivityIndicator size="small" color="#FFF" />
+                      ) : (
+                        <>
+                          <Ionicons name="heart" size={16} color="#FFF" style={{ marginRight: 6 }} />
+                          <Text style={styles.envelopeSendButtonText}>
+                            {coinMessage.trim() ? 'Send with message' : 'Send'}
+                          </Text>
+                        </>
+                      )}
+                    </LinearGradient>
+                  </Pressable>
+                </Animated.View>
               </View>
             </Animated.View>
           </Animated.View>
@@ -1468,7 +1696,7 @@ const TweetCard = React.memo(function TweetCard({
                     >
                       <Image
                         source={{ uri: imageUri }}
-                        style={[styles.mediaImage, { width: imageWidth - 12, height: (imageWidth - 12) * 0.75, backgroundColor: colors.mediaBackground }]}
+                        style={[styles.mediaImage, { width: '100%', aspectRatio: 4 / 3, backgroundColor: colors.mediaBackground }]}
                         resizeMode="cover"
                       />
                       {(frameCornerConfig || perCornerIcons) && <CornerDecorations config={frameCornerConfig || undefined} cornerIcons={perCornerIcons} muted />}
@@ -2172,6 +2400,7 @@ function FeedSidebar({
   totalCommunityUnseen,
   onPostPress,
   colors,
+  onClose,
 }: {
   friends: FriendEntry[];
   communities: CommunityEntry[];
@@ -2179,6 +2408,7 @@ function FeedSidebar({
   totalCommunityUnseen: number;
   onPostPress: (postId: string, userId: string, username: string) => void;
   colors: ThemeColors;
+  onClose: () => void;
 }) {
   const { colors: themeColors } = useTheme();
   const allCaughtUp = totalFriendUnseen === 0 && totalCommunityUnseen === 0;
@@ -2187,9 +2417,10 @@ function FeedSidebar({
   if (friends.length === 0 && communities.length === 0) {
     return (
       <View style={sidebarStyles.container}>
-        <View style={[sidebarStyles.sectionHeader, { borderBottomColor: colors.separator }]}>
-          <Ionicons name="newspaper-outline" size={16} color={themeColors.text.link} />
-          <Text style={[sidebarStyles.headerTitle, { color: colors.text }]}>Feed</Text>
+        <View style={[sidebarStyles.sectionHeader, { borderBottomColor: colors.separator, justifyContent: 'flex-end' }]}>
+          <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
         </View>
         <View style={sidebarStyles.emptyContainer}>
           <Ionicons name="sparkles-outline" size={28} color={colors.textSecondary} />
@@ -2203,13 +2434,12 @@ function FeedSidebar({
 
   return (
     <View style={sidebarStyles.container}>
-      {/* All caught up banner */}
-      {allCaughtUp && (
-        <View style={[sidebarStyles.sectionHeader, { borderBottomColor: colors.separator }]}>
-          <Ionicons name="checkmark-circle" size={16} color={themeColors.text.link} />
-          <Text style={[sidebarStyles.headerTitle, { color: colors.text }]}>All caught up</Text>
-        </View>
-      )}
+      {/* Sidebar close button */}
+      <View style={[sidebarStyles.sectionHeader, { borderBottomColor: colors.separator, justifyContent: 'flex-end' }]}>
+        <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+        </TouchableOpacity>
+      </View>
       <ScrollView
         style={sidebarStyles.list}
         showsVerticalScrollIndicator={false}
@@ -3130,6 +3360,7 @@ export default function FeedScreen() {
   const [editedImageUri, setEditedImageUri] = React.useState<string | null>(null);
   const [showImageEditor, setShowImageEditor] = React.useState(false);
   const [showFeedGuide, setShowFeedGuide] = React.useState(false);
+  const [sidebarVisible, setSidebarVisible] = React.useState(true);
 
   // Pagination state for infinite scroll
   const [loadingMore, setLoadingMore] = useState(false);
@@ -3385,8 +3616,10 @@ export default function FeedScreen() {
       if (!feedSeenSnapshot.has(key)) {
         unseen.push(p);
       } else {
-        // Seen post — use createdAt to decide recent vs old
-        const age = now - new Date(p.createdAt).getTime();
+        // Seen post — use the relevant timestamp to decide recent vs old
+        // For reposts, use repostCreatedAt (when it appeared in the feed)
+        const ts = p.isRepost && p.repostCreatedAt ? p.repostCreatedAt : p.createdAt;
+        const age = now - new Date(ts).getTime();
         if (age > staleThreshold) {
           oldSeen.push(p);
         } else {
@@ -3394,9 +3627,12 @@ export default function FeedScreen() {
         }
       }
     }
-    // Sort each bucket newest-first
-    const byNewest = (a: Post, b: Post) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    // Sort each bucket newest-first (use repostCreatedAt for reposts)
+    const getTime = (p: Post) => {
+      const ts = p.isRepost && p.repostCreatedAt ? p.repostCreatedAt : p.createdAt;
+      return new Date(ts).getTime();
+    };
+    const byNewest = (a: Post, b: Post) => getTime(b) - getTime(a);
     unseen.sort(byNewest);
     recentlySeen.sort(byNewest);
     oldSeen.sort(byNewest);
@@ -3728,6 +3964,24 @@ export default function FeedScreen() {
       const data = await api.getAlgorithmicFeed(nextPage);
       const newPosts = data.posts || [];
       if (newPosts.length > 0) {
+        // Mark paginated posts as "seen" so they land in the old section
+        // (not as unseen at the top). They're deeper content the user scrolled to.
+        const newKeys: string[] = [];
+        for (const p of newPosts) {
+          const key = (p as any).feedItemId || p.id;
+          if (!seenPostIdsRef.current.has(key)) {
+            seenPostIdsRef.current.add(key);
+            newKeys.push(key);
+          }
+        }
+        if (newKeys.length > 0) {
+          setFeedSeenSnapshot(prev => {
+            const next = new Set(prev);
+            for (const k of newKeys) next.add(k);
+            return next;
+          });
+          saveSeenPostIdsRef.current();
+        }
         setPosts(prev => {
           const existingIds = new Set(prev.map((p: any) => p.feedItemId || p.id));
           const unique = newPosts.filter((p: any) => !existingIds.has(p.feedItemId || p.id));
@@ -4001,9 +4255,10 @@ export default function FeedScreen() {
         currentUserId={currentUserId}
         colors={colors}
         isStale={stale}
+        sidebarVisible={sidebarVisible}
       />
     );
-  }, [colors, isFilterActive, currentUserId, oldPostIds, caughtUpDismissed, handleLike, handleComment, handleUserPress, handleQuickGiveCoins, handleImagePress, handleRepost, handleShare, handleNavigateToProfile, handleTopicPress, handleMorePress, handleCoinPickerChange, handleCreatePostFromStale, handleDismissCaughtUp]);
+  }, [colors, isFilterActive, currentUserId, oldPostIds, caughtUpDismissed, sidebarVisible, handleLike, handleComment, handleUserPress, handleQuickGiveCoins, handleImagePress, handleRepost, handleShare, handleNavigateToProfile, handleTopicPress, handleMorePress, handleCoinPickerChange, handleCreatePostFromStale, handleDismissCaughtUp]);
 
   const renderSeparator = useCallback(() => (
     <View style={[styles.separator, { backgroundColor: colors.separator }]} />
@@ -4148,8 +4403,8 @@ export default function FeedScreen() {
           />
         </View>
 
-        {/* Sidebar - only on large screens */}
-        {isTablet && (
+        {/* Sidebar - only on large screens, toggleable */}
+        {isTablet && sidebarVisible && (
           <View style={{ paddingTop: insets.top, borderLeftWidth: 1, borderLeftColor: colors.separator }}>
             <FeedSidebar
               friends={friends}
@@ -4158,8 +4413,26 @@ export default function FeedScreen() {
               totalCommunityUnseen={totalCommunityUnseen}
               onPostPress={(postId, _userId, _username) => scrollToPost(postId)}
               colors={colors}
+              onClose={() => setSidebarVisible(false)}
             />
           </View>
+        )}
+
+        {/* Re-open sidebar tab when hidden on large screens */}
+        {isTablet && !sidebarVisible && (
+          <TouchableOpacity
+            onPress={() => setSidebarVisible(true)}
+            style={{
+              paddingTop: insets.top + 12,
+              paddingHorizontal: 6,
+              paddingBottom: 12,
+              borderLeftWidth: 1,
+              borderLeftColor: colors.separator,
+              alignItems: 'center',
+            }}
+          >
+            <Ionicons name="chevron-back" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
         )}
       </View>
 
@@ -5133,15 +5406,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   envelopeContainer: {
-    width: 300,
-    borderRadius: 20,
-    paddingTop: 30,
+    width: 320,
+    borderRadius: 24,
+    paddingTop: 24,
     paddingBottom: 20,
     paddingHorizontal: 20,
-    shadowColor: '#000',
+    shadowColor: '#F59E0B',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
     elevation: 20,
     overflow: 'hidden',
   },
@@ -5151,112 +5424,163 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 30,
-    backgroundColor: 'rgba(251, 191, 36, 0.15)',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    backgroundColor: 'rgba(251, 191, 36, 0.12)',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+  },
+  envelopeContent: {
+    alignItems: 'center',
+  },
+  heartBurstContainer: {
+    position: 'absolute',
+    top: 10,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    height: 80,
+    zIndex: 20,
   },
   envelopeAmountBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(251, 191, 36, 0.15)',
+    backgroundColor: 'rgba(251, 191, 36, 0.12)',
     paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 16,
+    paddingVertical: 5,
+    borderRadius: 20,
     alignSelf: 'center',
-    marginBottom: 16,
-    gap: 6,
-  },
-  envelopeCoinIcon: {
-    marginRight: 2,
+    marginBottom: 10,
+    gap: 5,
   },
   envelopeAmountText: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#FBBF24',
-  },
-  envelopeContent: {
-    alignItems: 'center',
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#F59E0B',
   },
   envelopeTitle: {
-    fontSize: 18,
+    fontSize: 19,
     fontWeight: '700',
-    marginBottom: 4,
+    marginBottom: 3,
   },
   envelopeSubtitle: {
     fontSize: 13,
-    marginBottom: 16,
+    marginBottom: 14,
+  },
+  // Suggestions
+  envelopeSuggestionsArea: {
+    width: '100%',
+    marginBottom: 8,
+  },
+  envelopeSuggestionsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  envelopeSuggestionsLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  envelopeShuffleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 16,
+    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+    gap: 4,
+  },
+  envelopeShuffleText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#8B5CF6',
+  },
+  envelopeSuggestionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    marginBottom: 6,
+  },
+  envelopeSuggestionText: {
+    fontSize: 13,
+    lineHeight: 18,
+    flex: 1,
+  },
+  envelopeWriteOwnButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  envelopeWriteOwnText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
   envelopeInputContainer: {
     width: '100%',
-    borderWidth: 1,
-    borderRadius: 12,
+    borderWidth: 1.5,
+    borderRadius: 14,
     padding: 12,
     marginBottom: 8,
-    minHeight: 80,
+    minHeight: 70,
   },
   envelopeInput: {
-    fontSize: 15,
+    fontSize: 14,
     lineHeight: 20,
     textAlignVertical: 'top',
-    minHeight: 54,
+    minHeight: 40,
+  },
+  envelopeInputFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  envelopeInputCancelText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
   envelopeCharCount: {
     fontSize: 11,
     textAlign: 'right',
-    marginTop: 4,
-  },
-  envelopeRandomButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 16,
-    backgroundColor: 'rgba(139, 92, 246, 0.12)',
-    marginBottom: 16,
-  },
-  envelopeRandomText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#8B5CF6',
   },
   envelopeActions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     width: '100%',
     gap: 8,
+    alignItems: 'center',
+    marginTop: 4,
   },
   envelopeCancelButton: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: 13,
+    borderRadius: 14,
     alignItems: 'center',
   },
   envelopeCancelButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  envelopeSkipButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: 'center',
-  },
-  envelopeSkipButtonText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
   },
   envelopeSendButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: '#8B5CF6',
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  envelopeSendButtonGradient: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 13,
+    paddingHorizontal: 16,
   },
   envelopeSendButtonText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',
   },

@@ -11,6 +11,7 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   Animated,
+  Easing,
   Dimensions,
   PanResponder,
 } from 'react-native';
@@ -20,6 +21,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../theme';
 import { api, getImageUrl } from '../../services/api';
 import { TrustConnectionItem } from '../../components/TrustConnectionItem';
+import Avatar from '../../components/Avatar';
 import FriendshipGuide, { SpotlightRect } from '../../components/friendship/FriendshipGuide';
 import PeopleTab from '../discover/PeopleTab';
 import SpinningWheelTab from '../discover/SpinningWheelTab';
@@ -36,7 +38,7 @@ const SEGMENT_TAB_WIDTH = (SCREEN_WIDTH - SEGMENT_H_PADDING * 2 - SEGMENT_INNER_
 type FillupTab = 'meetup' | 'activities' | 'goals';
 
 // Persists across navigations so the tab doesn't reset when returning
-let lastActiveTab: FillupTab = 'meetup';
+let lastActiveTab: FillupTab = 'goals';
 
 const GUIDE_SEEN_KEY = 'friendship_guide_seen';
 
@@ -46,6 +48,11 @@ interface TrustConnection {
     id: string;
     username: string;
     avatarUrl?: string;
+    activeAvatar?: {
+      id: string;
+      style: 'cartoon' | 'anime' | 'minimalist';
+      customizations: any;
+    } | null;
   };
   trustScore: number;
   currentStreak: number;
@@ -66,14 +73,296 @@ export default function FriendshipHomeScreen() {
   const [history, setHistory] = useState<any[]>([]);
   const [trustConnections, setTrustConnections] = useState<TrustConnection[]>([]);
   const [showAllBonds, setShowAllBonds] = useState(false);
+  const [showBondTips, setShowBondTips] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // People search
   const [peopleSearchQuery, setPeopleSearchQuery] = useState('');
 
+  // === MEETUP TAB ANIMATIONS ===
+
+  // Hero entrance animations (staggered fade + slide up)
+  const heroEmojiAnim = useRef(new Animated.Value(0)).current;
+  const heroTitleAnim = useRef(new Animated.Value(0)).current;
+  const heroSubtitleAnim = useRef(new Animated.Value(0)).current;
+
+  // Continuous emoji bounce
+  const emojiBounce = useRef(new Animated.Value(0)).current;
+
+  // Action buttons entrance (slide in from sides)
+  const startBtnAnim = useRef(new Animated.Value(0)).current;
+  const joinBtnAnim = useRef(new Animated.Value(0)).current;
+
+  // Pulse ring on Start Meetup button
+  const pulseScale = useRef(new Animated.Value(1)).current;
+  const pulseOpacity = useRef(new Animated.Value(0.6)).current;
+
+  // Bonds section entrance
+  const bondsAnim = useRef(new Animated.Value(0)).current;
+
+  // Recent meetups section entrance
+  const recentHeaderAnim = useRef(new Animated.Value(0)).current;
+
+  // Floating particles around hero
+  const particle1Y = useRef(new Animated.Value(0)).current;
+  const particle1X = useRef(new Animated.Value(0)).current;
+  const particle1Opacity = useRef(new Animated.Value(0)).current;
+  const particle2Y = useRef(new Animated.Value(0)).current;
+  const particle2X = useRef(new Animated.Value(0)).current;
+  const particle2Opacity = useRef(new Animated.Value(0)).current;
+  const particle3Y = useRef(new Animated.Value(0)).current;
+  const particle3X = useRef(new Animated.Value(0)).current;
+  const particle3Opacity = useRef(new Animated.Value(0)).current;
+  const particle4Y = useRef(new Animated.Value(0)).current;
+  const particle4X = useRef(new Animated.Value(0)).current;
+  const particle4Opacity = useRef(new Animated.Value(0)).current;
+  const particle5Y = useRef(new Animated.Value(0)).current;
+  const particle5X = useRef(new Animated.Value(0)).current;
+  const particle5Opacity = useRef(new Animated.Value(0)).current;
+
+  // Button press scale animations
+  const startBtnScale = useRef(new Animated.Value(1)).current;
+  const joinBtnScale = useRef(new Animated.Value(1)).current;
+
+  // History items stagger
+  const historyItemAnims = useRef<Animated.Value[]>([]).current;
+
+  // Empty state floating
+  const emptyFloatAnim = useRef(new Animated.Value(0)).current;
+
+  // Sparkle rotation for coin amounts
+  const sparkleRotation = useRef(new Animated.Value(0)).current;
+
+  // Icon animations on buttons
+  const startIconRotate = useRef(new Animated.Value(0)).current;
+  const joinIconPulse = useRef(new Animated.Value(1)).current;
+
+  // Coin reward banner glow/breathing
+  const bannerGlow = useRef(new Animated.Value(0)).current;
+
+  // How-it-works steps entrance
+  const step1Anim = useRef(new Animated.Value(0)).current;
+  const step2Anim = useRef(new Animated.Value(0)).current;
+  const step3Anim = useRef(new Animated.Value(0)).current;
+  const step4Anim = useRef(new Animated.Value(0)).current;
+
+  // Step icon bounce
+  const stepBounce1 = useRef(new Animated.Value(0)).current;
+  const stepBounce2 = useRef(new Animated.Value(0)).current;
+  const stepBounce3 = useRef(new Animated.Value(0)).current;
+  const stepBounce4 = useRef(new Animated.Value(0)).current;
+
+  // Find friends section entrance
+  const findFriendsAnim = useRef(new Animated.Value(0)).current;
+
+  // All continuously-looping animated values — stopped on blur to save CPU
+  const loopAnimValues = useRef([
+    emojiBounce, pulseScale, pulseOpacity,
+    particle1Y, particle1X, particle1Opacity,
+    particle2Y, particle2X, particle2Opacity,
+    particle3Y, particle3X, particle3Opacity,
+    particle4Y, particle4X, particle4Opacity,
+    particle5Y, particle5X, particle5Opacity,
+    emptyFloatAnim, sparkleRotation, startIconRotate, joinIconPulse,
+    bannerGlow, stepBounce1, stepBounce2, stepBounce3, stepBounce4,
+  ]).current;
+
+  useFocusEffect(useCallback(() => {
+    // 1. Hero entrance sequence (staggered)
+    Animated.stagger(150, [
+      Animated.spring(heroEmojiAnim, { toValue: 1, tension: 50, friction: 7, useNativeDriver: true }),
+      Animated.spring(heroTitleAnim, { toValue: 1, tension: 50, friction: 7, useNativeDriver: true }),
+      Animated.spring(heroSubtitleAnim, { toValue: 1, tension: 50, friction: 7, useNativeDriver: true }),
+    ]).start();
+
+    // 2. Action buttons slide in (after hero)
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.spring(startBtnAnim, { toValue: 1, tension: 60, friction: 8, useNativeDriver: true }),
+        Animated.spring(joinBtnAnim, { toValue: 1, tension: 60, friction: 8, delay: 100, useNativeDriver: true }),
+      ]).start();
+    }, 400);
+
+    // 3. Bonds and recent sections
+    setTimeout(() => {
+      Animated.stagger(120, [
+        Animated.spring(bondsAnim, { toValue: 1, tension: 50, friction: 8, useNativeDriver: true }),
+        Animated.spring(recentHeaderAnim, { toValue: 1, tension: 50, friction: 8, useNativeDriver: true }),
+      ]).start();
+    }, 700);
+
+    // 4. Continuous emoji bounce loop
+    const bounceLoop = () => {
+      Animated.sequence([
+        Animated.timing(emojiBounce, { toValue: -12, duration: 800, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(emojiBounce, { toValue: 0, duration: 800, easing: Easing.bounce, useNativeDriver: true }),
+        Animated.delay(2000),
+      ]).start(() => bounceLoop());
+    };
+    bounceLoop();
+
+    // 5. Pulse ring on Start button (looping)
+    const pulseLoop = () => {
+      pulseScale.setValue(1);
+      pulseOpacity.setValue(0.5);
+      Animated.parallel([
+        Animated.timing(pulseScale, { toValue: 1.35, duration: 1500, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulseOpacity, { toValue: 0, duration: 1500, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      ]).start(() => {
+        setTimeout(pulseLoop, 800);
+      });
+    };
+    setTimeout(pulseLoop, 1200);
+
+    // 6. Floating particles
+    const animateParticle = (yAnim: Animated.Value, xAnim: Animated.Value, opacityAnim: Animated.Value, delay: number, xRange: number, duration: number) => {
+      const run = () => {
+        yAnim.setValue(0);
+        xAnim.setValue(0);
+        opacityAnim.setValue(0);
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.parallel([
+            Animated.timing(yAnim, { toValue: -60, duration, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+            Animated.timing(xAnim, { toValue: xRange, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+            Animated.sequence([
+              Animated.timing(opacityAnim, { toValue: 0.8, duration: duration * 0.3, useNativeDriver: true }),
+              Animated.timing(opacityAnim, { toValue: 0, duration: duration * 0.7, useNativeDriver: true }),
+            ]),
+          ]),
+        ]).start(() => run());
+      };
+      run();
+    };
+    animateParticle(particle1Y, particle1X, particle1Opacity, 0, -30, 2500);
+    animateParticle(particle2Y, particle2X, particle2Opacity, 500, 25, 2800);
+    animateParticle(particle3Y, particle3X, particle3Opacity, 1000, -20, 2200);
+    animateParticle(particle4Y, particle4X, particle4Opacity, 1500, 35, 3000);
+    animateParticle(particle5Y, particle5X, particle5Opacity, 800, -15, 2600);
+
+    // 7. Empty state float
+    const floatLoop = () => {
+      Animated.sequence([
+        Animated.timing(emptyFloatAnim, { toValue: -8, duration: 1500, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(emptyFloatAnim, { toValue: 8, duration: 1500, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ]).start(() => floatLoop());
+    };
+    floatLoop();
+
+    // 8. Sparkle rotation for coin badges
+    Animated.loop(
+      Animated.timing(sparkleRotation, { toValue: 1, duration: 3000, easing: Easing.linear, useNativeDriver: true })
+    ).start();
+
+    // 9. Start button icon wiggle (periodic rotation)
+    const iconWiggle = () => {
+      Animated.sequence([
+        Animated.timing(startIconRotate, { toValue: 1, duration: 150, easing: Easing.linear, useNativeDriver: true }),
+        Animated.timing(startIconRotate, { toValue: -1, duration: 150, easing: Easing.linear, useNativeDriver: true }),
+        Animated.timing(startIconRotate, { toValue: 0.5, duration: 100, easing: Easing.linear, useNativeDriver: true }),
+        Animated.timing(startIconRotate, { toValue: -0.5, duration: 100, easing: Easing.linear, useNativeDriver: true }),
+        Animated.timing(startIconRotate, { toValue: 0, duration: 80, easing: Easing.linear, useNativeDriver: true }),
+        Animated.delay(4000),
+      ]).start(() => iconWiggle());
+    };
+    setTimeout(iconWiggle, 2000);
+
+    // 10. Join button icon pulse (breathing)
+    const joinPulse = () => {
+      Animated.sequence([
+        Animated.timing(joinIconPulse, { toValue: 1.3, duration: 600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(joinIconPulse, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.delay(3000),
+      ]).start(() => joinPulse());
+    };
+    setTimeout(joinPulse, 2500);
+
+    // 11. Coin reward banner breathing glow
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(bannerGlow, { toValue: 1, duration: 2000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(bannerGlow, { toValue: 0, duration: 2000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ])
+    ).start();
+
+    // 12. How-it-works steps stagger entrance
+    setTimeout(() => {
+      Animated.stagger(200, [
+        Animated.spring(step1Anim, { toValue: 1, tension: 50, friction: 7, useNativeDriver: true }),
+        Animated.spring(step2Anim, { toValue: 1, tension: 50, friction: 7, useNativeDriver: true }),
+        Animated.spring(step3Anim, { toValue: 1, tension: 50, friction: 7, useNativeDriver: true }),
+        Animated.spring(step4Anim, { toValue: 1, tension: 50, friction: 7, useNativeDriver: true }),
+      ]).start();
+    }, 900);
+
+    // 13. Step icon continuous gentle bounce (staggered)
+    const stepBounceLoop = (anim: Animated.Value, delay: number) => {
+      const run = () => {
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(anim, { toValue: -6, duration: 500, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+          Animated.timing(anim, { toValue: 0, duration: 500, easing: Easing.bounce, useNativeDriver: true }),
+          Animated.delay(3000),
+        ]).start(() => run());
+      };
+      run();
+    };
+    stepBounceLoop(stepBounce1, 0);
+    stepBounceLoop(stepBounce2, 800);
+    stepBounceLoop(stepBounce3, 1600);
+    stepBounceLoop(stepBounce4, 2400);
+
+    // 14. Find friends section entrance
+    setTimeout(() => {
+      Animated.spring(findFriendsAnim, { toValue: 1, tension: 50, friction: 8, useNativeDriver: true }).start();
+    }, 1100);
+
+    return () => {
+      loopAnimValues.forEach(v => v.stopAnimation());
+    };
+  }, []));
+
+  // Animate history items when data loads
+  useEffect(() => {
+    if (history.length > 0) {
+      // Create anim values for new items
+      while (historyItemAnims.length < history.length) {
+        historyItemAnims.push(new Animated.Value(0));
+      }
+      // Stagger entrance
+      Animated.stagger(80,
+        historyItemAnims.slice(0, history.length).map(anim =>
+          Animated.spring(anim, { toValue: 1, tension: 50, friction: 8, useNativeDriver: true })
+        )
+      ).start();
+    }
+  }, [history]);
+
+  const handleBtnPressIn = (scaleAnim: Animated.Value) => {
+    Animated.spring(scaleAnim, { toValue: 0.92, tension: 300, friction: 10, useNativeDriver: true }).start();
+  };
+  const handleBtnPressOut = (scaleAnim: Animated.Value) => {
+    Animated.spring(scaleAnim, { toValue: 1, tension: 200, friction: 8, useNativeDriver: true }).start();
+  };
+
+  const sparkleRotate = sparkleRotation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  const startIconRotation = startIconRotate.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: ['-15deg', '0deg', '15deg'],
+  });
+
+  const bannerGlowScale = bannerGlow.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.015],
+  });
+
   // Swipe animation
-  const initialIndex = lastActiveTab === 'meetup' ? 0 : lastActiveTab === 'activities' ? 1 : 2;
+  const initialIndex = lastActiveTab === 'goals' ? 0 : lastActiveTab === 'activities' ? 1 : 2;
   const slideAnim = useRef(new Animated.Value(initialIndex)).current;
   const currentIndexRef = useRef(initialIndex);
   const activeTabRef = useRef<FillupTab>(activeTab);
@@ -83,7 +372,7 @@ export default function FriendshipHomeScreen() {
   }, [activeTab]);
 
   useEffect(() => {
-    const targetIndex = activeTab === 'meetup' ? 0 : activeTab === 'activities' ? 1 : 2;
+    const targetIndex = activeTab === 'goals' ? 0 : activeTab === 'activities' ? 1 : 2;
     if (currentIndexRef.current !== targetIndex) {
       currentIndexRef.current = targetIndex;
       Animated.spring(slideAnim, {
@@ -126,7 +415,7 @@ export default function FriendshipHomeScreen() {
           friction: 15,
         }).start();
 
-        const tabs: FillupTab[] = ['meetup', 'activities', 'goals'];
+        const tabs: FillupTab[] = ['goals', 'activities', 'meetup'];
         const newTab = tabs[targetIndex];
         if (newTab !== activeTabRef.current) {
           setActiveTab(newTab);
@@ -247,7 +536,11 @@ export default function FriendshipHomeScreen() {
       if (historyResult.success) {
         setHistory(historyResult.meetups || []);
       }
-      setTrustConnections(trustResult.connections || []);
+      // Filter out connections with null/missing otherUser (deleted users)
+      const validConnections = (trustResult.connections || []).filter(
+        (c: any) => c.otherUser && c.otherUser.username
+      );
+      setTrustConnections(validConnections);
     } catch (error) {
       console.error('Error loading friendship data:', error);
     } finally {
@@ -272,6 +565,7 @@ export default function FriendshipHomeScreen() {
       otherUserId: connection.otherUser.id,
       otherUsername: connection.otherUser.username,
       otherAvatarUrl: connection.otherUser.avatarUrl,
+      otherActiveAvatar: connection.otherUser.activeAvatar || null,
     });
   };
 
@@ -306,7 +600,7 @@ export default function FriendshipHomeScreen() {
     );
   };
 
-  const renderHistoryItem = ({ item }: { item: any }) => {
+  const renderHistoryItem = useCallback(({ item, index }: { item: any; index: number }) => {
     const partnerA = item.userA;
     const partnerB = item.userB;
     const date = new Date(item.completedAt).toLocaleDateString('en-US', {
@@ -314,97 +608,358 @@ export default function FriendshipHomeScreen() {
       day: 'numeric',
     });
 
+    const itemAnim = historyItemAnims[index];
+    const animStyle = itemAnim
+      ? {
+          opacity: itemAnim,
+          transform: [
+            { translateX: itemAnim.interpolate({ inputRange: [0, 1], outputRange: [50, 0] }) },
+            { scale: itemAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.9, 1.02, 1] }) },
+          ],
+        }
+      : {};
+
     return (
-      <TouchableOpacity
-        style={[styles.historyItem, { backgroundColor: colors.surface, borderColor: colors.border }]}
-        onPress={() => navigation.navigate('MeetupDetail', { meetup: item })}
-        activeOpacity={0.7}
-      >
-        <View style={styles.historyAvatars}>
-          <View style={[styles.avatar, { backgroundColor: colors.border }]}>
-            {partnerA?.avatarUrl ? (
-              <Image source={{ uri: getImageUrl(partnerA.avatarUrl)! }} style={styles.avatarImg} />
-            ) : (
-              <Ionicons name="person" size={20} color={colors.text.tertiary} />
-            )}
+      <Animated.View style={animStyle}>
+        <TouchableOpacity
+          style={[styles.historyItem, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          onPress={() => navigation.navigate('MeetupDetail', { meetup: item })}
+          activeOpacity={0.7}
+        >
+          <View style={styles.historyAvatars}>
+            <View style={[styles.avatar, { backgroundColor: colors.border }]}>
+              <Avatar
+                size={36}
+                avatarUrl={!partnerA?.activeAvatar ? partnerA?.avatarUrl : undefined}
+                username={partnerA?.username}
+                customizations={partnerA?.activeAvatar?.customizations}
+                avatarStyle={partnerA?.activeAvatar?.style}
+              />
+            </View>
+            <View style={[styles.avatar, { backgroundColor: colors.border, marginLeft: -8 }]}>
+              <Avatar
+                size={36}
+                avatarUrl={!partnerB?.activeAvatar ? partnerB?.avatarUrl : undefined}
+                username={partnerB?.username}
+                customizations={partnerB?.activeAvatar?.customizations}
+                avatarStyle={partnerB?.activeAvatar?.style}
+              />
+            </View>
           </View>
-          <View style={[styles.avatar, { backgroundColor: colors.border, marginLeft: -8 }]}>
-            {partnerB?.avatarUrl ? (
-              <Image source={{ uri: getImageUrl(partnerB.avatarUrl)! }} style={styles.avatarImg} />
-            ) : (
-              <Ionicons name="person" size={20} color={colors.text.tertiary} />
-            )}
+          <View style={styles.historyInfo}>
+            <Text style={[styles.historyNames, { color: colors.text.primary }]}>
+              @{partnerA?.username} & @{partnerB?.username}
+            </Text>
+            <Text style={[styles.historyDate, { color: colors.text.secondary }]}>{date}</Text>
           </View>
-        </View>
-        <View style={styles.historyInfo}>
-          <Text style={[styles.historyNames, { color: colors.text.primary }]}>
-            @{partnerA?.username} & @{partnerB?.username}
-          </Text>
-          <Text style={[styles.historyDate, { color: colors.text.secondary }]}>{date}</Text>
-        </View>
-        <View style={styles.historyRight}>
-          <Text style={[styles.coinAmount, { color: colors.text.link }]}>+{item.coinsAwarded}</Text>
-          <Ionicons name="chevron-forward" size={16} color={colors.text.tertiary} />
-        </View>
-      </TouchableOpacity>
+          <View style={styles.historyRight}>
+            <View style={styles.coinBadge}>
+              <Text style={styles.coinBadgeText}>+{item.coinsAwarded}</Text>
+              <Text style={{ fontSize: 12 }}>🪙</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.text.tertiary} />
+          </View>
+        </TouchableOpacity>
+      </Animated.View>
     );
-  };
+  }, [colors, navigation, historyItemAnims]);
+
+  const historyKeyExtractor = useCallback((item: any) => item.id, []);
 
   const displayedConnections = showAllBonds ? trustConnections : trustConnections.slice(0, 3);
 
   const listHeader = (
     <>
-      {/* Hero Section */}
+      {/* Hero Section with floating particles */}
       <View ref={heroRef} collapsable={false} style={styles.hero}>
-        <Text style={styles.heroEmoji}>{'\uD83E\uDD1D'}</Text>
-        <Text style={[styles.heroTitle, { color: colors.text.primary }]}>Friendship Meetup</Text>
-        <Text style={[styles.heroSubtitle, { color: colors.text.secondary }]}>
+        {/* Floating sparkle particles */}
+        {[
+          { y: particle1Y, x: particle1X, o: particle1Opacity, emoji: '✨', left: '20%', top: 10 },
+          { y: particle2Y, x: particle2X, o: particle2Opacity, emoji: '💜', left: '75%', top: 5 },
+          { y: particle3Y, x: particle3X, o: particle3Opacity, emoji: '⭐', left: '10%', top: 30 },
+          { y: particle4Y, x: particle4X, o: particle4Opacity, emoji: '🌟', left: '85%', top: 25 },
+          { y: particle5Y, x: particle5X, o: particle5Opacity, emoji: '💫', left: '50%', top: 0 },
+        ].map((p, i) => (
+          <Animated.Text
+            key={i}
+            style={[
+              styles.floatingParticle,
+              { left: p.left as any, top: p.top, opacity: p.o, transform: [{ translateY: p.y }, { translateX: p.x }] },
+            ]}
+          >
+            {p.emoji}
+          </Animated.Text>
+        ))}
+
+        {/* Animated emoji with bounce */}
+        <Animated.Text
+          style={[
+            styles.heroEmoji,
+            {
+              opacity: heroEmojiAnim,
+              transform: [
+                { translateY: Animated.add(heroEmojiAnim.interpolate({ inputRange: [0, 1], outputRange: [30, 0] }), emojiBounce) },
+                { scale: heroEmojiAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.3, 1.15, 1] }) },
+              ],
+            },
+          ]}
+        >
+          {'\uD83E\uDD1D'}
+        </Animated.Text>
+
+        {/* Animated title */}
+        <Animated.Text
+          style={[
+            styles.heroTitle,
+            {
+              color: colors.text.primary,
+              opacity: heroTitleAnim,
+              transform: [
+                { translateY: heroTitleAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) },
+              ],
+            },
+          ]}
+        >
+          Friendship Meetup
+        </Animated.Text>
+
+        {/* Animated subtitle */}
+        <Animated.Text
+          style={[
+            styles.heroSubtitle,
+            {
+              color: colors.text.secondary,
+              opacity: heroSubtitleAnim,
+              transform: [
+                { translateY: heroSubtitleAnim.interpolate({ inputRange: [0, 1], outputRange: [15, 0] }) },
+              ],
+            },
+          ]}
+        >
           Meet a friend in person, strike fun poses, and earn 20 Positivity Coins!
-        </Text>
+        </Animated.Text>
       </View>
 
-      {/* Action Buttons */}
+      {/* Animated Action Buttons */}
       <View style={styles.actions}>
-        <View ref={startBtnRef} collapsable={false} style={styles.actionBtnWrap}>
+        <Animated.View
+          ref={startBtnRef}
+          collapsable={false}
+          style={[
+            styles.actionBtnWrap,
+            {
+              opacity: startBtnAnim,
+              transform: [
+                { translateX: startBtnAnim.interpolate({ inputRange: [0, 1], outputRange: [-60, 0] }) },
+                { scale: startBtnScale },
+              ],
+            },
+          ]}
+        >
+          {/* Pulse ring behind button */}
+          <Animated.View
+            style={[
+              styles.pulseRing,
+              {
+                borderColor: colors.text.link,
+                transform: [{ scale: pulseScale }],
+                opacity: pulseOpacity,
+              },
+            ]}
+          />
           <TouchableOpacity
-            style={[styles.primaryBtn, { backgroundColor: colors.text.link }]}
+            style={[styles.primaryBtn, { backgroundColor: colors.text.link, borderColor: colors.text.link }]}
             onPress={() => navigation.navigate('CreateSession')}
+            onPressIn={() => handleBtnPressIn(startBtnScale)}
+            onPressOut={() => handleBtnPressOut(startBtnScale)}
+            activeOpacity={1}
           >
-            <Ionicons name="add-circle-outline" size={24} color="#FFF" />
+            <Animated.View style={{ transform: [{ rotate: startIconRotation }] }}>
+              <Ionicons name="add-circle-outline" size={24} color="#FFF" />
+            </Animated.View>
             <Text style={styles.primaryBtnText}>Start Meetup</Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
 
-        <View ref={joinBtnRef} collapsable={false} style={styles.actionBtnWrap}>
+        <Animated.View
+          ref={joinBtnRef}
+          collapsable={false}
+          style={[
+            styles.actionBtnWrap,
+            {
+              opacity: joinBtnAnim,
+              transform: [
+                { translateX: joinBtnAnim.interpolate({ inputRange: [0, 1], outputRange: [60, 0] }) },
+                { scale: joinBtnScale },
+              ],
+            },
+          ]}
+        >
           <TouchableOpacity
             style={[styles.secondaryBtn, { backgroundColor: colors.surface, borderColor: colors.text.link }]}
             onPress={() => navigation.navigate('JoinSession')}
+            onPressIn={() => handleBtnPressIn(joinBtnScale)}
+            onPressOut={() => handleBtnPressOut(joinBtnScale)}
+            activeOpacity={1}
           >
-            <Ionicons name="scan-outline" size={24} color={colors.text.link} />
+            <Animated.View style={{ transform: [{ scale: joinIconPulse }] }}>
+              <Ionicons name="scan-outline" size={24} color={colors.text.link} />
+            </Animated.View>
             <Text style={[styles.secondaryBtnText, { color: colors.text.link }]}>Join Meetup</Text>
           </TouchableOpacity>
+        </Animated.View>
+      </View>
+
+      {/* How It Works - animated steps */}
+      <View style={styles.stepsSection}>
+        <Animated.Text
+          style={[
+            styles.stepsTitle,
+            {
+              color: colors.text.primary,
+              opacity: step1Anim,
+              transform: [{ translateY: step1Anim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }],
+            },
+          ]}
+        >
+          How It Works
+        </Animated.Text>
+        <View style={styles.stepsRow}>
+          {[
+            { anim: step1Anim, bounce: stepBounce1, emoji: '📱', label: 'Start or Join', color: '#8B5CF6' },
+            { anim: step2Anim, bounce: stepBounce2, emoji: '🤳', label: 'Strike Poses', color: '#EC4899' },
+            { anim: step3Anim, bounce: stepBounce3, emoji: '🪙', label: 'Earn Coins!', color: '#F59E0B' },
+          ].map((step, i) => (
+            <Animated.View
+              key={i}
+              style={[
+                styles.stepItem,
+                {
+                  backgroundColor: isDark ? `${step.color}15` : `${step.color}10`,
+                  borderColor: isDark ? `${step.color}30` : `${step.color}20`,
+                  opacity: step.anim,
+                  transform: [
+                    { translateY: Animated.add(step.anim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }), step.bounce) },
+                    { scale: step.anim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.5, 1.08, 1] }) },
+                  ],
+                },
+              ]}
+            >
+              <Text style={styles.stepNumber}>{i + 1}</Text>
+              <Text style={styles.stepEmoji}>{step.emoji}</Text>
+              <Text style={[styles.stepLabel, { color: colors.text.primary }]}>{step.label}</Text>
+            </Animated.View>
+          ))}
+        </View>
+        {/* Animated connector dots between steps */}
+        <View style={styles.stepsConnector}>
+          <Animated.View
+            style={[
+              styles.connectorDot,
+              { backgroundColor: '#8B5CF6', opacity: step1Anim },
+            ]}
+          />
+          <Animated.View
+            style={[
+              styles.connectorLine,
+              { backgroundColor: isDark ? 'rgba(139,92,246,0.3)' : 'rgba(139,92,246,0.15)', opacity: step2Anim },
+            ]}
+          />
+          <Animated.View
+            style={[
+              styles.connectorDot,
+              { backgroundColor: '#EC4899', opacity: step2Anim },
+            ]}
+          />
+          <Animated.View
+            style={[
+              styles.connectorLine,
+              { backgroundColor: isDark ? 'rgba(236,72,153,0.3)' : 'rgba(236,72,153,0.15)', opacity: step3Anim },
+            ]}
+          />
+          <Animated.View
+            style={[
+              styles.connectorDot,
+              { backgroundColor: '#F59E0B', opacity: step3Anim },
+            ]}
+          />
         </View>
       </View>
 
-      {/* Your Friends Section (bonds) */}
-      {trustConnections.length > 0 && (
-        <View ref={bondsRef} collapsable={false} style={styles.bondsSection}>
-          <View style={styles.bondsTitleRow}>
-            <View style={styles.bondsAccent} />
-            <Ionicons name="people" size={15} color="#8B5CF6" />
-            <Text style={[styles.bondsTitleText, { color: colors.text.primary }]}>Your Friends</Text>
-            {trustConnections.length > 3 && (
-              <TouchableOpacity
-                style={[styles.seeAllBtn, { backgroundColor: colors.surfaceVariant }]}
-                onPress={() => setShowAllBonds(!showAllBonds)}
-              >
-                <Text style={styles.seeAllText}>
-                  {showAllBonds ? 'Less' : `All (${trustConnections.length})`}
-                </Text>
-              </TouchableOpacity>
-            )}
+      {/* Friendship Bonds Section - animated */}
+      <Animated.View
+        ref={bondsRef}
+        collapsable={false}
+        style={[
+          styles.bondsSection,
+          {
+            opacity: bondsAnim,
+            transform: [
+              { translateY: bondsAnim.interpolate({ inputRange: [0, 1], outputRange: [25, 0] }) },
+            ],
+          },
+        ]}
+      >
+        {/* Section header */}
+        <View style={styles.bondsTitleRow}>
+          <View style={styles.bondsAccent} />
+          <Ionicons name="heart-circle" size={17} color="#8B5CF6" />
+          <Text style={[styles.bondsTitleText, { color: colors.text.primary }]}>Friendship Bonds</Text>
+          <TouchableOpacity
+            onPress={() => setShowBondTips(!showBondTips)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="information-circle-outline" size={18} color={colors.text.tertiary} />
+          </TouchableOpacity>
+          {trustConnections.length > 3 && (
+            <TouchableOpacity
+              style={[styles.seeAllBtn, { backgroundColor: colors.surfaceVariant }]}
+              onPress={() => setShowAllBonds(!showAllBonds)}
+            >
+              <Text style={styles.seeAllText}>
+                {showAllBonds ? 'Less' : `All (${trustConnections.length})`}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Bond tips (toggleable) */}
+        {showBondTips && (
+          <View style={[styles.rankLegend, { backgroundColor: isDark ? 'rgba(139,92,246,0.08)' : 'rgba(139,92,246,0.04)', borderColor: isDark ? 'rgba(139,92,246,0.15)' : 'rgba(139,92,246,0.1)' }]}>
+            <View style={styles.rankTierBar}>
+              {[
+                { label: 'New', color: '#9CA3AF', flex: 20 },
+                { label: 'Building', color: '#10B981', flex: 20 },
+                { label: 'Good', color: '#F59E0B', flex: 20 },
+                { label: 'Close', color: '#EC4899', flex: 20 },
+                { label: 'Best', color: '#8B5CF6', flex: 20 },
+              ].map((tier, i) => (
+                <View key={i} style={[styles.rankTierSegment, { flex: tier.flex }]}>
+                  <View style={[styles.rankTierColor, { backgroundColor: tier.color }]} />
+                  <Text style={[styles.rankTierLabel, { color: colors.text.tertiary }]}>{tier.label}</Text>
+                </View>
+              ))}
+            </View>
+            <View style={styles.growTipsRow}>
+              <View style={styles.growTip}>
+                <Ionicons name="repeat" size={11} color="#8B5CF6" />
+                <Text style={[styles.growTipText, { color: colors.text.secondary }]}>Daily exchanges</Text>
+              </View>
+              <View style={styles.growTip}>
+                <Ionicons name="swap-horizontal" size={11} color="#EC4899" />
+                <Text style={[styles.growTipText, { color: colors.text.secondary }]}>Mutual giving</Text>
+              </View>
+              <View style={styles.growTip}>
+                <Ionicons name="flame" size={11} color="#F97316" />
+                <Text style={[styles.growTipText, { color: colors.text.secondary }]}>Keep streaks</Text>
+              </View>
+            </View>
           </View>
-          {displayedConnections.map((connection) => (
+        )}
+
+        {/* Friend list */}
+        {trustConnections.length > 0 ? (
+          displayedConnections.map((connection) => (
             <TrustConnectionItem
               key={connection.id}
               connection={connection}
@@ -412,19 +967,56 @@ export default function FriendshipHomeScreen() {
               onMessagePress={handleMessagePress}
               onProfilePress={handleProfilePress}
             />
-          ))}
-        </View>
-      )}
+          ))
+        ) : (
+          <View style={[styles.noBondsCard, { backgroundColor: isDark ? 'rgba(139,92,246,0.06)' : 'rgba(139,92,246,0.03)', borderColor: isDark ? 'rgba(139,92,246,0.15)' : 'rgba(139,92,246,0.08)' }]}>
+            <Ionicons name="people-outline" size={28} color={colors.text.tertiary} />
+            <Text style={[styles.noBondsText, { color: colors.text.secondary }]}>
+              Send coins to friends to start building bonds!
+            </Text>
+            <Text style={[styles.noBondsHint, { color: colors.text.tertiary }]}>
+              Give coins on their posts or directly from their profile
+            </Text>
+          </View>
+        )}
+      </Animated.View>
 
-      {/* Recent Meetups Header */}
-      <View ref={recentRef} collapsable={false} style={styles.historyHeader}>
-        <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Recent Meetups</Text>
-      </View>
+      {/* Recent Meetups Header - animated */}
+      <Animated.View
+        ref={recentRef}
+        collapsable={false}
+        style={[
+          styles.historyHeader,
+          {
+            opacity: recentHeaderAnim,
+            transform: [
+              { translateX: recentHeaderAnim.interpolate({ inputRange: [0, 1], outputRange: [-30, 0] }) },
+            ],
+          },
+        ]}
+      >
+        <View style={styles.historyTitleRow}>
+          <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Recent Meetups</Text>
+          <Animated.View style={{ transform: [{ rotate: sparkleRotate }] }}>
+            <Text style={{ fontSize: 16 }}>🤝</Text>
+          </Animated.View>
+        </View>
+      </Animated.View>
     </>
   );
 
   const listFooter = (
-    <View style={styles.peopleSection}>
+    <Animated.View
+      style={[
+        styles.peopleSection,
+        {
+          opacity: findFriendsAnim,
+          transform: [
+            { translateY: findFriendsAnim.interpolate({ inputRange: [0, 1], outputRange: [30, 0] }) },
+          ],
+        },
+      ]}
+    >
       {/* Divider */}
       <View style={[styles.peopleDivider, { backgroundColor: colors.border }]} />
 
@@ -463,7 +1055,7 @@ export default function FriendshipHomeScreen() {
         navigation={navigation}
         embedded
       />
-    </View>
+    </Animated.View>
   );
 
   return (
@@ -483,15 +1075,15 @@ export default function FriendshipHomeScreen() {
           />
           <TouchableOpacity
             style={styles.segmentedTab}
-            onPress={() => setActiveTab('meetup')}
+            onPress={() => setActiveTab('goals')}
             activeOpacity={0.8}
           >
-            <Ionicons name="people" size={14} color={activeTab === 'meetup' ? '#8B5CF6' : colors.text.secondary} />
+            <Ionicons name="flag" size={14} color={activeTab === 'goals' ? '#10B981' : colors.text.secondary} />
             <Text style={[
               styles.segmentedTabText,
-              { color: activeTab === 'meetup' ? '#8B5CF6' : colors.text.secondary },
-              activeTab === 'meetup' && styles.segmentedTabTextActive,
-            ]}>Meetup</Text>
+              { color: activeTab === 'goals' ? '#10B981' : colors.text.secondary },
+              activeTab === 'goals' && styles.segmentedTabTextActive,
+            ]}>My Goals</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.segmentedTab}
@@ -507,15 +1099,15 @@ export default function FriendshipHomeScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.segmentedTab}
-            onPress={() => setActiveTab('goals')}
+            onPress={() => setActiveTab('meetup')}
             activeOpacity={0.8}
           >
-            <Ionicons name="flag" size={14} color={activeTab === 'goals' ? '#10B981' : colors.text.secondary} />
+            <Ionicons name="people" size={14} color={activeTab === 'meetup' ? '#8B5CF6' : colors.text.secondary} />
             <Text style={[
               styles.segmentedTabText,
-              { color: activeTab === 'goals' ? '#10B981' : colors.text.secondary },
-              activeTab === 'goals' && styles.segmentedTabTextActive,
-            ]}>Goals</Text>
+              { color: activeTab === 'meetup' ? '#8B5CF6' : colors.text.secondary },
+              activeTab === 'meetup' && styles.segmentedTabTextActive,
+            ]}>Meetup</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -527,24 +1119,40 @@ export default function FriendshipHomeScreen() {
           {...tabPanResponder.panHandlers}
         >
           <View style={styles.tabPage}>
+            <GoalsTab navigation={navigation} />
+          </View>
+          <View style={styles.tabPage}>
+            <SpinningWheelTab navigation={navigation} />
+          </View>
+          <View style={styles.tabPage}>
             <FlatList
               ref={flatListRef}
               data={history}
               renderItem={renderHistoryItem}
-              keyExtractor={(item) => item.id}
+              keyExtractor={historyKeyExtractor}
               ListHeaderComponent={listHeader}
               ListFooterComponent={listFooter}
               onScroll={handleScroll}
               scrollEventThrottle={16}
+              removeClippedSubviews
+              maxToRenderPerBatch={8}
+              windowSize={5}
               refreshControl={
                 <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
               }
               ListEmptyComponent={
                 <View style={styles.emptyState}>
-                  <Ionicons name="people-outline" size={48} color={colors.text.tertiary} />
+                  <Animated.View style={{ transform: [{ translateY: emptyFloatAnim }] }}>
+                    <Text style={styles.emptyEmoji}>{loading ? '⏳' : '👋'}</Text>
+                  </Animated.View>
                   <Text style={[styles.emptyText, { color: colors.text.tertiary }]}>
                     {loading ? 'Loading...' : 'No meetups yet. Start one with a friend!'}
                   </Text>
+                  {!loading && (
+                    <Text style={[styles.emptyHint, { color: colors.text.secondary }]}>
+                      Tap "Start Meetup" above to begin
+                    </Text>
+                  )}
                 </View>
               }
               contentContainerStyle={history.length === 0 ? styles.emptyContainer : styles.listContent}
@@ -559,12 +1167,6 @@ export default function FriendshipHomeScreen() {
               containerTop={containerInfoRef.current.top}
               containerHeight={containerInfoRef.current.height}
             />
-          </View>
-          <View style={styles.tabPage}>
-            <SpinningWheelTab navigation={navigation} />
-          </View>
-          <View style={styles.tabPage}>
-            <GoalsTab navigation={navigation} />
           </View>
         </Animated.View>
       </View>
@@ -665,6 +1267,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 16,
     borderRadius: 14,
+    borderWidth: 2,
   },
   primaryBtnText: {
     color: '#FFF',
@@ -820,5 +1423,161 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     paddingVertical: 0,
+  },
+
+  // === Animation styles ===
+
+  floatingParticle: {
+    position: 'absolute',
+    fontSize: 14,
+    zIndex: 1,
+  },
+  pulseRing: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 14,
+    borderWidth: 2,
+  },
+  historyTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  coinBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(139,92,246,0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  coinBadgeText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#8B5CF6',
+  },
+  emptyEmoji: {
+    fontSize: 48,
+    marginBottom: 4,
+  },
+  emptyHint: {
+    fontSize: 13,
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+
+  rankLegend: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 12,
+  },
+  rankTierBar: {
+    flexDirection: 'row',
+    gap: 3,
+    marginBottom: 10,
+  },
+  rankTierSegment: {
+    alignItems: 'center',
+    gap: 3,
+  },
+  rankTierColor: {
+    height: 6,
+    width: '100%',
+    borderRadius: 3,
+  },
+  rankTierLabel: {
+    fontSize: 9,
+    fontWeight: '600',
+  },
+  growTipsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 14,
+  },
+  growTip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  growTipText: {
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  noBondsCard: {
+    alignItems: 'center',
+    padding: 20,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 6,
+  },
+  noBondsText: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  noBondsHint: {
+    fontSize: 11,
+    textAlign: 'center',
+  },
+
+  // Steps section
+  stepsSection: {
+    marginBottom: 24,
+  },
+  stepsTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  stepsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  stepItem: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 4,
+  },
+  stepNumber: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#8B5CF6',
+    opacity: 0.5,
+  },
+  stepEmoji: {
+    fontSize: 28,
+  },
+  stepLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  stepsConnector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+    gap: 0,
+  },
+  connectorDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  connectorLine: {
+    flex: 1,
+    height: 2,
+    maxWidth: 60,
+    borderRadius: 1,
   },
 });

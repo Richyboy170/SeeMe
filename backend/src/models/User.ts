@@ -25,6 +25,7 @@ export interface UserAttributes {
   suspendedUntil: Date | null;
   banReason: string | null;
   suspendReason: string | null;
+  interests: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,7 +33,7 @@ export interface UserAttributes {
 /**
  * Optional attributes for user creation
  */
-interface UserCreationAttributes extends Optional<UserAttributes, 'id' | 'ageVerified' | 'avatarUrl' | 'activeAvatarId' | 'positivityGiveCounter' | 'positivityRank' | 'fcmToken' | 'chatNotificationsEnabled' | 'isPrivate' | 'isBot' | 'role' | 'status' | 'suspendedUntil' | 'banReason' | 'suspendReason' | 'createdAt' | 'updatedAt' | 'passwordHash' | 'googleId' | 'authProvider'> {}
+interface UserCreationAttributes extends Optional<UserAttributes, 'id' | 'ageVerified' | 'avatarUrl' | 'activeAvatarId' | 'positivityGiveCounter' | 'positivityRank' | 'fcmToken' | 'chatNotificationsEnabled' | 'isPrivate' | 'isBot' | 'role' | 'status' | 'suspendedUntil' | 'banReason' | 'suspendReason' | 'interests' | 'createdAt' | 'updatedAt' | 'passwordHash' | 'googleId' | 'authProvider'> {}
 
 /**
  * User model representing registered users in the platform
@@ -58,6 +59,7 @@ export class User extends Model<UserAttributes, UserCreationAttributes> implemen
   public suspendedUntil!: Date | null;
   public banReason!: string | null;
   public suspendReason!: string | null;
+  public interests!: string | null;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 
@@ -232,6 +234,12 @@ User.init(
       allowNull: true,
       defaultValue: null,
       comment: 'Reason for temporary suspension'
+    },
+    interests: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+      comment: 'JSON array of category IDs the user is interested in'
     },
     createdAt: {
       type: DataTypes.DATE,

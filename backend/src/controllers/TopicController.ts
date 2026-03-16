@@ -295,7 +295,13 @@ export class TopicController {
             const where: any = { isActive: true, isDiscoverable: true };
 
             if (category) {
-                where.category = category;
+                // Support comma-separated categories for interests filtering
+                const cats = (category as string).split(',').map(c => c.trim()).filter(Boolean);
+                if (cats.length === 1) {
+                    where.category = cats[0];
+                } else if (cats.length > 1) {
+                    where.category = { [Op.in]: cats };
+                }
             }
 
             // Filter by topic type if provided

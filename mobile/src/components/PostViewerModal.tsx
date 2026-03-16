@@ -321,6 +321,9 @@ export default function PostViewerModal({
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
           showsVerticalScrollIndicator={false}
+          removeClippedSubviews
+          maxToRenderPerBatch={3}
+          windowSize={5}
         />
       </View>
 

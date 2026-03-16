@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Op } from 'sequelize';
 import { CommunityActivity } from '../models/CommunityActivity';
 import { ActivityCompletion } from '../models/ActivityCompletion';
+import { UserWheelSelection } from '../models/UserWheelSelection';
 import { Topic } from '../models/Topic';
 import { TopicFollow } from '../models/TopicFollow';
 import { User } from '../models/User';
@@ -41,6 +42,12 @@ interface GeneratedActivity {
   researchBasis: string;
 }
 
+const TOPIC_INCLUDE = {
+  model: Topic,
+  as: 'topic',
+  attributes: ['id', 'name', 'slug', 'iconEmoji', 'category'],
+};
+
 export class ActivityService {
   /**
    * Generate research-backed activities for a community using Claude API.
@@ -68,34 +75,39 @@ export class ActivityService {
     }
 
     try {
-      const prompt = `You are a research scientist generating micro-activities for a social media community called "${topic.name}" (category: ${topic.category}).
+      const prompt = `You are generating INSTANT micro-actions for a social media community called "${topic.name}" (category: ${topic.category}).
 ${topic.description ? `Community description: ${topic.description}` : ''}
 
-Generate exactly ${ACTIVITIES_PER_GENERATION} quick activities (5-30 minutes each) that members can do right now and post about.
+Generate exactly ${ACTIVITIES_PER_GENERATION} INSTANT actions that a user can do RIGHT NOW in under 2 minutes and post about.
 
-RESEARCH REQUIREMENTS — THIS IS CRITICAL:
-- Every activity MUST be grounded in a real, published study or well-established finding
-- Cite the actual researcher(s) by name, the year, and the journal or institution
-- Describe the specific finding — what was measured, what was found, with numbers when available
-- Draw from: peer-reviewed journals, meta-analyses, randomized controlled trials, longitudinal studies
-- Fields: psychology, neuroscience, behavioral science, health science, cognitive science, exercise physiology
-- Do NOT fabricate citations. Only cite research you are confident is real.
-- If you cannot find a specific study for an activity, ground it in a well-established principle and name the field
+CRITICAL — THESE MUST BE INSTANT ACTIONS:
+- Each activity takes 30 seconds to 2 minutes MAX. Nothing longer.
+- The user should be able to do it THE SECOND they see it — no planning, no prep, no waiting.
+- Think: "do this ONE thing right now" — not projects, comparisons, research, or multi-step tasks.
+- NO: "Compare X and Y", "Track your habits for a week", "Create a plan", "Research something"
+- YES: "Take a photo of...", "Write 3 words that...", "Do 10 pushups right now", "Text a friend...", "Look out your window and..."
+- Every action must be a single, concrete verb: take, write, draw, snap, send, do, hold, breathe, list, name, find, share
+- The result should be immediately shareable as a post (photo, quick text, selfie)
+
+RESEARCH GROUNDING:
+- Ground each activity in real psychology, neuroscience, or behavioral science research
+- Cite researcher name(s), year, and journal/institution when possible
+- If no specific study, name the well-established principle and field
+- Do NOT fabricate citations
 
 ACTIVITY REQUIREMENTS:
-- 5-30 minutes max, zero preparation, no special equipment
-- Must produce a shareable result (photo, written reflection, screenshot, selfie, creation)
-- Specific and actionable — tell people exactly what to do, not vague suggestions
-- Relevant to the "${topic.name}" community's interests
-- Genuinely beneficial — activities should actually improve wellbeing, not be gimmicky
-- Varied: mix physical, reflective, creative, and social activities relevant to the community
+- Relevant to the "${topic.name}" community
+- Zero preparation, zero equipment, zero waiting
+- Must produce something shareable in a post right away
+- Varied: mix physical, expressive, reflective, social, creative actions
+- Each title should start with an action verb
 
 Return ONLY a JSON array with this exact format, no other text:
 [
   {
-    "title": "Short actionable title (max 50 chars)",
-    "description": "1-2 sentences: exactly what to do and what to share in your post",
-    "researchBasis": "2-3 sentences: the specific research finding with researcher name(s), year, journal/institution, and what was discovered. Be precise."
+    "title": "Action verb title (max 50 chars, e.g. 'Snap your current view')",
+    "description": "1 sentence: the exact instant action to do and what to post",
+    "researchBasis": "1-2 sentences: the research behind why this works"
   }
 ]`;
 
@@ -147,15 +159,57 @@ Return ONLY a JSON array with this exact format, no other text:
   }
 
   /**
-   * Get activities for the spinning wheel — deterministic daily selection.
+   * Get activities for the spinning wheel.
    *
-   * How it works:
-   * 1. Fetch ALL active activities from user's joined communities (including completed ones)
-   * 2. Use a seeded shuffle (userId + today's date) to deterministically pick 8
-   * 3. Filter out the ones the user already completed → wheel shrinks
-   * 4. At midnight, the date changes → new seed → new set of 8 (excluding all-time completions)
+   * If user has wheel selections → return those (filtered by completed).
+   * Otherwise → fall back to deterministic daily selection from joined communities.
    */
   static async getWheelActivities(userId: string): Promise<any[]> {
+    // Check if user has curated selections (graceful if table missing)
+    let selectedActivities: CommunityActivity[] = [];
+    try {
+      const selections = await UserWheelSelection.findAll({
+        where: { userId },
+        include: [{
+          model: CommunityActivity,
+          as: 'activity',
+          where: { isActive: true },
+          include: [TOPIC_INCLUDE],
+        }],
+      });
+
+      selectedActivities = selections
+        .map((s: any) => s.activity)
+        .filter(Boolean);
+    } catch (error) {
+      logger.warn('UserWheelSelection query failed (table may not exist), falling back to default wheel', { error });
+    }
+
+    if (selectedActivities.length > 0) {
+      // User has curated their wheel — use their selections
+      const completions = await ActivityCompletion.findAll({
+        where: { userId },
+        attributes: ['activityId'],
+        raw: true,
+      });
+      const completedIds = new Set(
+        completions.map((c: any) => c.activityId || c.activity_id)
+      );
+
+      const remaining = selectedActivities.filter((a: CommunityActivity) => !completedIds.has(a.id));
+
+      logger.info(`[Wheel] userId=${userId}, curated=${selectedActivities.length}, completed=${completedIds.size}, remaining=${remaining.length}`);
+      return remaining.map((a: CommunityActivity) => ActivityService.formatActivity(a, true));
+    }
+
+    // No selections — fall back to deterministic daily selection
+    return ActivityService.getDefaultWheelActivities(userId);
+  }
+
+  /**
+   * Original deterministic daily selection from joined communities.
+   */
+  private static async getDefaultWheelActivities(userId: string): Promise<any[]> {
     const follows = await TopicFollow.findAll({
       where: { userId, status: 'active' },
       attributes: ['topicId'],
@@ -174,13 +228,7 @@ Return ONLY a JSON array with this exact format, no other text:
       completions.map((c: any) => c.activityId || c.activity_id)
     );
 
-    const includeOpts = [
-      {
-        model: Topic,
-        as: 'topic',
-        attributes: ['id', 'name', 'slug', 'iconEmoji', 'category'],
-      },
-    ];
+    const includeOpts = [TOPIC_INCLUDE];
 
     // Fetch ALL active activities (INCLUDING completed) — needed for stable deterministic selection
     const allWhere: any = {
@@ -212,23 +260,19 @@ Return ONLY a JSON array with this exact format, no other text:
     if (allActivities.length === 0) return [];
 
     // Deterministic daily selection: seed = userId + today's date
-    // Same seed = same shuffle = same 8 picked, every time the user opens the wheel today
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const today = new Date().toISOString().slice(0, 10);
     const seed = `${userId}:${today}`;
     const shuffled = seededShuffle(allActivities, seed);
 
-    // Pick today's 8 from the full pool (including completed ones in the selection)
     const todaysSelection = shuffled.slice(0, WHEEL_SIZE);
-
-    // Now filter out completed — this makes the wheel shrink when activities are done
     const remaining = todaysSelection.filter(a => !completedActivityIds.has(a.id));
 
     logger.info(`[Wheel] userId=${userId}, total=${allActivities.length}, selected=${todaysSelection.length}, completed=${completedActivityIds.size}, remaining=${remaining.length}`);
 
-    return remaining.map(a => ActivityService.formatActivity(a));
+    return remaining.map(a => ActivityService.formatActivity(a, false));
   }
 
-  private static formatActivity(a: CommunityActivity): any {
+  private static formatActivity(a: CommunityActivity, isSelected: boolean): any {
     const topic = (a as any).topic;
     return {
       id: a.id,
@@ -236,6 +280,7 @@ Return ONLY a JSON array with this exact format, no other text:
       description: a.description,
       researchBasis: a.researchBasis,
       source: a.source,
+      isSelected,
       topic: topic ? {
         id: topic.id,
         name: topic.name,
@@ -305,5 +350,135 @@ Return ONLY a JSON array with this exact format, no other text:
       ],
       order: [['completionCount', 'DESC']],
     });
+  }
+
+  // ===== Wheel Selection (user picks activities) =====
+
+  /**
+   * Get all available activities from user's joined communities,
+   * with a flag showing which ones are currently on their wheel.
+   */
+  static async getAvailableActivities(userId: string): Promise<any[]> {
+    const follows = await TopicFollow.findAll({
+      where: { userId, status: 'active' },
+      attributes: ['topicId'],
+    });
+
+    const topicIds = follows.map(f => f.topicId);
+    if (topicIds.length === 0) return [];
+
+    // Get user's current selections
+    const selections = await UserWheelSelection.findAll({
+      where: { userId },
+      attributes: ['activityId'],
+      raw: true,
+    });
+    const selectedIds = new Set(selections.map((s: any) => s.activityId || s.activity_id));
+
+    // Get all active activities from joined communities
+    const activities = await CommunityActivity.findAll({
+      where: {
+        topicId: { [Op.in]: topicIds },
+        isActive: true,
+      },
+      include: [TOPIC_INCLUDE],
+      order: [['completionCount', 'DESC']],
+    });
+
+    // Auto-generate if no activities exist
+    if (activities.length === 0) {
+      for (const topicId of topicIds) {
+        const count = await CommunityActivity.count({ where: { topicId, isActive: true } });
+        if (count === 0) {
+          await ActivityService.generateActivitiesForTopic(topicId);
+        }
+      }
+      const generated = await CommunityActivity.findAll({
+        where: {
+          topicId: { [Op.in]: topicIds },
+          isActive: true,
+        },
+        include: [TOPIC_INCLUDE],
+        order: [['completionCount', 'DESC']],
+      });
+      return generated.map(a => ({
+        ...ActivityService.formatActivity(a, selectedIds.has(a.id)),
+        onWheel: selectedIds.has(a.id),
+      }));
+    }
+
+    return activities.map(a => ({
+      ...ActivityService.formatActivity(a, selectedIds.has(a.id)),
+      onWheel: selectedIds.has(a.id),
+    }));
+  }
+
+  /**
+   * Add an activity to the user's wheel.
+   */
+  static async addToWheel(userId: string, activityId: string): Promise<void> {
+    const activity = await CommunityActivity.findByPk(activityId);
+    if (!activity || !activity.isActive) throw new Error('Activity not found');
+
+    // Check the user follows this activity's community
+    const follows = await TopicFollow.findOne({
+      where: { userId, topicId: activity.topicId, status: 'active' },
+    });
+    if (!follows) throw new Error('You must join this community first');
+
+    // Check wheel limit
+    const count = await UserWheelSelection.count({ where: { userId } });
+    if (count >= WHEEL_SIZE) {
+      throw new Error(`Your wheel is full (max ${WHEEL_SIZE}). Remove one first.`);
+    }
+
+    // Check not already selected
+    const existing = await UserWheelSelection.findOne({
+      where: { userId, activityId },
+    });
+    if (existing) throw new Error('Activity already on your wheel');
+
+    await UserWheelSelection.create({ userId, activityId });
+    logger.info(`User ${userId} added activity "${activity.title}" to wheel`);
+  }
+
+  /**
+   * Remove an activity from the user's wheel.
+   */
+  static async removeFromWheel(userId: string, activityId: string): Promise<void> {
+    const deleted = await UserWheelSelection.destroy({
+      where: { userId, activityId },
+    });
+    if (deleted === 0) throw new Error('Activity not on your wheel');
+    logger.info(`User ${userId} removed activity ${activityId} from wheel`);
+  }
+
+  /**
+   * Get user's current wheel selections (for management UI).
+   */
+  static async getWheelSelections(userId: string): Promise<any[]> {
+    const selections = await UserWheelSelection.findAll({
+      where: { userId },
+      include: [{
+        model: CommunityActivity,
+        as: 'activity',
+        where: { isActive: true },
+        include: [TOPIC_INCLUDE],
+      }],
+      order: [['createdAt', 'ASC']],
+    });
+
+    return selections
+      .map((s: any) => s.activity)
+      .filter(Boolean)
+      .map((a: CommunityActivity) => ActivityService.formatActivity(a, true));
+  }
+
+  /**
+   * Clear all wheel selections (reset to auto-generated).
+   */
+  static async clearWheelSelections(userId: string): Promise<void> {
+    await UserWheelSelection.destroy({ where: { userId } });
+    logger.info(`User ${userId} cleared wheel selections`);
   }
 }

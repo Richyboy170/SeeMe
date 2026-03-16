@@ -5,15 +5,15 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
   try {
     const tableDesc = await queryInterface.describeTable('users');
 
-    if (!tableDesc['activeAvatarId']) {
-      await queryInterface.addColumn('users', 'activeAvatarId', {
+    if (!tableDesc['active_avatar_id'] && !tableDesc['activeAvatarId']) {
+      await queryInterface.addColumn('users', 'active_avatar_id', {
         type: DataTypes.STRING(50),
         allowNull: true,
         defaultValue: null,
       });
-      logger.info('Added activeAvatarId column to users table');
+      logger.info('Added active_avatar_id column to users table');
     } else {
-      logger.info('activeAvatarId column already exists in users table');
+      logger.info('active_avatar_id column already exists in users table');
     }
   } catch (error) {
     logger.error('Migration failed: add-active-avatar-id', { error });
@@ -22,5 +22,5 @@ export async function up(queryInterface: QueryInterface): Promise<void> {
 }
 
 export async function down(queryInterface: QueryInterface): Promise<void> {
-  await queryInterface.removeColumn('users', 'activeAvatarId');
+  await queryInterface.removeColumn('users', 'active_avatar_id');
 }

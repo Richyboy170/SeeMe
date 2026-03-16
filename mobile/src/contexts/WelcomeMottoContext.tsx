@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
 import WelcomeMottoModal from '../components/WelcomeMottoModal';
 
 interface WelcomeMottoContextType {
@@ -23,7 +23,7 @@ export function WelcomeMottoProvider({ children }: WelcomeMottoProviderProps) {
   }, []);
 
   return (
-    <WelcomeMottoContext.Provider value={{ triggerWelcomeMotto }}>
+    <WelcomeMottoContext.Provider value={useMemo(() => ({ triggerWelcomeMotto }), [triggerWelcomeMotto])}>
       {children}
       <WelcomeMottoModal visible={visible} onClose={handleClose} />
     </WelcomeMottoContext.Provider>

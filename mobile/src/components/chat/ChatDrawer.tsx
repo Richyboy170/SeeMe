@@ -1170,6 +1170,9 @@ const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(({ visible, onClos
                 data={conversations}
                 renderItem={renderConversation}
                 keyExtractor={(item) => item.id}
+                removeClippedSubviews
+                maxToRenderPerBatch={10}
+                windowSize={7}
                 refreshControl={
                   <RefreshControl
                     refreshing={refreshing}
@@ -1260,6 +1263,9 @@ const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(({ visible, onClos
                     renderItem={renderMessage}
                     keyExtractor={(item) => item.id}
                     inverted
+                    removeClippedSubviews
+                    maxToRenderPerBatch={10}
+                    windowSize={9}
                     showsVerticalScrollIndicator={false}
                     contentContainerStyle={styles.messagesList}
                     ListEmptyComponent={
@@ -1577,6 +1583,9 @@ const ChatDrawer = forwardRef<ChatDrawerRef, ChatDrawerProps>(({ visible, onClos
                     renderItem={renderMessage}
                     keyExtractor={(item) => item.id}
                     inverted
+                    removeClippedSubviews
+                    maxToRenderPerBatch={10}
+                    windowSize={9}
                     showsVerticalScrollIndicator={false}
                     contentContainerStyle={styles.messagesList}
                     ListEmptyComponent={

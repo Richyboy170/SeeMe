@@ -29,7 +29,7 @@ interface AvatarRendererProps {
   style?: 'cartoon' | 'anime' | 'minimalist';
 }
 
-export default function AvatarRenderer({
+function AvatarRenderer({
   size,
   customizations,
   style = 'cartoon'
@@ -720,6 +720,8 @@ export default function AvatarRenderer({
     </View>
   );
 }
+
+export default React.memo(AvatarRenderer);
 
 const styles = StyleSheet.create({
   container: {

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -163,7 +163,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     [],
   );
 
-  const loadSavedPosts = async () => {
+  const loadSavedPosts = useCallback(async () => {
     setLoadingSaved(true);
     try {
       const data = await api.getSavedPosts();
@@ -174,9 +174,9 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     } finally {
       setLoadingSaved(false);
     }
-  };
+  }, []);
 
-  const handleArchivePost = async (postId: string) => {
+  const handleArchivePost = useCallback(async (postId: string) => {
     try {
       await api.archivePost(postId);
       setPosts((prev: any[]) => prev.filter((p: any) => p.id !== postId));
@@ -185,9 +185,9 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
       console.error('Error archiving post:', error);
       Alert.alert('Error', 'Failed to archive post');
     }
-  };
+  }, []);
 
-  const handleDeletePost = async (postId: string) => {
+  const handleDeletePost = useCallback(async (postId: string) => {
     try {
       await api.deletePost(postId);
       setPosts((prev: any[]) => prev.filter((p: any) => p.id !== postId));
@@ -197,7 +197,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
       console.error('Error deleting post:', error);
       Alert.alert('Error', 'Failed to delete post');
     }
-  };
+  }, []);
 
   // Check follow status and trust score when viewing other profiles
   React.useEffect(() => {
@@ -207,7 +207,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     }
   }, [user, isOwnProfile]);
 
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
       const response = await api.getProfile(userId);
@@ -230,9 +230,9 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId]);
 
-  const loadPosts = async () => {
+  const loadPosts = useCallback(async () => {
     setLoadingPosts(true);
     try {
       const data = await api.getUserPosts(username);
@@ -242,7 +242,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     } finally {
       setLoadingPosts(false);
     }
-  };
+  }, [username]);
 
   const checkFollowStatus = async () => {
     try {
@@ -273,39 +273,60 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     }
   };
 
-  const loadPrivacySettings = async () => {
+  const loadPrivacySettings = useCallback(async () => {
     try {
       const response = await api.getPrivacySettings();
       setIsPrivate(response.settings?.isPrivate || false);
     } catch (error) {
       console.error('Error loading privacy settings:', error);
     }
-  };
+  }, []);
 
-  const loadFollowRequestCount = async () => {
+  const loadFollowRequestCount = useCallback(async () => {
     try {
       const response = await api.getFollowRequestCount();
       setFollowRequestCount(response.count || 0);
     } catch (error) {
       console.error('Error loading follow request count:', error);
     }
+  }, []);
+
+  const executeUnfollow = async () => {
+    setFollowLoading(true);
+    try {
+      await api.unfollowUser(user!.username);
+      setIsFollowing(false);
+      setFollowRequestStatus(null);
+      setUser((prev: any) => ({
+        ...prev,
+        followersCount: Math.max(0, (prev.followersCount || 1) - 1)
+      }));
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.error || 'Failed to update follow status';
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setFollowLoading(false);
+    }
   };
 
   const handleFollow = async () => {
     if (followLoading || !user?.username) return;
 
+    if (isFollowing) {
+      Alert.alert(
+        'Unfriend',
+        `Are you sure you want to unfriend @${user.username}? You will lose your connection and trust score progress.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Unfriend', style: 'destructive', onPress: executeUnfollow },
+        ]
+      );
+      return;
+    }
+
     setFollowLoading(true);
     try {
-      if (isFollowing) {
-        await api.unfollowUser(user.username);
-        setIsFollowing(false);
-        setFollowRequestStatus(null);
-        // Update local follower count
-        setUser((prev: any) => ({
-          ...prev,
-          followersCount: Math.max(0, (prev.followersCount || 1) - 1)
-        }));
-      } else if (followRequestStatus === 'pending') {
+      if (followRequestStatus === 'pending') {
         // Cancel follow request
         await api.unfollowUser(user.username);
         setFollowRequestStatus(null);
@@ -332,7 +353,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     }
   };
 
-  const handleTogglePrivacy = async () => {
+  const handleTogglePrivacy = useCallback(async () => {
     try {
       const newPrivacyState = !isPrivate;
       await api.updatePrivacySettings(newPrivacyState);
@@ -346,13 +367,13 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     } catch (error) {
       Alert.alert('Error', 'Failed to update privacy settings');
     }
-  };
+  }, [isPrivate]);
 
-  const getFollowButtonText = () => {
+  const getFollowButtonText = useCallback(() => {
     if (isFollowing) return 'Friends';
     if (followRequestStatus === 'pending') return 'Request Sent';
     return 'Add Friend';
-  };
+  }, [isFollowing, followRequestStatus]);
 
   const handleMessage = async () => {
     if (messageLoading || !user?.id) return;
@@ -414,15 +435,15 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     );
   };
 
-  const openPost = (post: any, index: number) => {
+  const openPost = useCallback((post: any, index: number) => {
     setSelectedPost(post);
     setSelectedPostIndex(index);
     setVisiblePostIndex(index);
-  };
+  }, []);
 
-  const closePost = () => {
+  const closePost = useCallback(() => {
     setSelectedPost(null);
-  };
+  }, []);
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     if (viewableItems.length > 0 && viewableItems[0].index !== null) {
@@ -434,11 +455,11 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     itemVisiblePercentThreshold: 50,
   }).current;
 
-  const handleEditProfile = () => {
+  const handleEditProfile = useCallback(() => {
     setEditUsername(user?.username || '');
     setEditBio(user?.bio || '');
     setEditModalVisible(true);
-  };
+  }, [user?.username, user?.bio]);
 
   const handleChangeProfileImage = async () => {
     try {
@@ -506,9 +527,9 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     }
   };
 
-  const handleShareProfile = () => {
+  const handleShareProfile = useCallback(() => {
     setShareCardVisible(true);
-  };
+  }, []);
 
   const handleSaveCard = async () => {
     if (savingCard) return;
@@ -560,7 +581,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     }
   };
 
-  const formatTimeAgo = (dateString: string) => {
+  const formatTimeAgo = useCallback((dateString: string) => {
     const now = new Date();
     const postDate = new Date(dateString);
     const diffInSeconds = Math.floor((now.getTime() - postDate.getTime()) / 1000);
@@ -570,7 +591,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`;
     if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)} days ago`;
     return `${Math.floor(diffInSeconds / 604800)} weeks ago`;
-  };
+  }, []);
 
   const userRank = user?.positivityRank || 'beginner';
   const rankInfo = getRankInfo(userRank);
@@ -591,7 +612,9 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
     );
   }
 
-  const renderGridItem = ({ item, index }: { item: any; index: number }) => {
+  const activePosts = useMemo(() => posts.filter((p: any) => !p.isArchived), [posts]);
+
+  const renderGridItem = useCallback(({ item, index }: { item: any; index: number }) => {
     const imageUri = getImageUrl(item.processedImageUrl) || getImageUrl(item.thumbnailUrl) || getImageUrl(item.originalImageUrl);
     const isProcessing = item.status === 'processing';
 
@@ -627,7 +650,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
         )}
       </TouchableOpacity>
     );
-  };
+  }, [colors, openPost]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -839,6 +862,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
                   otherUserId: user.id,
                   otherUsername: user.username,
                   otherAvatarUrl: user.avatarUrl,
+                  otherActiveAvatar: activeAvatar || null,
                 });
               }}
             >
@@ -887,9 +911,9 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
             <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
               <ActivityIndicator size="small" color={colors.text.tertiary} />
             </View>
-          ) : posts.filter((p: any) => !p.isArchived).length > 0 ? (
+          ) : activePosts.length > 0 ? (
             <View style={[styles.gridContainer, { backgroundColor: colors.background }]}>
-              {posts.filter((p: any) => !p.isArchived).map((item, index) => (
+              {activePosts.map((item, index) => (
                 <View key={item.id}>
                   {renderGridItem({ item, index })}
                 </View>
@@ -952,7 +976,7 @@ export default function ProfileScreen({ route }: ProfileScreenProps) {
       {/* Post Viewer Modal - Uses shared component for all post interactions */}
       <PostViewerModal
         visible={!!selectedPost}
-        posts={(activeTab === 'saved' ? savedPosts : posts.filter((p: any) => !p.isArchived)).map(post => ({
+        posts={(activeTab === 'saved' ? savedPosts : activePosts).map(post => ({
           ...post,
           user: {
             id: user.id,

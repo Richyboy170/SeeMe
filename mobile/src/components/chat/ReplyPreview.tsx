@@ -35,7 +35,7 @@ function getContentPreview(replyTo: ReplyTo): string {
   }
 }
 
-export default function ReplyPreview({ replyTo, onCancel }: ReplyPreviewProps) {
+function ReplyPreview({ replyTo, onCancel }: ReplyPreviewProps) {
   const { colors, gradientColors } = useTheme();
 
   const username = replyTo.sender?.username || 'Unknown';
@@ -98,3 +98,5 @@ const styles = StyleSheet.create({
     padding: 4,
   },
 });
+
+export default React.memo(ReplyPreview);

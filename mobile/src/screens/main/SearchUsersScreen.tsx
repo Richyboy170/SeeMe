@@ -134,7 +134,7 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
     }
   };
 
-  const handleSearch = async () => {
+  const handleSearch = useCallback(async () => {
     if (!searchQuery.trim()) return;
 
     setLoading(true);
@@ -148,40 +148,19 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
     } finally {
       setLoading(false);
     }
-  };
+  }, [searchQuery]);
 
-  const handleFollow = async (user: SearchUser) => {
-    if (followingLoading) return;
-
+  const executeUnfollow = useCallback(async (user: SearchUser) => {
     setFollowingLoading(user.id);
     try {
-      if (user.isFollowing) {
-        await api.unfollowUser(user.username);
-      } else {
-        await api.followUser(user.username);
-      }
+      await api.unfollowUser(user.username);
 
-      // Update local state for search results
       setUsers(prev =>
-        prev.map(u =>
-          u.id === user.id ? { ...u, isFollowing: !u.isFollowing } : u
-        )
+        prev.map(u => u.id === user.id ? { ...u, isFollowing: false } : u)
       );
-
-      // Update following users list
-      if (user.isFollowing) {
-        // Was following, now unfollowing - remove from followingUsers
-        setFollowingUsers(prev => prev.filter(u => u.id !== user.id));
-      } else {
-        // Was not following, now following - add to followingUsers
-        setFollowingUsers(prev => [...prev, { ...user, isFollowing: true }]);
-      }
-
-      // Update recommended users list
+      setFollowingUsers(prev => prev.filter(u => u.id !== user.id));
       setRecommendedUsers(prev =>
-        prev.map(u =>
-          u.id === user.id ? { ...u, isFollowing: !u.isFollowing } : u
-        )
+        prev.map(u => u.id === user.id ? { ...u, isFollowing: false } : u)
       );
     } catch (error: any) {
       const errorMessage = error.response?.data?.error || 'Failed to update follow status';
@@ -189,9 +168,43 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
     } finally {
       setFollowingLoading(null);
     }
-  };
+  }, []);
 
-  const handleMessage = async (user: SearchUser) => {
+  const handleFollow = useCallback(async (user: SearchUser) => {
+    if (followingLoading) return;
+
+    if (user.isFollowing) {
+      Alert.alert(
+        'Unfriend',
+        `Are you sure you want to unfriend @${user.username}? You will lose your connection and trust score progress.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Unfriend', style: 'destructive', onPress: () => executeUnfollow(user) },
+        ]
+      );
+      return;
+    }
+
+    setFollowingLoading(user.id);
+    try {
+      await api.followUser(user.username);
+
+      setUsers(prev =>
+        prev.map(u => u.id === user.id ? { ...u, isFollowing: !u.isFollowing } : u)
+      );
+      setFollowingUsers(prev => [...prev, { ...user, isFollowing: true }]);
+      setRecommendedUsers(prev =>
+        prev.map(u => u.id === user.id ? { ...u, isFollowing: !u.isFollowing } : u)
+      );
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.error || 'Failed to update follow status';
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setFollowingLoading(null);
+    }
+  }, [followingLoading, executeUnfollow]);
+
+  const handleMessage = useCallback(async (user: SearchUser) => {
     if (messageLoading) return;
 
     setMessageLoading(user.id);
@@ -225,13 +238,13 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
     } finally {
       setMessageLoading(null);
     }
-  };
+  }, [messageLoading, navigation]);
 
-  const handleUserPress = (user: SearchUser) => {
+  const handleUserPress = useCallback((user: SearchUser) => {
     navigation.navigate('UserProfile', { userId: user.id, username: user.username });
-  };
+  }, [navigation]);
 
-  const renderUserItem = ({ item, showMessage = false, showReason = false }: { item: SearchUser; showMessage?: boolean; showReason?: boolean }) => {
+  const renderUserItem = useCallback(({ item, showMessage = false, showReason = false }: { item: SearchUser; showMessage?: boolean; showReason?: boolean }) => {
     const isLoadingFollow = followingLoading === item.id;
     const isLoadingMessage = messageLoading === item.id;
 
@@ -310,15 +323,21 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
         </TouchableOpacity>
       </TouchableOpacity>
     );
-  };
+  }, [followingLoading, messageLoading, colors, handleUserPress, handleFollow, handleMessage]);
 
-  const renderFollowingItem = ({ item }: { item: SearchUser }) => {
+  const renderFollowingItem = useCallback(({ item }: { item: SearchUser }) => {
     return renderUserItem({ item, showMessage: true });
-  };
+  }, [renderUserItem]);
 
-  const renderRecommendedItem = ({ item }: { item: SearchUser }) => {
+  const renderRecommendedItem = useCallback(({ item }: { item: SearchUser }) => {
     return renderUserItem({ item, showReason: true });
-  };
+  }, [renderUserItem]);
+
+  const renderSearchResult = useCallback(({ item }: { item: SearchUser }) => {
+    return renderUserItem({ item });
+  }, [renderUserItem]);
+
+  const keyExtractor = useCallback((item: SearchUser) => item.id, []);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.card }]}>
@@ -373,10 +392,13 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
         // Search results
         <FlatList
           data={users}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => renderUserItem({ item })}
+          keyExtractor={keyExtractor}
+          renderItem={renderSearchResult}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          removeClippedSubviews
+          maxToRenderPerBatch={10}
+          windowSize={5}
         />
       ) : hasSearched && users.length === 0 ? (
         <View style={styles.centerContent}>
@@ -399,10 +421,13 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
           </View>
           <FlatList
             data={followingUsers}
-            keyExtractor={(item) => item.id}
+            keyExtractor={keyExtractor}
             renderItem={renderFollowingItem}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
+            removeClippedSubviews
+            maxToRenderPerBatch={10}
+            windowSize={5}
           />
         </View>
       ) : loadingRecommendations ? (
@@ -421,10 +446,13 @@ export default function SearchUsersScreen({ navigation }: SearchUsersScreenProps
           </View>
           <FlatList
             data={recommendedUsers}
-            keyExtractor={(item) => item.id}
+            keyExtractor={keyExtractor}
             renderItem={renderRecommendedItem}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
+            removeClippedSubviews
+            maxToRenderPerBatch={10}
+            windowSize={5}
           />
         </View>
       ) : (

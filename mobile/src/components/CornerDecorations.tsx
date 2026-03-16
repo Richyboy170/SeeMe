@@ -25,7 +25,7 @@ const POSITION_STYLE_MAP: Record<string, { top?: number; bottom?: number; left?:
   'bottom-left': { bottom: 4, left: 4 },
 };
 
-export default function CornerDecorations({ config, cornerIcons, muted }: CornerDecorationsProps) {
+function CornerDecorations({ config, cornerIcons, muted }: CornerDecorationsProps) {
   const hasLegacy = !!config;
   const hasPerCorner = cornerIcons && cornerIcons.length > 0;
 
@@ -82,6 +82,8 @@ export default function CornerDecorations({ config, cornerIcons, muted }: Corner
     </View>
   );
 }
+
+export default React.memo(CornerDecorations);
 
 const styles = StyleSheet.create({
   container: {

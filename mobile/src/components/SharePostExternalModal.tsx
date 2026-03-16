@@ -171,7 +171,7 @@ export default function SharePostExternalModal({
       await MediaLibrary.createAssetAsync(uri);
 
       if (Platform.OS === 'android') {
-        // Android: Try direct Story intent first, fall back to share sheet targeting Instagram
+        // Android: Try direct Story intent targeting Instagram, then story camera deeplink
         try {
           const FileSystem = await import('expo-file-system');
           const IntentLauncher = await import('expo-intent-launcher');
@@ -183,23 +183,24 @@ export default function SharePostExternalModal({
               data: contentUri,
               type: 'image/*',
               flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+              packageName: 'com.instagram.android',
               extra: { source_application: 'com.richy.seeme' },
             }
           );
         } catch {
-          // Intent failed — fall back to share sheet
-          const isAvailable = await Sharing.isAvailableAsync();
-          if (isAvailable) {
-            await Sharing.shareAsync(uri, { mimeType: 'image/png', dialogTitle: 'Share to Instagram Story' });
-          } else {
+          // Intent failed — open Instagram story camera directly
+          try {
+            await Linking.openURL('instagram://story-camera');
+            Alert.alert('Image saved!', 'Tap the gallery icon and select the image to use in your story.', [{ text: 'Got it' }]);
+          } catch {
             Alert.alert('Instagram not found', 'Please install Instagram to share stories.');
           }
         }
       } else {
-        // iOS: Open Instagram Stories directly via URL scheme
+        // iOS: Open Instagram story camera directly (pasteboard-based sharing not available in Expo)
         try {
-          await Linking.openURL('instagram-stories://share?source_application=com.richy.seeme');
-          Alert.alert('Image saved!', 'Select the image from your gallery in the story editor.', [{ text: 'Got it' }]);
+          await Linking.openURL('instagram://story-camera');
+          Alert.alert('Image saved!', 'Tap the gallery icon and select the image to use in your story.', [{ text: 'Got it' }]);
         } catch {
           Alert.alert('Instagram not found', 'Please install Instagram to share stories.');
         }

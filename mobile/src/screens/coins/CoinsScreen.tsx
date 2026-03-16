@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     View,
     ScrollView,
@@ -12,7 +12,7 @@ import {
     PanResponder,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { CommonActions } from '@react-navigation/native';
+import { CommonActions, useFocusEffect } from '@react-navigation/native';
 import { api } from '../../services/api';
 import { useCoinCelebration } from '../../contexts/CoinCelebrationContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -180,6 +180,12 @@ export default function CoinsScreen({ navigation }: any) {
     const skySparkle1 = useRef(new Animated.Value(0.2)).current;
     const skySparkle2 = useRef(new Animated.Value(0.6)).current;
 
+    // Given panel playful animations (hearts floating + sparkles)
+    const givenHeart1X = useRef(new Animated.Value(-15)).current;
+    const givenHeart2X = useRef(new Animated.Value(10)).current;
+    const givenSparkle1 = useRef(new Animated.Value(0.2)).current;
+    const givenSparkle2 = useRef(new Animated.Value(0.5)).current;
+
     // Hero section decorative animations
     const heroHeart1Y = useRef(new Animated.Value(0)).current;
     const heroHeart1Opacity = useRef(new Animated.Value(0)).current;
@@ -190,6 +196,14 @@ export default function CoinsScreen({ navigation }: any) {
     const heroRingScale = useRef(new Animated.Value(1)).current;
     const heroRingOpacity = useRef(new Animated.Value(0.3)).current;
     const heroStarRotate = useRef(new Animated.Value(0)).current;
+    const orbitRotate = useRef(new Animated.Value(0)).current;
+    const orbitScale = useRef(new Animated.Value(1)).current;
+    const orbitOpacity = useRef(new Animated.Value(0.45)).current;
+
+    // Sky Collect button animations
+    const skyCollectScale = useRef(new Animated.Value(1)).current;
+    const skyCollectGlow = useRef(new Animated.Value(0)).current;
+    const skyCollectShimmerX = useRef(new Animated.Value(-80)).current;
 
     // Free Coins card animations
     const freeGiftBounce = useRef(new Animated.Value(0)).current;
@@ -207,8 +221,19 @@ export default function CoinsScreen({ navigation }: any) {
     }, []);
 
 
-    // Hero animations
-    useEffect(() => {
+    // Hero animations — stop on blur, restart on focus
+    const loopAnimValues = useRef([
+        coinPulse, heroHeart1Y, heroHeart1Opacity, heroHeart2Y, heroHeart2Opacity,
+        heroSparkle1, heroSparkle2, heroRingScale, heroRingOpacity, heroStarRotate,
+        skyCloud1X, skyCloud2X, skySparkle1, skySparkle2,
+        skyCollectScale, skyCollectGlow, skyCollectShimmerX,
+        givenHeart1X, givenHeart2X, givenSparkle1, givenSparkle2,
+        orbitRotate, orbitScale, orbitOpacity,
+        freeGiftBounce, freeShimmerX, freeSparkleOpacity, freeSlotGlow,
+    ]).current;
+
+    useFocusEffect(
+        useCallback(() => {
         // Coin pulse animation
         Animated.loop(
             Animated.sequence([
@@ -375,6 +400,101 @@ export default function CoinsScreen({ navigation }: any) {
             ])
         ).start();
 
+        // Sky Collect button pulse + shimmer
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(skyCollectScale, {
+                    toValue: 1.04,
+                    duration: 1200,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(skyCollectScale, {
+                    toValue: 1,
+                    duration: 1200,
+                    useNativeDriver: true,
+                }),
+            ])
+        ).start();
+
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(skyCollectGlow, {
+                    toValue: 1,
+                    duration: 1000,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(skyCollectGlow, {
+                    toValue: 0,
+                    duration: 1000,
+                    useNativeDriver: true,
+                }),
+            ])
+        ).start();
+
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(skyCollectShimmerX, {
+                    toValue: 160,
+                    duration: 2200,
+                    useNativeDriver: true,
+                }),
+                Animated.delay(1500),
+                Animated.timing(skyCollectShimmerX, {
+                    toValue: -80,
+                    duration: 0,
+                    useNativeDriver: true,
+                }),
+            ])
+        ).start();
+
+        // Given panel heart drift animations
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(givenHeart1X, { toValue: 18, duration: 3500, useNativeDriver: true }),
+                Animated.timing(givenHeart1X, { toValue: -15, duration: 3500, useNativeDriver: true }),
+            ])
+        ).start();
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(givenHeart2X, { toValue: -14, duration: 4500, useNativeDriver: true }),
+                Animated.timing(givenHeart2X, { toValue: 10, duration: 4500, useNativeDriver: true }),
+            ])
+        ).start();
+        // Given panel sparkle twinkle animations
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(givenSparkle1, { toValue: 0.8, duration: 1100, useNativeDriver: true }),
+                Animated.timing(givenSparkle1, { toValue: 0.15, duration: 1100, useNativeDriver: true }),
+            ])
+        ).start();
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(givenSparkle2, { toValue: 0.85, duration: 1600, useNativeDriver: true }),
+                Animated.timing(givenSparkle2, { toValue: 0.2, duration: 1600, useNativeDriver: true }),
+            ])
+        ).start();
+
+        // Orbit ring — slow rotation + gentle breathing pulse
+        Animated.loop(
+            Animated.timing(orbitRotate, {
+                toValue: 1,
+                duration: 20000,
+                useNativeDriver: true,
+            })
+        ).start();
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(orbitScale, { toValue: 1.06, duration: 3000, useNativeDriver: true }),
+                Animated.timing(orbitScale, { toValue: 1, duration: 3000, useNativeDriver: true }),
+            ])
+        ).start();
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(orbitOpacity, { toValue: 0.7, duration: 2500, useNativeDriver: true }),
+                Animated.timing(orbitOpacity, { toValue: 0.3, duration: 2500, useNativeDriver: true }),
+            ])
+        ).start();
+
         // Free Coins gift icon — single bounce then long rest
         Animated.loop(
             Animated.sequence([
@@ -458,27 +578,30 @@ export default function CoinsScreen({ navigation }: any) {
             ])
         ).start();
 
-    }, []);
+        return () => {
+            loopAnimValues.forEach(v => v.stopAnimation());
+        };
+    }, []));
 
-    const loadReceivedCoins = async () => {
+    const loadReceivedCoins = useCallback(async () => {
         try {
             const response = await api.getReceivedCoins(30);
             setReceivedCoins(response.received || []);
         } catch (error) {
             console.error('Error loading received coins:', error);
         }
-    };
+    }, []);
 
-    const loadUncollectedCoins = async () => {
+    const loadUncollectedCoins = useCallback(async () => {
         try {
             const response = await api.getReceivedCoins(50, false);
             setUncollectedCoins(response.received || []);
         } catch (error) {
             console.error('Error loading uncollected coins:', error);
         }
-    };
+    }, []);
 
-    const loadCoins = async () => {
+    const loadCoins = useCallback(async () => {
         try {
             const response = await api.getMyCoins();
             // Fallback: if secondsUntilNextCooldown is not available, calculate from minutes
@@ -505,9 +628,9 @@ export default function CoinsScreen({ navigation }: any) {
             setLoading(false);
             setRefreshing(false);
         }
-    };
+    }, []);
 
-    const handleClaimCooldown = async () => {
+    const handleClaimCooldown = useCallback(async () => {
         try {
             const response = await api.claimCooldownCoins();
             // Show celebration animation
@@ -521,20 +644,20 @@ export default function CoinsScreen({ navigation }: any) {
                                 'Failed to claim coins';
             Alert.alert('Error', errorMessage);
         }
-    };
+    }, [showCelebration, loadCoins]);
 
-    const handleRefresh = () => {
+    const handleRefresh = useCallback(() => {
         setRefreshing(true);
         loadCoins();
         loadReceivedCoins();
         loadUncollectedCoins();
-    };
+    }, [loadCoins, loadReceivedCoins, loadUncollectedCoins]);
 
-    const handleStartGuide = () => {
+    const handleStartGuide = useCallback(() => {
         setActiveTab('wallet');
         scrollViewRef.current?.scrollTo({ y: 0, animated: false });
         setTimeout(() => setShowGuide(true), 100);
-    };
+    }, []);
 
     // Update header right button
     useEffect(() => {
@@ -552,13 +675,13 @@ export default function CoinsScreen({ navigation }: any) {
         });
     }, [navigation, colors]);
 
-    const handleEncouragementClose = () => {
+    const handleEncouragementClose = useCallback(() => {
         setShowEncouragement(false);
         // Refresh data after modal close to pick up collected coins
         loadCoins();
         loadUncollectedCoins();
         loadReceivedCoins();
-    };
+    }, [loadCoins, loadUncollectedCoins, loadReceivedCoins]);
 
     const getRankInfo = (rank: string) => {
         const rankData: { [key: string]: {
@@ -704,6 +827,16 @@ export default function CoinsScreen({ navigation }: any) {
                     <Ionicons name="star-outline" size={18} color={rankInfo.heroGradient[2] + '20'} />
                 </Animated.View>
 
+                {/* Thin rank-colored orbit ring around the coin */}
+                <Animated.View style={[styles.heroOrbitRing, {
+                    borderColor: rankInfo.heroGradient[1],
+                    opacity: orbitOpacity,
+                    transform: [
+                        { rotate: orbitRotate.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) },
+                        { scale: orbitScale },
+                    ],
+                }]} pointerEvents="none" />
+
                 {/* Main Balance */}
                 <View ref={guideBalanceRef} collapsable={false} style={styles.heroContent}>
                     {/* Expanding ring pulse behind coin */}
@@ -735,12 +868,12 @@ export default function CoinsScreen({ navigation }: any) {
                         colors={[rankInfo.heroGradient[0], rankInfo.heroGradient[1], rankInfo.heroGradient[2]]}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
-                        style={styles.panelGradient}
+                        style={[styles.panelGradient, { flex: 1, alignItems: 'flex-end' }]}
                     >
                         <Ionicons name="heart" size={44} color="rgba(255,255,255,0.06)" style={styles.panelDecor1} />
 
                         {/* Slot 1: Header */}
-                        <View style={styles.panelHeader}>
+                        <View style={[styles.panelHeader, { flexDirection: 'row-reverse' }]}>
                             <View style={styles.panelIconCircle}>
                                 <Ionicons name="heart" size={14} color="#FFF" />
                             </View>
@@ -748,12 +881,12 @@ export default function CoinsScreen({ navigation }: any) {
                         </View>
 
                         {/* Slot 2: Amount */}
-                        <Text style={styles.panelAmount}>
+                        <Text style={[styles.panelAmount, { textAlign: 'right' }]}>
                             {coinsData.lifetimeGiven.toLocaleString()}
                         </Text>
 
                         {/* Slot 3: Badge */}
-                        <View style={styles.panelBadgeSlot}>
+                        <View style={[styles.panelBadgeSlot, { alignItems: 'flex-end' }]}>
                             <TouchableOpacity
                                 style={styles.panelBadge}
                                 onPress={() => navigation.navigate('GiveLeaderboard')}
@@ -768,7 +901,7 @@ export default function CoinsScreen({ navigation }: any) {
                         </View>
 
                         {/* Slot 4: Middle info */}
-                        <View style={styles.panelMidSlot}>
+                        <View style={[styles.panelMidSlot, { alignSelf: 'stretch' }]}>
                             <View style={styles.panelProgressTrack}>
                                 <View
                                     style={[
@@ -778,36 +911,43 @@ export default function CoinsScreen({ navigation }: any) {
                                 />
                             </View>
                             {coinsData.nextRank && coinsData.coinsToNextRank !== null ? (
-                                <Text style={styles.panelMidText}>
+                                <Text style={[styles.panelMidText, { textAlign: 'right' }]}>
                                     <Text style={{ fontWeight: '800' }}>{coinsData.coinsToNextRank}</Text>
                                     {' '}to {coinsData.nextRank.charAt(0).toUpperCase() + coinsData.nextRank.slice(1)}
                                 </Text>
                             ) : (
-                                <Text style={styles.panelMidText}>Max rank!</Text>
+                                <Text style={[styles.panelMidText, { textAlign: 'right' }]}>Max rank!</Text>
                             )}
                         </View>
 
                         {/* Slot 5: Footer pill */}
-                        <View style={styles.panelFooterSlot}>
+                        <View style={[styles.panelFooterSlot, { alignItems: 'flex-end' }]}>
                             <View style={styles.panelStatPill}>
                                 <Ionicons name="people" size={10} color="rgba(255,255,255,0.8)" />
                                 <Text style={styles.panelStatText}>Top {coinsData.rankPercentile}%</Text>
                             </View>
                         </View>
 
-                        {/* Slot 6: CTA */}
-                        <TouchableOpacity
-                            style={styles.panelCTA}
-                            onPress={() => navigation.dispatch(
-                                CommonActions.navigate({ name: 'Feed' })
-                            )}
-                            activeOpacity={0.85}
-                        >
-                            <Ionicons name="gift" size={13} color={rankInfo.heroGradient[1]} />
-                            <Text style={[styles.panelCTAText, { color: rankInfo.heroGradient[1] }]}>
-                                Spread Kindness
-                            </Text>
-                        </TouchableOpacity>
+                        {/* Slot 6: Animated hearts scene */}
+                        <View style={[styles.givenAnimContainer, { alignSelf: 'stretch' }]}>
+                            <View style={styles.givenAnimScene}>
+                                {/* Floating hearts */}
+                                <Animated.View style={[styles.givenHeartLeft, { transform: [{ translateX: givenHeart1X }] }]}>
+                                    <Ionicons name="heart" size={16} color="rgba(255,255,255,0.25)" />
+                                </Animated.View>
+                                <Animated.View style={[styles.givenHeartRight, { transform: [{ translateX: givenHeart2X }] }]}>
+                                    <Ionicons name="heart" size={11} color="rgba(255,255,255,0.18)" />
+                                </Animated.View>
+                                {/* Twinkling sparkles */}
+                                <Animated.View style={[styles.givenStar1, { opacity: givenSparkle1 }]}>
+                                    <Ionicons name="sparkles" size={10} color="rgba(255,255,255,0.6)" />
+                                </Animated.View>
+                                <Animated.View style={[styles.givenStar2, { opacity: givenSparkle2 }]}>
+                                    <Ionicons name="star" size={8} color="rgba(255,255,255,0.5)" />
+                                </Animated.View>
+                            </View>
+                            <Text style={styles.givenAnimText}>Spreading love</Text>
+                        </View>
                     </LinearGradient>
                 </View>
 
@@ -822,7 +962,7 @@ export default function CoinsScreen({ navigation }: any) {
                         colors={SKY_COIN_COLORS.cardGradient}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
-                        style={styles.panelGradient}
+                        style={[styles.panelGradient, { flex: 1 }]}
                     >
                         <Ionicons name="cloud" size={44} color="rgba(255,255,255,0.06)" style={styles.panelDecor1} />
 
@@ -863,37 +1003,50 @@ export default function CoinsScreen({ navigation }: any) {
                             </Text>
                         </View>
 
-                        {/* Slot 5+6: Animated sky scene or Collect CTA */}
-                        {uncollectedCount > 0 ? (
-                            <View style={{ marginTop: 4 }}>
-                                <View style={styles.panelCTA}>
-                                    <Ionicons name="sparkles" size={13} color={SKY_COIN_COLORS.cardGradient[1]} />
-                                    <Text style={[styles.panelCTAText, { color: SKY_COIN_COLORS.cardGradient[1] }]}>
-                                        Collect {uncollectedCount}
-                                    </Text>
-                                </View>
+                        {/* Slot 5+6: Animated sky scene + optional Collect CTA */}
+                        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+                            {/* Sky animation - always visible */}
+                            <View style={[styles.skyAnimScene, { marginTop: 4 }]}>
+                                <Animated.View style={[styles.skyCloudLeft, { transform: [{ translateX: skyCloud1X }] }]}>
+                                    <Ionicons name="cloud" size={18} color="rgba(255,255,255,0.25)" />
+                                </Animated.View>
+                                <Animated.View style={[styles.skyCloudRight, { transform: [{ translateX: skyCloud2X }] }]}>
+                                    <Ionicons name="cloud" size={13} color="rgba(255,255,255,0.18)" />
+                                </Animated.View>
+                                <Animated.View style={[styles.skyStar1, { opacity: skySparkle1 }]}>
+                                    <Ionicons name="sparkles" size={10} color="rgba(255,255,255,0.6)" />
+                                </Animated.View>
+                                <Animated.View style={[styles.skyStar2, { opacity: skySparkle2 }]}>
+                                    <Ionicons name="star" size={8} color="rgba(255,255,255,0.5)" />
+                                </Animated.View>
                             </View>
-                        ) : (
-                            <View style={styles.skyAnimContainer}>
-                                <View style={styles.skyAnimScene}>
-                                    {/* Floating clouds */}
-                                    <Animated.View style={[styles.skyCloudLeft, { transform: [{ translateX: skyCloud1X }] }]}>
-                                        <Ionicons name="cloud" size={18} color="rgba(255,255,255,0.25)" />
-                                    </Animated.View>
-                                    <Animated.View style={[styles.skyCloudRight, { transform: [{ translateX: skyCloud2X }] }]}>
-                                        <Ionicons name="cloud" size={13} color="rgba(255,255,255,0.18)" />
-                                    </Animated.View>
-                                    {/* Twinkling sparkles */}
-                                    <Animated.View style={[styles.skyStar1, { opacity: skySparkle1 }]}>
-                                        <Ionicons name="sparkles" size={10} color="rgba(255,255,255,0.6)" />
-                                    </Animated.View>
-                                    <Animated.View style={[styles.skyStar2, { opacity: skySparkle2 }]}>
-                                        <Ionicons name="star" size={8} color="rgba(255,255,255,0.5)" />
-                                    </Animated.View>
-                                </View>
-                                <Text style={styles.skyAnimText}>Kindness fills your sky</Text>
-                            </View>
-                        )}
+                            {uncollectedCount > 0 ? (
+                                <Animated.View style={{ marginTop: 4, transform: [{ scale: skyCollectScale }] }}>
+                                    <View style={[styles.panelCTA, { overflow: 'hidden' }]}>
+                                        {/* Shimmer sweep */}
+                                        <Animated.View
+                                            style={{
+                                                position: 'absolute',
+                                                top: 0,
+                                                bottom: 0,
+                                                width: 40,
+                                                backgroundColor: 'rgba(255,255,255,0.45)',
+                                                transform: [{ translateX: skyCollectShimmerX }, { skewX: '-20deg' }],
+                                            }}
+                                            pointerEvents="none"
+                                        />
+                                        <Animated.View style={{ opacity: skyCollectGlow }}>
+                                            <Ionicons name="sparkles" size={13} color={SKY_COIN_COLORS.cardGradient[1]} />
+                                        </Animated.View>
+                                        <Text style={[styles.panelCTAText, { color: SKY_COIN_COLORS.cardGradient[1] }]}>
+                                            Collect {uncollectedCount}
+                                        </Text>
+                                    </View>
+                                </Animated.View>
+                            ) : (
+                                <Text style={[styles.skyAnimText, { textAlign: 'center', marginTop: 2 }]}>Kindness fills your sky</Text>
+                            )}
+                        </View>
                     </LinearGradient>
                 </TouchableOpacity>
                 </View>
@@ -1033,6 +1186,7 @@ export default function CoinsScreen({ navigation }: any) {
                 visible={showEncouragement}
                 coins={uncollectedCoins}
                 onClose={handleEncouragementClose}
+                rankGradient={rankInfo.heroGradient}
             />
         </ScrollView>
         </View>
@@ -1293,12 +1447,11 @@ const styles = StyleSheet.create({
     },
     heroArc: {
         position: 'absolute',
-        top: 0,
-        left: -SCREEN_WIDTH * 0.35,
-        width: SCREEN_WIDTH * 1.7,
-        height: SCREEN_WIDTH * 1.6,
-        borderBottomLeftRadius: SCREEN_WIDTH * 0.85,
-        borderBottomRightRadius: SCREEN_WIDTH * 0.85,
+        top: 68 - SCREEN_WIDTH * 1.1,
+        left: (SCREEN_WIDTH - SCREEN_WIDTH * 2.2) / 2,
+        width: SCREEN_WIDTH * 2.2,
+        height: SCREEN_WIDTH * 2.2,
+        borderRadius: SCREEN_WIDTH * 1.1,
         opacity: 0.12,
     },
     heroFloatHeart1: {
@@ -1333,6 +1486,15 @@ const styles = StyleSheet.create({
         height: 76,
         borderRadius: 38,
         borderWidth: 2,
+    },
+    heroOrbitRing: {
+        position: 'absolute',
+        top: 68 - 225,
+        left: (SCREEN_WIDTH - 450) / 2,
+        width: 450,
+        height: 450,
+        borderRadius: 225,
+        borderWidth: 1.5,
     },
     heroContent: {
         alignItems: 'center',
@@ -1548,6 +1710,47 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: 'rgba(255,255,255,0.55)',
         fontStyle: 'italic',
+        letterSpacing: 0.3,
+        marginTop: 2,
+    },
+    // Given panel playful animation
+    givenAnimContainer: {
+        height: 56,
+        marginTop: 4,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    givenAnimScene: {
+        width: '100%',
+        height: 28,
+        position: 'relative' as const,
+        overflow: 'hidden' as const,
+    },
+    givenHeartLeft: {
+        position: 'absolute' as const,
+        top: 1,
+        right: '15%',
+    },
+    givenHeartRight: {
+        position: 'absolute' as const,
+        top: 10,
+        left: '18%',
+    },
+    givenStar1: {
+        position: 'absolute' as const,
+        top: 0,
+        left: '30%',
+    },
+    givenStar2: {
+        position: 'absolute' as const,
+        top: 14,
+        right: '38%',
+    },
+    givenAnimText: {
+        fontSize: 11,
+        fontWeight: '700' as const,
+        color: 'rgba(255,255,255,0.55)',
+        fontStyle: 'italic' as const,
         letterSpacing: 0.3,
         marginTop: 2,
     },

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, MutableRefObject } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, MutableRefObject } from 'react';
 import {
   View,
   Text,
@@ -29,11 +29,14 @@ const MINI_GAUGE_STROKE = 3;
 const MINI_GAUGE_RADIUS = (MINI_GAUGE_SIZE - MINI_GAUGE_STROKE) / 2;
 const MINI_GAUGE_CIRC = 2 * Math.PI * MINI_GAUGE_RADIUS;
 
-function MiniPowerGauge({ score, gradient, icon }: { score: number; gradient: [string, string]; icon: string }) {
+const miniGaugeContainerStyle = { width: MINI_GAUGE_SIZE, height: MINI_GAUGE_SIZE, justifyContent: 'center' as const, alignItems: 'center' as const };
+const miniGaugeCenterStyle = { flex: 1, justifyContent: 'center' as const, alignItems: 'center' as const };
+
+const MiniPowerGauge = React.memo(function MiniPowerGauge({ score, gradient, icon }: { score: number; gradient: [string, string]; icon: string }) {
   const progress = Math.min(score, 100) / 100;
   const offset = MINI_GAUGE_CIRC * (1 - progress);
   return (
-    <View style={{ width: MINI_GAUGE_SIZE, height: MINI_GAUGE_SIZE, justifyContent: 'center', alignItems: 'center' }}>
+    <View style={miniGaugeContainerStyle}>
       <Svg width={MINI_GAUGE_SIZE} height={MINI_GAUGE_SIZE}>
         <Defs>
           <SvgGradient id="miniGaugeGrad" x1="0" y1="0" x2="1" y2="1">
@@ -45,13 +48,13 @@ function MiniPowerGauge({ score, gradient, icon }: { score: number; gradient: [s
         <Circle cx={MINI_GAUGE_SIZE / 2} cy={MINI_GAUGE_SIZE / 2} r={MINI_GAUGE_RADIUS} stroke="url(#miniGaugeGrad)" strokeWidth={MINI_GAUGE_STROKE} fill="none" strokeLinecap="round" strokeDasharray={`${MINI_GAUGE_CIRC}`} strokeDashoffset={offset} rotation="-90" origin={`${MINI_GAUGE_SIZE / 2}, ${MINI_GAUGE_SIZE / 2}`} />
       </Svg>
       <View style={StyleSheet.absoluteFill as any}>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <View style={miniGaugeCenterStyle}>
           <Ionicons name={icon as any} size={10} color={gradient[0]} />
         </View>
       </View>
     </View>
   );
-}
+});
 
 interface ActiveAvatar {
   id: string;
@@ -233,7 +236,7 @@ export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveR
     }
   };
 
-  const handleSearch = async () => {
+  const handleSearch = useCallback(async () => {
     if (!searchQuery.trim()) return;
     setLoading(true);
     setHasSearched(true);
@@ -246,28 +249,51 @@ export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveR
     } finally {
       setLoading(false);
     }
-  };
+  }, [searchQuery]);
 
-  const handleFollow = async (user: SearchUser) => {
-    if (followingLoading) return;
+  const executeUnfollow = useCallback(async (user: SearchUser) => {
     setFollowingLoading(user.id);
     try {
-      if (user.isFollowing) {
-        await api.unfollowUser(user.username);
-      } else {
-        await api.followUser(user.username);
-      }
+      await api.unfollowUser(user.username);
+
+      setUsers(prev =>
+        prev.map(u => u.id === user.id ? { ...u, isFollowing: false } : u)
+      );
+      setFollowingUsers(prev => prev.filter(u => u.id !== user.id));
+      setRecommendedUsers(prev =>
+        prev.map(u => u.id === user.id ? { ...u, isFollowing: false } : u)
+      );
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.error || 'Failed to update follow status';
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setFollowingLoading(null);
+    }
+  }, []);
+
+  const handleFollow = useCallback(async (user: SearchUser) => {
+    if (followingLoading) return;
+
+    if (user.isFollowing) {
+      Alert.alert(
+        'Unfriend',
+        `Are you sure you want to unfriend @${user.username}? You will lose your connection and trust score progress.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Unfriend', style: 'destructive', onPress: () => executeUnfollow(user) },
+        ]
+      );
+      return;
+    }
+
+    setFollowingLoading(user.id);
+    try {
+      await api.followUser(user.username);
 
       setUsers(prev =>
         prev.map(u => u.id === user.id ? { ...u, isFollowing: !u.isFollowing } : u)
       );
-
-      if (user.isFollowing) {
-        setFollowingUsers(prev => prev.filter(u => u.id !== user.id));
-      } else {
-        setFollowingUsers(prev => [...prev, { ...user, isFollowing: true }]);
-      }
-
+      setFollowingUsers(prev => [...prev, { ...user, isFollowing: true }]);
       setRecommendedUsers(prev =>
         prev.map(u => u.id === user.id ? { ...u, isFollowing: !u.isFollowing } : u)
       );
@@ -277,9 +303,9 @@ export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveR
     } finally {
       setFollowingLoading(null);
     }
-  };
+  }, [followingLoading, executeUnfollow]);
 
-  const handleMessage = async (user: SearchUser) => {
+  const handleMessage = useCallback(async (user: SearchUser) => {
     if (messageLoading) return;
     setMessageLoading(user.id);
     try {
@@ -305,14 +331,14 @@ export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveR
     } finally {
       setMessageLoading(null);
     }
-  };
+  }, [messageLoading, navigation]);
 
-  const handleUserPress = (user: SearchUser) => {
+  const handleUserPress = useCallback((user: SearchUser) => {
     navigation.navigate('UserProfile', { userId: user.id, username: user.username });
-  };
+  }, [navigation]);
 
   // --- Friend Card (horizontal scroll) ---
-  const renderFriendCard = (item: SearchUser) => {
+  const renderFriendCard = useCallback((item: SearchUser) => {
     const bond = bondDataMap[item.id];
     const trustScore = bond?.trustScore || 0;
     const streak = bond?.currentStreak || 0;
@@ -404,10 +430,10 @@ export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveR
         </TouchableOpacity>
       </TouchableOpacity>
     );
-  };
+  }, [bondDataMap, messageLoading, isDark, colors, embedded, handleUserPress, handleMessage, navigation]);
 
   // --- Suggested User Card ---
-  const renderSuggestedItem = ({ item }: { item: SearchUser }) => {
+  const renderSuggestedItem = useCallback(({ item }: { item: SearchUser }) => {
     const isLoadingFollow = followingLoading === item.id;
     const reasonIcon = item.recommendationReason === 'Popular' ? 'star' :
       item.recommendationReason === 'Active' ? 'flash' :
@@ -473,10 +499,10 @@ export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveR
         </TouchableOpacity>
       </TouchableOpacity>
     );
-  };
+  }, [followingLoading, isDark, colors, handleUserPress, handleFollow]);
 
   // --- Search Result Item ---
-  const renderSearchItem = ({ item }: { item: SearchUser }) => {
+  const renderSearchItem = useCallback(({ item }: { item: SearchUser }) => {
     const isLoadingFollow = followingLoading === item.id;
     const isLoadingMessage = messageLoading === item.id;
 
@@ -540,7 +566,9 @@ export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveR
         </TouchableOpacity>
       </TouchableOpacity>
     );
-  };
+  }, [followingLoading, messageLoading, isDark, colors, handleUserPress, handleFollow, handleMessage]);
+
+  const userKeyExtractor = useCallback((item: SearchUser) => item.id, []);
 
   // --- Loading ---
   if (loading) {
@@ -565,10 +593,13 @@ export default function PeopleTab({ searchQuery, navigation, nestedScrollActiveR
     return (
       <FlatList
         data={users}
-        keyExtractor={(item) => item.id}
+        keyExtractor={userKeyExtractor}
         renderItem={renderSearchItem}
         contentContainerStyle={styles.searchListContent}
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews
+        maxToRenderPerBatch={10}
+        windowSize={5}
       />
     );
   }

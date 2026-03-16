@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   FlatList,
@@ -113,7 +113,7 @@ export default function GivingActivityScreen({ navigation }: any) {
     return date.toLocaleDateString();
   };
 
-  const renderItem = ({ item }: { item: GivingActivity }) => {
+  const renderItem = useCallback(({ item }: { item: GivingActivity }) => {
     return (
       <View style={[styles.item, { backgroundColor: colors.card }]}>
         {/* Giver */}
@@ -157,7 +157,7 @@ export default function GivingActivityScreen({ navigation }: any) {
         )}
       </View>
     );
-  };
+  }, [colors, navigation]);
 
   if (loading) {
     return (
@@ -179,6 +179,9 @@ export default function GivingActivityScreen({ navigation }: any) {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         contentContainerStyle={styles.list}
+        removeClippedSubviews
+        maxToRenderPerBatch={10}
+        windowSize={7}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }

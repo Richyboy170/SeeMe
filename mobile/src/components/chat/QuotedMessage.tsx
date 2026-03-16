@@ -37,7 +37,7 @@ function getContentPreview(messageType: string, content: string | null): string 
   }
 }
 
-export default function QuotedMessage({ replyTo, isOwnMessage, onPress }: QuotedMessageProps) {
+function QuotedMessage({ replyTo, isOwnMessage, onPress }: QuotedMessageProps) {
   const { colors, isDark } = useTheme();
 
   const senderName = replyTo.sender?.username || 'Unknown';
@@ -104,3 +104,5 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 });
+
+export default React.memo(QuotedMessage);

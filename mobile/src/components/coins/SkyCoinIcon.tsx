@@ -53,7 +53,7 @@ interface SkyCoinIconProps {
   style?: any;
 }
 
-export default function SkyCoinIcon({
+function SkyCoinIcon({
   size,
   style,
 }: SkyCoinIconProps) {
@@ -66,3 +66,5 @@ export default function SkyCoinIcon({
     />
   );
 }
+
+export default React.memo(SkyCoinIcon);

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import { api } from '../services/api';
 import { socketService } from '../services/socket';
 
@@ -99,11 +99,11 @@ export function UnreadProvider({ children, isAuthenticated }: UnreadProviderProp
     };
   }, [isAuthenticated, refreshUnreadCount]);
 
-  const contextValue: UnreadContextType = {
+  const contextValue = useMemo(() => ({
     unreadCount,
     refreshUnreadCount,
     decrementUnreadCount,
-  };
+  }), [unreadCount, refreshUnreadCount, decrementUnreadCount]);
 
   return (
     <UnreadContext.Provider value={contextValue}>

@@ -3,7 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
+  Pressable,
   Image,
   Animated,
   Easing,
@@ -63,7 +63,7 @@ interface Props {
   cardWidth?: number;
 }
 
-export default function CapsuleCommunityCard({ topic, onPress, onToggleFollow, cardWidth }: Props) {
+function CapsuleCommunityCard({ topic, onPress, onToggleFollow, cardWidth }: Props) {
   const cw = cardWidth || DEFAULT_CARD_WIDTH;
   const ch = cw * 1.6;
   const br = cw * 0.2;
@@ -76,9 +76,18 @@ export default function CapsuleCommunityCard({ topic, onPress, onToggleFollow, c
   const indexB = useRef(1);
   const [, setTick] = useState(0); // triggers re-render to swap hidden layer's source
 
+  // Card animations (press-only, no loops)
+  const pressScale = useRef(new Animated.Value(1)).current;
+  const joinScale = useRef(new Animated.Value(1)).current;
+
   const previewImages = (topic.previewPosts || [])
     .map(p => getImageUrl(p.processedImageUrl) || getImageUrl(p.originalImageUrl))
     .filter(Boolean) as string[];
+
+  // Prefetch all preview images on mount so crossfade never shows a blank
+  useEffect(() => {
+    previewImages.forEach(uri => { if (uri) Image.prefetch(uri).catch(() => {}); });
+  }, [previewImages.length]);
 
   useEffect(() => {
     if (previewImages.length <= 1) return;
@@ -92,31 +101,32 @@ export default function CapsuleCommunityCard({ topic, onPress, onToggleFollow, c
       const easing = Easing.inOut(Easing.ease);
 
       if (showingA.current) {
-        // A is visible → cross-fade to B (already has the next image loaded)
         Animated.parallel([
-          Animated.timing(fadeA, { toValue: 0, duration: 800, easing, useNativeDriver: true }),
-          Animated.timing(fadeB, { toValue: 1, duration: 800, easing, useNativeDriver: true }),
+          Animated.timing(fadeA, { toValue: 0, duration: 500, easing, useNativeDriver: true }),
+          Animated.timing(fadeB, { toValue: 1, duration: 500, easing, useNativeDriver: true }),
         ]).start(() => {
-          // B is now visible. Swap A (hidden, opacity 0) to the next image.
           indexA.current = (indexB.current + 1) % previewImages.length;
           setTick(t => t + 1);
         });
       } else {
-        // B is visible → cross-fade to A (already has the next image loaded)
         Animated.parallel([
-          Animated.timing(fadeB, { toValue: 0, duration: 800, easing, useNativeDriver: true }),
-          Animated.timing(fadeA, { toValue: 1, duration: 800, easing, useNativeDriver: true }),
+          Animated.timing(fadeB, { toValue: 0, duration: 500, easing, useNativeDriver: true }),
+          Animated.timing(fadeA, { toValue: 1, duration: 500, easing, useNativeDriver: true }),
         ]).start(() => {
-          // A is now visible. Swap B (hidden, opacity 0) to the next image.
           indexB.current = (indexA.current + 1) % previewImages.length;
           setTick(t => t + 1);
         });
       }
       showingA.current = !showingA.current;
-    }, 1200);
+    }, 2000);
 
     return () => clearInterval(interval);
   }, [previewImages.length]);
+
+  const pressIn = () => Animated.spring(pressScale, { toValue: 0.96, friction: 8, tension: 300, useNativeDriver: true }).start();
+  const pressOut = () => Animated.spring(pressScale, { toValue: 1, friction: 5, tension: 200, useNativeDriver: true }).start();
+  const joinPressIn = () => Animated.spring(joinScale, { toValue: 0.88, friction: 8, tension: 300, useNativeDriver: true }).start();
+  const joinPressOut = () => Animated.spring(joinScale, { toValue: 1, friction: 5, tension: 200, useNativeDriver: true }).start();
 
   const imageA = previewImages[indexA.current] || null;
   const imageB = previewImages[indexB.current] || null;
@@ -140,11 +150,8 @@ export default function CapsuleCommunityCard({ topic, onPress, onToggleFollow, c
   };
 
   return (
-    <TouchableOpacity
-      style={[styles.capsule, { width: cw, height: ch, borderRadius: br }]}
-      onPress={onPress}
-      activeOpacity={0.85}
-    >
+    <Pressable onPress={onPress} onPressIn={pressIn} onPressOut={pressOut}>
+    <Animated.View style={[styles.capsule, { width: cw, height: ch, borderRadius: br, transform: [{ scale: pressScale }] }]}>
       {/* Background layer - gradient placeholder */}
       <LinearGradient
         colors={['#1a1a2e', '#16213e', '#0f3460']}
@@ -246,7 +253,7 @@ export default function CapsuleCommunityCard({ topic, onPress, onToggleFollow, c
           </LinearGradient>
 
           {/* Glow effect around porthole */}
-          <View style={[styles.portholeGlow, { width: ps + 16, height: ps + 16, borderRadius: (ps + 16) / 2, top: -8, left: -8 }]} />
+          <View style={[styles.portholeGlow, { width: ps + 16, height: ps + 16, borderRadius: (ps + 16) / 2, top: -8, left: -8, opacity: 0.5 }]} />
         </View>
 
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: isCompact ? 2 : 4, paddingHorizontal: isCompact ? 4 : 8 }}>
@@ -272,34 +279,37 @@ export default function CapsuleCommunityCard({ topic, onPress, onToggleFollow, c
           </Text>
         </View>
 
-        {/* Join button */}
-        <TouchableOpacity
-          style={[
+        {/* Join button – spring bounce */}
+        <Pressable
+          onPress={(e) => { e.stopPropagation(); onToggleFollow(topic.id, topic.isFollowing); }}
+          onPressIn={joinPressIn}
+          onPressOut={joinPressOut}
+        >
+          <Animated.View style={[
             styles.joinButton,
             isCompact && { paddingHorizontal: 14, paddingVertical: 4, marginTop: 5 },
             topic.isFollowing && styles.joinedButton,
-          ]}
-          onPress={(e) => {
-            e.stopPropagation();
-            onToggleFollow(topic.id, topic.isFollowing);
-          }}
-          activeOpacity={0.7}
-        >
-          <Text style={[
-            styles.joinButtonText,
-            isCompact && { fontSize: 10 },
-            topic.isFollowing && styles.joinedButtonText,
+            { transform: [{ scale: joinScale }] },
           ]}>
-            {topic.isFollowing ? 'Joined' : 'Join'}
-          </Text>
-        </TouchableOpacity>
+            <Text style={[
+              styles.joinButtonText,
+              isCompact && { fontSize: 10 },
+              topic.isFollowing && styles.joinedButtonText,
+            ]}>
+              {topic.isFollowing ? 'Joined' : 'Join'}
+            </Text>
+          </Animated.View>
+        </Pressable>
       </View>
 
       {/* Glass edge border */}
       <View style={[styles.glassEdge, { borderRadius: br }]} />
-    </TouchableOpacity>
+    </Animated.View>
+    </Pressable>
   );
 }
+
+export default React.memo(CapsuleCommunityCard);
 
 const styles = StyleSheet.create({
   capsule: {

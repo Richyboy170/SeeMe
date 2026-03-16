@@ -159,7 +159,11 @@
       "Bash(./node_modules/.bin/tsc:*)",
       "Bash(wc:*)",
       "Bash(npx:*)",
-      "Bash(wmic process:*)"
+      "Bash(wmic process:*)",
+      "Bash(cd C:/Users/HP/Desktop/Richy-coding-hub-2026/SeeMe/mobile && node -e \"require\\('./src/screens/friendship/FriendshipHomeScreen.tsx'\\)\" 2>&1 | head -5)",
+      "Bash(for file:*)",
+      "Bash(do echo:*)",
+      "Read(//c/Users/HP/Desktop/Richy-coding-hub-2026/SeeMe/**)"
     ]
   }
 }

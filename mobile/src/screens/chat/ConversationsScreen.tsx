@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import {
   View,
   FlatList,
@@ -112,7 +112,7 @@ export default function ConversationsScreen() {
   const { colors, isDark } = useTheme();
 
   // Dynamic styles based on theme
-  const dynamicStyles = createDynamicStyles(colors);
+  const dynamicStyles = useMemo(() => createDynamicStyles(colors), [colors]);
 
   useEffect(() => {
     loadCurrentUser();
@@ -265,7 +265,7 @@ export default function ConversationsScreen() {
     }
   };
 
-  const renderConversation = ({ item }: { item: Conversation }) => {
+  const renderConversation = useCallback(({ item }: { item: Conversation }) => {
     const otherUser = item.user1.id === currentUserId ? item.user2 : item.user1;
     const hasUnread = item.unreadCount > 0;
     const bondData = bondDataMap[otherUser.id];
@@ -359,7 +359,9 @@ export default function ConversationsScreen() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [currentUserId, bondDataMap, dynamicStyles, navigation, colors]);
+
+  const keyExtractor = useCallback((item: Conversation) => item.id, []);
 
   if (loading) {
     return (
@@ -374,7 +376,10 @@ export default function ConversationsScreen() {
       <FlatList
         data={conversations}
         renderItem={renderConversation}
-        keyExtractor={(item) => item.id}
+        keyExtractor={keyExtractor}
+        removeClippedSubviews
+        maxToRenderPerBatch={10}
+        windowSize={7}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

@@ -97,7 +97,7 @@ interface PostCardProps {
   currentUserId?: string;
 }
 
-export default function PostCard({
+function PostCard({
   post,
   onLike,
   onComment,
@@ -895,6 +895,8 @@ export default function PostCard({
 
   return wrapWithBackground(postContent);
 }
+
+export default React.memo(PostCard);
 
 const styles = StyleSheet.create({
   // Phone styles

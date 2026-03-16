@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import { Alert } from 'react-native';
 import { accountManager, StoredAccount } from '../services/accountManager';
 
@@ -129,7 +129,7 @@ export function AccountProvider({ children, onAccountSwitch }: AccountProviderPr
         }
     }, []);
 
-    const contextValue: AccountContextType = {
+    const contextValue = useMemo<AccountContextType>(() => ({
         accounts,
         activeAccount,
         isLoading,
@@ -140,7 +140,7 @@ export function AccountProvider({ children, onAccountSwitch }: AccountProviderPr
         refreshAccounts,
         showAccountSwitcher,
         setShowAccountSwitcher,
-    };
+    }), [accounts, activeAccount, isLoading, isSwitching, switchAccount, quickSwitch, removeAccount, refreshAccounts, showAccountSwitcher, setShowAccountSwitcher]);
 
     return (
         <AccountContext.Provider value={contextValue}>

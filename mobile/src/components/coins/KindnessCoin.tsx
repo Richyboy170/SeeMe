@@ -23,7 +23,7 @@ interface KindnessCoinProps {
 const DEFAULT_RIM: [string, string, string] = ['#FDE68A', '#FBBF24', '#F59E0B'];
 const DEFAULT_FACE: [string, string, string] = ['#FEF3C7', '#FDE68A', '#FBBF24'];
 
-export default function KindnessCoin({
+function KindnessCoin({
   size: rawSize,
   rimColors = DEFAULT_RIM,
   faceColors = DEFAULT_FACE,
@@ -131,6 +131,8 @@ export default function KindnessCoin({
     </Animated.View>
   );
 }
+
+export default React.memo(KindnessCoin);
 
 const styles = StyleSheet.create({
   glow: {

@@ -32,6 +32,7 @@ import {
   Modal,
   Dimensions,
   StatusBar,
+  InteractionManager,
 } from 'react-native';
 import { CameraView, CameraType, FlashMode, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -439,24 +440,17 @@ export default function CreatePostScreen() {
   const [availableGoals, setAvailableGoals] = useState<{ id: string; title: string }[]>([]);
 
   // Refresh background data when tab is focused — preserve draft state
+  // Defer non-critical API calls so the camera renders instantly without lag
   useFocusEffect(
     useCallback(() => {
-      loadFollowedTopics();
-      loadAllTopics();
-      loadGalleryThumbnail();
-      loadCoinBalance();
-      refreshDraftCount();
-      api.getMyGoals().then(res => setAvailableGoals(res.goals || [])).catch(() => {});
-
-      // Check for resumeDraftId from DraftsGallery navigation
+      // Check for resumeDraftId from DraftsGallery navigation (immediate — affects UI)
       const resumeId = route.params?.resumeDraftId;
       if (resumeId) {
         loadDraftById(resumeId);
-        // Clear the param so it doesn't re-trigger
         navigation.setParams({ resumeDraftId: undefined });
       }
 
-      // Check for activity params from spinning wheel
+      // Check for activity params from spinning wheel (immediate — affects UI)
       const params = route.params as any;
       if (params?.activityId) {
         setActivityId(params.activityId);
@@ -464,7 +458,6 @@ export default function CreatePostScreen() {
         setActivityDescription(params.activityDescription || null);
         setActivityResearch(params.activityResearch || null);
         setActivityExpanded(true);
-        // Auto-select the community topic and set visibility
         if (params.activityTopicId) {
           setSelectedTopics(prev => {
             if (prev.includes(params.activityTopicId)) return prev;
@@ -472,9 +465,20 @@ export default function CreatePostScreen() {
           });
           setVisibility('topics_and_friends');
         }
-        // Clear params so they don't re-trigger
         navigation.setParams({ activityId: undefined, activityTitle: undefined, activityTopicId: undefined, activityTopicName: undefined, activityDescription: undefined, activityResearch: undefined } as any);
       }
+
+      // Defer heavy data fetches until after camera transition animation completes
+      const task = InteractionManager.runAfterInteractions(() => {
+        loadFollowedTopics();
+        loadAllTopics();
+        loadGalleryThumbnail();
+        loadCoinBalance();
+        refreshDraftCount();
+        api.getMyGoals().then(res => setAvailableGoals(res.goals || [])).catch(() => {});
+      });
+
+      return () => task.cancel();
     }, [route.params?.resumeDraftId, (route.params as any)?.activityId])
   );
 
@@ -485,8 +489,9 @@ export default function CreatePostScreen() {
     };
   }, []);
 
-  // Load last gallery photo for thumbnail
+  // Load last gallery photo for thumbnail (only if not already loaded)
   const loadGalleryThumbnail = async () => {
+    if (galleryThumbnail) return; // Already loaded, skip expensive MediaLibrary calls
     try {
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== 'granted') return;
@@ -788,22 +793,20 @@ export default function CreatePostScreen() {
     setCapturing(true);
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.8,
+        quality: 0.7,
+        skipProcessing: Platform.OS === 'android', // Skip extra processing on Android for speed
       });
       if (photo) {
         // Set photo taken time to now for camera captures
         setPhotoTakenAt(new Date().toISOString());
 
-        // Get current location (this IS where the photo was taken)
+        // Get current location in background (don't block photo flow)
         fetchCurrentLocationForPhoto();
 
-        // Normalize EXIF orientation to fix landscape-when-portrait issue
-        const normalized = await ImageManipulator.manipulateAsync(
-          photo.uri,
-          [],
-          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
-        );
-        handleImageSelected(normalized.uri);
+        // Pass raw URI directly to editor — no need to re-encode here.
+        // React Native <Image> handles EXIF orientation natively,
+        // and ImageEditor's handleDone will normalize when applying crop.
+        handleImageSelected(photo.uri);
       }
     } catch (error) {
       console.error('Capture error:', error);
@@ -1045,7 +1048,7 @@ export default function CreatePostScreen() {
 
     return (
       <View style={styles.cameraContainer}>
-        <StatusBar barStyle="light-content" />
+        <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
         <CameraView
           ref={cameraRef}
           style={StyleSheet.absoluteFill}

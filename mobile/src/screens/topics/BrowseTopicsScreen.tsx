@@ -230,6 +230,9 @@ export default function BrowseTopicsScreen({ navigation }: any) {
                     <RefreshControl refreshing={refreshing} onRefresh={loadData} />
                 }
                 contentContainerStyle={styles.topicsList}
+                removeClippedSubviews
+                maxToRenderPerBatch={10}
+                windowSize={7}
                 ListEmptyComponent={
                     <View style={styles.emptyState}>
                         <Ionicons name="compass-outline" size={48} color={colors.disabled} />

@@ -41,7 +41,7 @@ interface GroupedReaction {
   hasCurrentUser: boolean;
 }
 
-export default function MessageReactions({
+function MessageReactions({
   reactions,
   isOwnMessage,
   currentUserId,
@@ -152,3 +152,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+export default React.memo(MessageReactions);

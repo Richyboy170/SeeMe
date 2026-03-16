@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Image,
@@ -24,7 +24,7 @@ export interface AvatarProps {
   avatarStyle?: 'cartoon' | 'anime' | 'minimalist';
 }
 
-export default function Avatar({
+function Avatar({
   size = 40,
   avatarUrl,
   username,
@@ -38,12 +38,12 @@ export default function Avatar({
   const imageUri = avatarUrl ? getImageUrl(avatarUrl) : null;
 
   // Get initials from username (first letter, uppercase)
-  const getInitials = () => {
+  const initials = useMemo(() => {
     if (!username) return '';
     return username.charAt(0).toUpperCase();
-  };
+  }, [username]);
 
-  const containerStyle: ViewStyle = {
+  const containerStyle = useMemo<ViewStyle>(() => ({
     width: size,
     height: size,
     borderRadius: size / 2,
@@ -51,7 +51,7 @@ export default function Avatar({
       borderWidth: 2,
       borderColor: colors.border,
     }),
-  };
+  }), [size, showBorder, colors.border]);
 
   const renderContent = () => {
     // Priority 1: Show custom avatar if customizations are provided
@@ -80,7 +80,7 @@ export default function Avatar({
       return (
         <View style={[styles.placeholder, containerStyle, { backgroundColor: colors.surfaceVariant }, style]}>
           <Text style={[styles.initials, { fontSize: size * 0.4, color: colors.text.secondary }]}>
-            {getInitials()}
+            {initials}
           </Text>
         </View>
       );
@@ -113,6 +113,8 @@ export default function Avatar({
     </View>
   );
 }
+
+export default React.memo(Avatar);
 
 const styles = StyleSheet.create({
   image: {

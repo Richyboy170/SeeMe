@@ -379,6 +379,16 @@ class ApiClient {
     return response.data;
   }
 
+  async getInterests(): Promise<{ success: boolean; interests: string[] }> {
+    const response = await this.client.get('/users/me/interests');
+    return response.data;
+  }
+
+  async updateInterests(interests: string[]): Promise<{ success: boolean; interests: string[] }> {
+    const response = await this.client.put('/users/me/interests', { interests });
+    return response.data;
+  }
+
   async uploadProfileImage(imageUri: string) {
     const formData = new FormData();
     const filename = imageUri.split('/').pop() || 'avatar.jpg';
@@ -1209,6 +1219,31 @@ class ApiClient {
     return response.data;
   }
 
+  async getAvailableActivities() {
+    const response = await this.client.get('/activities/available');
+    return response.data;
+  }
+
+  async getWheelSelections() {
+    const response = await this.client.get('/activities/wheel/selections');
+    return response.data;
+  }
+
+  async addToWheel(activityId: string) {
+    const response = await this.client.post('/activities/wheel/add', { activityId });
+    return response.data;
+  }
+
+  async removeFromWheel(activityId: string) {
+    const response = await this.client.post('/activities/wheel/remove', { activityId });
+    return response.data;
+  }
+
+  async clearWheelSelections() {
+    const response = await this.client.delete('/activities/wheel/selections');
+    return response.data;
+  }
+
   // ===== Goals API =====
 
   async getMyGoals() {
@@ -1216,8 +1251,8 @@ class ApiClient {
     return response.data;
   }
 
-  async createGoal(title: string) {
-    const response = await this.client.post('/goals', { title });
+  async createGoal(title: string, rank?: string, deadline?: string | null) {
+    const response = await this.client.post('/goals', { title, rank, deadline });
     return response.data;
   }
 
@@ -1226,8 +1261,13 @@ class ApiClient {
     return response.data;
   }
 
-  async updateGoal(goalId: string, data: { title?: string }) {
+  async updateGoal(goalId: string, data: { title?: string; rank?: string; deadline?: string | null }) {
     const response = await this.client.put(`/goals/${goalId}`, data);
+    return response.data;
+  }
+
+  async reorderGoals(order: string[]) {
+    const response = await this.client.put('/goals/reorder', { order });
     return response.data;
   }
 

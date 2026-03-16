@@ -81,7 +81,7 @@ function normalizeBars(data: number[]): number[] {
   return bars;
 }
 
-export default function VoiceMessageBubble({
+function VoiceMessageBubble({
   uri,
   duration,
   waveform,
@@ -262,3 +262,5 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 });
+
+export default React.memo(VoiceMessageBubble);

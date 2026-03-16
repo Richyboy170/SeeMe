@@ -141,7 +141,26 @@ export class CoinsController {
       const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
       const leaderboard = await CoinsService.getGiveLeaderboard(limit);
 
-      res.json({ leaderboard });
+      // Batch-fetch active avatars by activeAvatarId from each user
+      const avatarIds = leaderboard
+        .map(entry => (entry.user as any).activeAvatarId)
+        .filter(Boolean);
+      const avatars = avatarIds.length > 0
+        ? await AvatarConfigSQL.findAll({
+            where: { id: avatarIds },
+          })
+        : [];
+      const avatarsByUserId = new Map(avatars.map(a => [a.userId, formatAvatarForResponse(a)]));
+
+      const enriched = leaderboard.map(entry => ({
+        ...entry,
+        user: {
+          ...((entry.user as any).toJSON ? (entry.user as any).toJSON() : entry.user),
+          activeAvatar: avatarsByUserId.get(entry.user.id) || null,
+        },
+      }));
+
+      res.json({ leaderboard: enriched });
     } catch (error) {
       logger.error('Error getting leaderboard', { error });
       res.status(500).json({ error: 'Failed to get leaderboard' });

@@ -32,6 +32,11 @@ import * as addDecoratedStrip from '../migrations/add-decorated-strip';
 import * as addActivityWheelTables from '../migrations/add-activity-wheel-tables';
 import * as addGoalsTables from '../migrations/add-goals-tables';
 import * as addActiveAvatarId from '../migrations/add-active-avatar-id';
+import * as addGoalRankSortOrder from '../migrations/add-goal-rank-sort-order';
+import * as addGoalDeadline from '../migrations/add-goal-deadline';
+import * as addUserInterests from '../migrations/add-user-interests';
+import * as addUserCreatedActivities from '../migrations/add-user-created-activities';
+import * as addGoalDeadlineChangedAt from '../migrations/add-goal-deadline-changed-at';
 
 /**
  * Run database migrations
@@ -198,6 +203,31 @@ const migrations = [
     name: 'add-active-avatar-id',
     up: addActiveAvatarId.up,
     down: addActiveAvatarId.down
+  },
+  {
+    name: 'add-goal-rank-sort-order',
+    up: addGoalRankSortOrder.up,
+    down: addGoalRankSortOrder.down
+  },
+  {
+    name: 'add-goal-deadline',
+    up: addGoalDeadline.up,
+    down: addGoalDeadline.down
+  },
+  {
+    name: 'add-user-interests',
+    up: addUserInterests.up,
+    down: addUserInterests.down
+  },
+  {
+    name: 'add-user-created-activities',
+    up: addUserCreatedActivities.up,
+    down: addUserCreatedActivities.down
+  },
+  {
+    name: 'add-goal-deadline-changed-at',
+    up: addGoalDeadlineChangedAt.up,
+    down: addGoalDeadlineChangedAt.down
   }
   // Add more migrations here as needed
 ];

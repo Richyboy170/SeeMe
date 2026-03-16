@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   ActivityIndicator,
   Dimensions,
   Image,
+  Animated,
+  Easing,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -16,6 +18,7 @@ import { RouteProp } from '@react-navigation/native';
 import { useTheme } from '../../theme';
 import { api, getImageUrl } from '../../services/api';
 import { CoinsStackParamList } from '../../navigation/types';
+import AvatarComponent from '../../components/Avatar';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DAY_SIZE = Math.floor((SCREEN_WIDTH - 64) / 7);
@@ -65,17 +68,31 @@ interface FriendshipData {
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-const getRankInfo = (trustScore: number) => {
-  if (trustScore >= 80) return { label: 'Best Friend', color: '#8B5CF6', gradient: ['#8B5CF6', '#A855F7'] as [string, string] };
-  if (trustScore >= 60) return { label: 'Close Friend', color: '#EC4899', gradient: ['#EC4899', '#F472B6'] as [string, string] };
-  if (trustScore >= 40) return { label: 'Good Friend', color: '#F59E0B', gradient: ['#F59E0B', '#FBBF24'] as [string, string] };
-  if (trustScore >= 20) return { label: 'Building', color: '#10B981', gradient: ['#10B981', '#34D399'] as [string, string] };
-  return { label: 'New', color: '#6B7280', gradient: ['#9CA3AF', '#D1D5DB'] as [string, string] };
+const RANKS = [
+  { min: 0,  label: 'New',          color: '#6B7280', gradient: ['#9CA3AF', '#D1D5DB'] as [string, string], icon: 'sparkles' as const },
+  { min: 20, label: 'Building',     color: '#10B981', gradient: ['#10B981', '#34D399'] as [string, string], icon: 'leaf' as const },
+  { min: 40, label: 'Good Friend',  color: '#F59E0B', gradient: ['#F59E0B', '#FBBF24'] as [string, string], icon: 'sunny' as const },
+  { min: 60, label: 'Close Friend', color: '#EC4899', gradient: ['#EC4899', '#F472B6'] as [string, string], icon: 'heart-half' as const },
+  { min: 80, label: 'Best Friend',  color: '#8B5CF6', gradient: ['#8B5CF6', '#A855F7'] as [string, string], icon: 'heart' as const },
+];
+
+const getRankInfo = (score: number) => {
+  for (let i = RANKS.length - 1; i >= 0; i--) {
+    if (score >= RANKS[i].min) return RANKS[i];
+  }
+  return RANKS[0];
+};
+
+const getNextRank = (score: number) => {
+  for (const rank of RANKS) {
+    if (score < rank.min) return rank;
+  }
+  return null;
 };
 
 export default function FriendshipDetailScreen({ route }: Props) {
   const { colors, isDark } = useTheme();
-  const { otherUserId, otherUsername, otherAvatarUrl } = route.params;
+  const { otherUserId, otherUsername, otherAvatarUrl, otherActiveAvatar } = route.params;
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<FriendshipData | null>(null);
@@ -84,6 +101,15 @@ export default function FriendshipDetailScreen({ route }: Props) {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const [selectedDay, setSelectedDay] = useState<DailyLog | null>(null);
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
+
+  // Animations
+  const headerAnim = useRef(new Animated.Value(0)).current;
+  const scorePopAnim = useRef(new Animated.Value(0)).current;
+  const sectionAnim1 = useRef(new Animated.Value(0)).current;
+  const sectionAnim2 = useRef(new Animated.Value(0)).current;
+  const sectionAnim3 = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   const loadData = useCallback(async (month?: string) => {
     try {
@@ -100,19 +126,43 @@ export default function FriendshipDetailScreen({ route }: Props) {
     loadData(calendarMonth);
   }, [calendarMonth, loadData]);
 
-  const navigateMonth = (direction: -1 | 1) => {
-    const [year, month] = calendarMonth.split('-').map(Number);
-    const d = new Date(year, month - 1 + direction, 1);
-    const newMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    setCalendarMonth(newMonth);
-    setSelectedDay(null);
-  };
+  // Entrance animations
+  useEffect(() => {
+    if (!loading && data) {
+      Animated.stagger(120, [
+        Animated.spring(headerAnim, { toValue: 1, tension: 50, friction: 7, useNativeDriver: true }),
+        Animated.spring(scorePopAnim, { toValue: 1, tension: 60, friction: 5, useNativeDriver: true }),
+        Animated.spring(sectionAnim1, { toValue: 1, tension: 50, friction: 8, useNativeDriver: true }),
+        Animated.spring(sectionAnim2, { toValue: 1, tension: 50, friction: 8, useNativeDriver: true }),
+        Animated.spring(sectionAnim3, { toValue: 1, tension: 50, friction: 8, useNativeDriver: true }),
+      ]).start();
 
-  const formatMonthLabel = (ym: string) => {
+      // Continuous pulse on score
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 1.08, duration: 1200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 1200, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        ])
+      );
+      loop.start();
+      return () => loop.stop();
+    }
+  }, [loading, data]);
+
+  const navigateMonth = useCallback((direction: -1 | 1) => {
+    setCalendarMonth(prev => {
+      const [year, month] = prev.split('-').map(Number);
+      const d = new Date(year, month - 1 + direction, 1);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    });
+    setSelectedDay(null);
+  }, []);
+
+  const formatMonthLabel = useCallback((ym: string) => {
     const [year, month] = ym.split('-').map(Number);
     const d = new Date(year, month - 1, 1);
     return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  };
+  }, []);
 
   if (loading) {
     return (
@@ -132,14 +182,13 @@ export default function FriendshipDetailScreen({ route }: Props) {
 
   const { trust, dailyLogs, insights } = data;
   const rankInfo = getRankInfo(trust.trustScore);
-  const avatarUrl = getImageUrl(otherAvatarUrl);
+  const nextRank = getNextRank(trust.trustScore);
 
   // Build calendar grid
   const [calYear, calMonth] = calendarMonth.split('-').map(Number);
   const firstDay = new Date(calYear, calMonth - 1, 1).getDay();
   const daysInMonth = new Date(calYear, calMonth, 0).getDate();
 
-  // Create a lookup map for daily logs by date
   const logMap: { [date: string]: DailyLog } = {};
   dailyLogs.forEach(log => { logMap[log.date] = log; });
 
@@ -155,6 +204,12 @@ export default function FriendshipDetailScreen({ route }: Props) {
   const youPct = totalGiven > 0 ? (trust.totalCoinsYouGave / totalGiven) * 100 : 50;
   const theyPct = totalGiven > 0 ? (trust.totalCoinsTheyGave / totalGiven) * 100 : 50;
 
+  // Next rank progress
+  const nextRankProgress = nextRank
+    ? (trust.trustScore - rankInfo.min) / (nextRank.min - rankInfo.min)
+    : 1;
+  const ptsToNext = nextRank ? nextRank.min - trust.trustScore : 0;
+
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: colors.background }]}
@@ -162,26 +217,58 @@ export default function FriendshipDetailScreen({ route }: Props) {
       showsVerticalScrollIndicator={false}
     >
       {/* ============ FRIEND HEADER ============ */}
-      <View style={[styles.headerCard, { backgroundColor: isDark ? colors.surface : colors.card }]}>
+      <Animated.View
+        style={[
+          styles.headerCard,
+          { backgroundColor: isDark ? colors.surface : colors.card },
+          {
+            opacity: headerAnim,
+            transform: [{ translateY: headerAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
+          },
+        ]}
+      >
         <View style={[styles.avatarRing, { borderColor: rankInfo.color }]}>
-          {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, styles.avatarPlaceholder, { backgroundColor: colors.surfaceVariant }]}>
-              <Ionicons name="person" size={28} color={colors.text.tertiary} />
-            </View>
-          )}
+          <AvatarComponent
+            size={60}
+            avatarUrl={!otherActiveAvatar ? otherAvatarUrl : undefined}
+            username={otherUsername}
+            customizations={otherActiveAvatar?.customizations}
+            avatarStyle={otherActiveAvatar?.style}
+          />
         </View>
 
         <Text style={[styles.headerUsername, { color: colors.text.primary }]}>@{otherUsername}</Text>
 
-        <LinearGradient colors={rankInfo.gradient} style={styles.scoreCircle}>
-          <Text style={styles.scoreValue}>{trust.trustScore}</Text>
-        </LinearGradient>
+        {/* Animated score circle */}
+        <Animated.View style={{ transform: [{ scale: Animated.multiply(scorePopAnim, pulseAnim) }] }}>
+          <LinearGradient colors={rankInfo.gradient} style={styles.scoreCircle}>
+            <Text style={styles.scoreValue}>{trust.trustScore}</Text>
+            <Text style={styles.scoreLabel}>pts</Text>
+          </LinearGradient>
+        </Animated.View>
 
         <View style={[styles.rankBadge, { backgroundColor: isDark ? '#1F2937' : rankInfo.color + '20' }]}>
+          <Ionicons name={rankInfo.icon} size={12} color={rankInfo.color} />
           <Text style={[styles.rankText, { color: rankInfo.color }]}>{rankInfo.label}</Text>
         </View>
+
+        {/* Progress to next rank */}
+        {nextRank ? (
+          <View style={styles.nextRankWrap}>
+            <View style={[styles.nextRankTrack, { backgroundColor: isDark ? '#374151' : '#E5E7EB' }]}>
+              <View style={[styles.nextRankFill, { width: `${Math.max(nextRankProgress * 100, 3)}%`, backgroundColor: nextRank.color }]} />
+            </View>
+            <Text style={[styles.nextRankText, { color: colors.text.secondary }]}>
+              <Text style={{ color: nextRank.color, fontWeight: '700' }}>{ptsToNext} pts</Text> to{' '}
+              <Text style={{ color: nextRank.color, fontWeight: '600' }}>{nextRank.label}</Text>
+            </Text>
+          </View>
+        ) : (
+          <View style={[styles.maxRankBadge, { backgroundColor: isDark ? '#2E1065' : '#EDE9FE' }]}>
+            <Ionicons name="star" size={12} color="#8B5CF6" />
+            <Text style={{ fontSize: 12, fontWeight: '700', color: '#8B5CF6' }}>Highest rank reached!</Text>
+          </View>
+        )}
 
         {trust.currentStreak > 0 && (
           <View style={styles.streakRow}>
@@ -189,10 +276,317 @@ export default function FriendshipDetailScreen({ route }: Props) {
             <Text style={styles.streakText}>{trust.currentStreak} day streak</Text>
           </View>
         )}
-      </View>
+      </Animated.View>
+
+      {/* ============ HOW SCORING WORKS (expandable) ============ */}
+      <Animated.View
+        style={[
+          styles.howItWorksCard,
+          { backgroundColor: isDark ? colors.surface : colors.card },
+          {
+            opacity: sectionAnim1,
+            transform: [{ translateY: sectionAnim1.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
+          },
+        ]}
+      >
+        <TouchableOpacity
+          style={styles.howItWorksHeader}
+          onPress={() => setShowHowItWorks(!showHowItWorks)}
+          activeOpacity={0.7}
+        >
+          <View style={[styles.howItWorksIconBg, { backgroundColor: isDark ? '#1E1B4B' : '#EDE9FE' }]}>
+            <Ionicons name="bulb" size={18} color="#8B5CF6" />
+          </View>
+          <View style={styles.howItWorksHeaderText}>
+            <Text style={[styles.howItWorksTitle, { color: colors.text.primary }]}>How does the score work?</Text>
+            <Text style={[styles.howItWorksSubtitle, { color: colors.text.tertiary }]}>
+              {showHowItWorks ? 'Tap to collapse' : 'Tap to learn how to grow your bond'}
+            </Text>
+          </View>
+          <Ionicons name={showHowItWorks ? 'chevron-up' : 'chevron-down'} size={20} color={colors.text.secondary} />
+        </TouchableOpacity>
+
+        {showHowItWorks && (
+          <View style={styles.howItWorksContent}>
+            {/* What is a streak */}
+            <View style={[styles.explainerBox, { backgroundColor: isDark ? '#1C1917' : '#FFF7ED', borderColor: isDark ? '#431407' : '#FFEDD5' }]}>
+              <View style={styles.explainerHeader}>
+                <Ionicons name="flame" size={16} color="#F97316" />
+                <Text style={[styles.explainerTitle, { color: '#F97316' }]}>What is a Streak?</Text>
+              </View>
+              <Text style={[styles.explainerBody, { color: colors.text.secondary }]}>
+                A streak counts <Text style={{ fontWeight: '700', color: colors.text.primary }}>consecutive days</Text> where either you or your friend exchanged coins. Give coins to their posts, or send coins directly. If a day passes with no exchange between you two, the streak resets to 0.
+              </Text>
+              <View style={styles.explainerExample}>
+                <Text style={[styles.explainerExampleText, { color: colors.text.tertiary }]}>
+                  Mon: you give 2 coins  ·  Tue: they give 1  ·  Wed: you give 3  =  3 day streak
+                </Text>
+              </View>
+            </View>
+
+            {/* Score formula */}
+            <Text style={[styles.formulaTitle, { color: colors.text.primary }]}>Your bond score (0-100) is built from 3 parts:</Text>
+
+            {/* Consistency */}
+            <View style={[styles.formulaCard, { borderColor: isDark ? '#312E81' : '#C4B5FD' }]}>
+              <View style={styles.formulaCardHeader}>
+                <View style={[styles.formulaIconBg, { backgroundColor: '#8B5CF620' }]}>
+                  <Ionicons name="repeat" size={14} color="#8B5CF6" />
+                </View>
+                <Text style={[styles.formulaCardTitle, { color: '#8B5CF6' }]}>Consistency</Text>
+                <Text style={[styles.formulaCardPts, { color: colors.text.tertiary }]}>up to 60 pts</Text>
+              </View>
+              <Text style={[styles.formulaCardDesc, { color: colors.text.secondary }]}>
+                <Text style={{ fontWeight: '700', color: colors.text.primary }}>Streak</Text> (up to 30 pts): Your current streak × 2, maxes at 15 days.{'\n'}
+                <Text style={{ fontWeight: '700', color: colors.text.primary }}>Total engagement</Text> (up to 30 pts): Total days you've ever exchanged. Maxes around 60 days.
+              </Text>
+              <View style={[styles.formulaTip, { backgroundColor: isDark ? '#1E1B4B' : '#F5F3FF' }]}>
+                <Ionicons name="arrow-up-circle" size={12} color="#8B5CF6" />
+                <Text style={[styles.formulaTipText, { color: isDark ? '#A78BFA' : '#6D28D9' }]}>
+                  Tip: Exchange coins every day to build and maintain your streak
+                </Text>
+              </View>
+            </View>
+
+            {/* Balance / Bidirectionality */}
+            <View style={[styles.formulaCard, { borderColor: isDark ? '#4A0E2B' : '#F9A8D4' }]}>
+              <View style={styles.formulaCardHeader}>
+                <View style={[styles.formulaIconBg, { backgroundColor: '#EC489920' }]}>
+                  <Ionicons name="swap-horizontal" size={14} color="#EC4899" />
+                </View>
+                <Text style={[styles.formulaCardTitle, { color: '#EC4899' }]}>Balance</Text>
+                <Text style={[styles.formulaCardPts, { color: colors.text.tertiary }]}>up to 30 pts</Text>
+              </View>
+              <Text style={[styles.formulaCardDesc, { color: colors.text.secondary }]}>
+                <Text style={{ fontWeight: '700', color: colors.text.primary }}>Mutual days</Text> (up to 20 pts): Days where <Text style={{ fontWeight: '600' }}>both</Text> of you gave coins on the same day.{'\n'}
+                <Text style={{ fontWeight: '700', color: colors.text.primary }}>Give/receive ratio</Text> (up to 10 pts): More balanced = higher score. If one person gives 90% and the other 10%, this stays low.
+              </Text>
+              <View style={[styles.formulaTip, { backgroundColor: isDark ? '#2D0A1E' : '#FDF2F8' }]}>
+                <Ionicons name="arrow-up-circle" size={12} color="#EC4899" />
+                <Text style={[styles.formulaTipText, { color: isDark ? '#F472B6' : '#BE185D' }]}>
+                  Tip: Coordinate with your friend — both give on the same day for mutual bonus
+                </Text>
+              </View>
+            </View>
+
+            {/* Generosity */}
+            <View style={[styles.formulaCard, { borderColor: isDark ? '#451A03' : '#FDE68A' }]}>
+              <View style={styles.formulaCardHeader}>
+                <View style={[styles.formulaIconBg, { backgroundColor: '#F59E0B20' }]}>
+                  <Ionicons name="gift" size={14} color="#F59E0B" />
+                </View>
+                <Text style={[styles.formulaCardTitle, { color: '#F59E0B' }]}>Generosity</Text>
+                <Text style={[styles.formulaCardPts, { color: colors.text.tertiary }]}>up to 10 pts</Text>
+              </View>
+              <Text style={[styles.formulaCardDesc, { color: colors.text.secondary }]}>
+                Based on <Text style={{ fontWeight: '700', color: colors.text.primary }}>total coins shared</Text> between you and your friend combined. Grows slowly — it takes around 300+ coins total to max this out.
+              </Text>
+              <View style={[styles.formulaTip, { backgroundColor: isDark ? '#1C1407' : '#FFFBEB' }]}>
+                <Ionicons name="arrow-up-circle" size={12} color="#F59E0B" />
+                <Text style={[styles.formulaTipText, { color: isDark ? '#FBBF24' : '#B45309' }]}>
+                  Tip: This grows naturally over time as you keep exchanging
+                </Text>
+              </View>
+            </View>
+
+            {/* Rank tiers */}
+            <View style={styles.formulaRanks}>
+              <Text style={[styles.formulaRanksTitle, { color: colors.text.primary }]}>Rank thresholds</Text>
+              <View style={styles.rankTierBar}>
+                {RANKS.map((tier, i) => (
+                  <View key={i} style={styles.rankTierItem}>
+                    <View style={[styles.rankTierColor, { backgroundColor: tier.color }]} />
+                    <Text style={[styles.rankTierLabel, { color: colors.text.tertiary }]}>
+                      {tier.min}+ {tier.label}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </View>
+        )}
+      </Animated.View>
+
+      {/* ============ BOND BREAKDOWN (Ring Gauges) ============ */}
+      <Animated.View
+        style={[
+          styles.breakdownCard,
+          { backgroundColor: isDark ? colors.surface : colors.card },
+          {
+            opacity: sectionAnim1,
+            transform: [{ translateY: sectionAnim1.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
+          },
+        ]}
+      >
+        <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Score Breakdown</Text>
+        <Text style={[styles.sectionSubtitle, { color: colors.text.tertiary }]}>
+          Each part adds to your total bond score of {trust.trustScore}
+        </Text>
+
+        <View style={styles.ringsRow}>
+          <BreakdownRing
+            score={insights.consistency.score}
+            max={insights.consistency.max}
+            color="#8B5CF6"
+            icon="repeat"
+            label="Consistency"
+            detail={`Streak: ${insights.consistency.streakPart}/${30}  ·  Days: ${insights.consistency.engagementPart}/${30}`}
+            colors={colors}
+            isDark={isDark}
+          />
+          <BreakdownRing
+            score={insights.bidirectionality.score}
+            max={insights.bidirectionality.max}
+            color="#EC4899"
+            icon="swap-horizontal"
+            label="Balance"
+            detail={`Mutual: ${insights.bidirectionality.ratioPart}/${20}  ·  Ratio: ${insights.bidirectionality.balancePart}/${10}`}
+            colors={colors}
+            isDark={isDark}
+          />
+          <BreakdownRing
+            score={insights.generosity.score}
+            max={insights.generosity.max}
+            color="#F59E0B"
+            icon="gift"
+            label="Generosity"
+            detail={`${totalGiven} coins shared`}
+            colors={colors}
+            isDark={isDark}
+          />
+        </View>
+      </Animated.View>
+
+      {/* ============ STREAKS & STATS ============ */}
+      <Animated.View
+        style={[
+          styles.insightsCard,
+          { backgroundColor: isDark ? colors.surface : colors.card },
+          {
+            opacity: sectionAnim2,
+            transform: [{ translateY: sectionAnim2.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
+          },
+        ]}
+      >
+        <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Streak & Activity</Text>
+
+        {/* Streak explanation */}
+        <View style={[styles.streakExplainerMini, { backgroundColor: isDark ? '#1C1917' : '#FFFBEB', borderColor: isDark ? '#451A03' : '#FEF3C7' }]}>
+          <Ionicons name="information-circle" size={14} color="#F59E0B" />
+          <Text style={[styles.streakExplainerText, { color: colors.text.secondary }]}>
+            Streaks count consecutive days with coin exchanges between you two. Miss a day and it resets!
+          </Text>
+        </View>
+
+        {/* Streak highlight cards */}
+        <View style={styles.streakCards}>
+          <View style={[styles.streakCard, { backgroundColor: isDark ? '#1C1917' : '#FFF7ED' }]}>
+            <View style={[styles.streakCardIconBg, { backgroundColor: isDark ? '#431407' : '#FFEDD5' }]}>
+              <Ionicons name="flame" size={20} color="#F97316" />
+            </View>
+            <Text style={[styles.streakCardNumber, { color: colors.text.primary }]}>{trust.currentStreak}</Text>
+            <Text style={[styles.streakCardUnit, { color: colors.text.secondary }]}>days</Text>
+            <Text style={[styles.streakCardLabel, { color: colors.text.tertiary }]}>Current Streak</Text>
+            <Text style={[styles.streakCardScore, { color: '#F97316' }]}>
+              +{Math.min(30, trust.currentStreak * 2)} pts
+            </Text>
+          </View>
+
+          <View style={[styles.streakCard, { backgroundColor: isDark ? '#1A1423' : '#FEFCE8' }]}>
+            <View style={[styles.streakCardIconBg, { backgroundColor: isDark ? '#2E1A00' : '#FEF9C3' }]}>
+              <Ionicons name="trophy" size={20} color="#F59E0B" />
+            </View>
+            <Text style={[styles.streakCardNumber, { color: colors.text.primary }]}>{trust.longestStreak}</Text>
+            <Text style={[styles.streakCardUnit, { color: colors.text.secondary }]}>days</Text>
+            <Text style={[styles.streakCardLabel, { color: colors.text.tertiary }]}>Best Streak</Text>
+            <Text style={[styles.streakCardScore, { color: '#F59E0B' }]}>personal record</Text>
+          </View>
+        </View>
+
+        {/* Giving Balance */}
+        <View style={[styles.balanceSection, { backgroundColor: isDark ? '#111827' : '#F9FAFB', borderColor: isDark ? '#1F2937' : '#F3F4F6' }]}>
+          <Text style={[styles.balanceTitle, { color: colors.text.primary }]}>Giving Balance</Text>
+          <Text style={[styles.balanceHint, { color: colors.text.tertiary }]}>
+            A balanced give-and-take scores higher for the Balance component
+          </Text>
+          <View style={styles.balanceBar}>
+            <View style={[styles.balanceFillYou, { width: `${youPct}%` }]} />
+            <View style={[styles.balanceFillThem, { width: `${theyPct}%` }]} />
+          </View>
+          <View style={styles.balanceLabels}>
+            <View style={styles.balanceLabelItem}>
+              <View style={[styles.balanceLabelDot, { backgroundColor: '#8B5CF6' }]} />
+              <Text style={[styles.balanceLabelText, { color: colors.text.secondary }]}>You</Text>
+              <Text style={[styles.balanceLabelValue, { color: colors.text.primary }]}>{trust.totalCoinsYouGave}</Text>
+            </View>
+            <View style={styles.balanceLabelItem}>
+              <Text style={[styles.balanceLabelValue, { color: colors.text.primary }]}>{trust.totalCoinsTheyGave}</Text>
+              <Text style={[styles.balanceLabelText, { color: colors.text.secondary }]}>Them</Text>
+              <View style={[styles.balanceLabelDot, { backgroundColor: '#EC4899' }]} />
+            </View>
+          </View>
+        </View>
+
+        {/* Activity & Connection info rows */}
+        <View style={styles.infoRows}>
+          <InfoRow
+            icon="calendar"
+            iconColor="#3B82F6"
+            label="Exchange Days"
+            value={`${trust.totalExchangeDays}`}
+            description="Total days with any coin exchange — adds up to 30 pts to Consistency"
+            colors={colors}
+            isDark={isDark}
+          />
+          <View style={[styles.infoRowDivider, { backgroundColor: isDark ? '#1F2937' : '#F3F4F6' }]} />
+          <InfoRow
+            icon="swap-horizontal"
+            iconColor="#10B981"
+            label="Mutual Days"
+            value={`${trust.bidirectionalDays}`}
+            description="Days where BOTH of you gave — adds up to 20 pts to Balance"
+            colors={colors}
+            isDark={isDark}
+          />
+          <View style={[styles.infoRowDivider, { backgroundColor: isDark ? '#1F2937' : '#F3F4F6' }]} />
+          <InfoRow
+            icon="time"
+            iconColor="#6366F1"
+            label="Friends Since"
+            value={trust.friendsSince ? new Date(trust.friendsSince).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '--'}
+            description="When you first exchanged coins"
+            colors={colors}
+            isDark={isDark}
+          />
+          <View style={[styles.infoRowDivider, { backgroundColor: isDark ? '#1F2937' : '#F3F4F6' }]} />
+          <InfoRow
+            icon="people"
+            iconColor="#8B5CF6"
+            label="Mutual Follow"
+            value={trust.isMutualFollow ? 'Yes' : 'No'}
+            description={trust.isMutualFollow ? 'You follow each other' : 'Follow each other to unlock bond colors'}
+            colors={colors}
+            isDark={isDark}
+          />
+        </View>
+      </Animated.View>
 
       {/* ============ CALENDAR ============ */}
-      <View style={[styles.calendarCard, { backgroundColor: isDark ? colors.surface : colors.card }]}>
+      <Animated.View
+        style={[
+          styles.calendarCard,
+          { backgroundColor: isDark ? colors.surface : colors.card },
+          {
+            opacity: sectionAnim3,
+            transform: [{ translateY: sectionAnim3.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
+          },
+        ]}
+      >
+        <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Exchange Calendar</Text>
+        <Text style={[styles.sectionSubtitle, { color: colors.text.tertiary }]}>
+          Tap any day to see exchange details
+        </Text>
+
         <View style={styles.calendarNav}>
           <TouchableOpacity onPress={() => navigateMonth(-1)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Ionicons name="chevron-back" size={22} color={colors.text.secondary} />
@@ -283,166 +677,36 @@ export default function FriendshipDetailScreen({ route }: Props) {
             {selectedDay.isBidirectional && (
               <View style={[styles.bidirectionalTag, { backgroundColor: isDark ? '#064E3B' : '#D1FAE5' }]}>
                 <Ionicons name="swap-horizontal" size={12} color="#10B981" />
-                <Text style={[styles.bidirectionalText, { color: isDark ? '#34D399' : '#059669' }]}>Mutual exchange day!</Text>
+                <Text style={[styles.bidirectionalText, { color: isDark ? '#34D399' : '#059669' }]}>Mutual exchange day — bonus Balance points!</Text>
               </View>
             )}
           </View>
         )}
-      </View>
-
-      {/* ============ BOND BREAKDOWN (Ring Gauges) ============ */}
-      <View style={[styles.breakdownCard, { backgroundColor: isDark ? colors.surface : colors.card }]}>
-        <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Bond Breakdown</Text>
-
-        <View style={styles.ringsRow}>
-          <ScoreRing
-            score={insights.consistency.score}
-            max={insights.consistency.max}
-            color="#8B5CF6"
-            icon="repeat"
-            label="Consistency"
-            hint="How regularly you connect"
-            colors={colors}
-            isDark={isDark}
-          />
-          <ScoreRing
-            score={insights.bidirectionality.score}
-            max={insights.bidirectionality.max}
-            color="#EC4899"
-            icon="git-compare"
-            label="Balance"
-            hint="Give & take equilibrium"
-            colors={colors}
-            isDark={isDark}
-          />
-          <ScoreRing
-            score={insights.generosity.score}
-            max={insights.generosity.max}
-            color="#F59E0B"
-            icon="gift"
-            label="Generosity"
-            hint="Total kindness shared"
-            colors={colors}
-            isDark={isDark}
-          />
-        </View>
-      </View>
-
-      {/* ============ FRIENDSHIP INSIGHTS ============ */}
-      <View style={[styles.insightsCard, { backgroundColor: isDark ? colors.surface : colors.card }]}>
-        <Text style={[styles.sectionTitle, { color: colors.text.primary }]}>Friendship Insights</Text>
-
-        {/* Streak highlight cards */}
-        <View style={styles.streakCards}>
-          <View style={[styles.streakCard, { backgroundColor: isDark ? '#1C1917' : '#FFF7ED' }]}>
-            <View style={[styles.streakCardIconBg, { backgroundColor: isDark ? '#431407' : '#FFEDD5' }]}>
-              <Ionicons name="flame" size={20} color="#F97316" />
-            </View>
-            <Text style={[styles.streakCardNumber, { color: colors.text.primary }]}>{trust.currentStreak}</Text>
-            <Text style={[styles.streakCardUnit, { color: colors.text.secondary }]}>days</Text>
-            <Text style={[styles.streakCardLabel, { color: colors.text.tertiary }]}>Current Streak</Text>
-          </View>
-
-          <View style={[styles.streakCard, { backgroundColor: isDark ? '#1A1423' : '#FEFCE8' }]}>
-            <View style={[styles.streakCardIconBg, { backgroundColor: isDark ? '#2E1A00' : '#FEF9C3' }]}>
-              <Ionicons name="trophy" size={20} color="#F59E0B" />
-            </View>
-            <Text style={[styles.streakCardNumber, { color: colors.text.primary }]}>{trust.longestStreak}</Text>
-            <Text style={[styles.streakCardUnit, { color: colors.text.secondary }]}>days</Text>
-            <Text style={[styles.streakCardLabel, { color: colors.text.tertiary }]}>Best Streak</Text>
-          </View>
-        </View>
-
-        {/* Giving Balance */}
-        <View style={[styles.balanceSection, { backgroundColor: isDark ? '#111827' : '#F9FAFB', borderColor: isDark ? '#1F2937' : '#F3F4F6' }]}>
-          <Text style={[styles.balanceTitle, { color: colors.text.primary }]}>Giving Balance</Text>
-          <View style={styles.balanceBar}>
-            <View style={[styles.balanceFillYou, { width: `${youPct}%` }]} />
-            <View style={[styles.balanceFillThem, { width: `${theyPct}%` }]} />
-          </View>
-          <View style={styles.balanceLabels}>
-            <View style={styles.balanceLabelItem}>
-              <View style={[styles.balanceLabelDot, { backgroundColor: '#8B5CF6' }]} />
-              <Text style={[styles.balanceLabelText, { color: colors.text.secondary }]}>You</Text>
-              <Text style={[styles.balanceLabelValue, { color: colors.text.primary }]}>{trust.totalCoinsYouGave}</Text>
-            </View>
-            <View style={styles.balanceLabelItem}>
-              <Text style={[styles.balanceLabelValue, { color: colors.text.primary }]}>{trust.totalCoinsTheyGave}</Text>
-              <Text style={[styles.balanceLabelText, { color: colors.text.secondary }]}>Them</Text>
-              <View style={[styles.balanceLabelDot, { backgroundColor: '#EC4899' }]} />
-            </View>
-          </View>
-        </View>
-
-        {/* Activity & Connection info rows */}
-        <View style={styles.infoRows}>
-          <InfoRow
-            icon="calendar"
-            iconColor="#3B82F6"
-            label="Exchange Days"
-            value={`${trust.totalExchangeDays}`}
-            description="Days with coin activity"
-            colors={colors}
-            isDark={isDark}
-          />
-          <View style={[styles.infoRowDivider, { backgroundColor: isDark ? '#1F2937' : '#F3F4F6' }]} />
-          <InfoRow
-            icon="swap-horizontal"
-            iconColor="#10B981"
-            label="Mutual Days"
-            value={`${trust.bidirectionalDays}`}
-            description="Both gave on same day"
-            colors={colors}
-            isDark={isDark}
-          />
-          <View style={[styles.infoRowDivider, { backgroundColor: isDark ? '#1F2937' : '#F3F4F6' }]} />
-          <InfoRow
-            icon="time"
-            iconColor="#6366F1"
-            label="Friends Since"
-            value={trust.friendsSince ? new Date(trust.friendsSince).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '--'}
-            description="First connection date"
-            colors={colors}
-            isDark={isDark}
-          />
-          <View style={[styles.infoRowDivider, { backgroundColor: isDark ? '#1F2937' : '#F3F4F6' }]} />
-          <InfoRow
-            icon="people"
-            iconColor="#8B5CF6"
-            label="Mutual Follow"
-            value={trust.isMutualFollow ? 'Yes' : 'No'}
-            description={trust.isMutualFollow ? 'You follow each other' : 'Not following each other yet'}
-            colors={colors}
-            isDark={isDark}
-          />
-        </View>
-      </View>
+      </Animated.View>
 
       <View style={{ height: 40 }} />
     </ScrollView>
   );
 }
 
-// --- Ring Gauge Component ---
-function ScoreRing({ score, max, color, icon, label, hint, colors, isDark }: {
+// --- Breakdown Ring Gauge ---
+function BreakdownRing({ score, max, color, icon, label, detail, colors, isDark }: {
   score: number;
   max: number;
   color: string;
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
-  hint: string;
+  detail: string;
   colors: any;
   isDark: boolean;
 }) {
   const pct = max > 0 ? Math.min(1, score / max) : 0;
   const offset = RING_CIRCUMFERENCE * (1 - pct);
-  const pctDisplay = Math.round(pct * 100);
 
   return (
     <View style={styles.ringItem}>
       <View style={styles.ringContainer}>
         <Svg width={RING_SIZE} height={RING_SIZE}>
-          {/* Background track */}
           <Circle
             cx={RING_SIZE / 2}
             cy={RING_SIZE / 2}
@@ -451,7 +715,6 @@ function ScoreRing({ score, max, color, icon, label, hint, colors, isDark }: {
             strokeWidth={RING_STROKE}
             fill="none"
           />
-          {/* Filled arc */}
           <Circle
             cx={RING_SIZE / 2}
             cy={RING_SIZE / 2}
@@ -466,16 +729,16 @@ function ScoreRing({ score, max, color, icon, label, hint, colors, isDark }: {
             origin={`${RING_SIZE / 2}, ${RING_SIZE / 2}`}
           />
         </Svg>
-        {/* Center content */}
         <View style={styles.ringCenter}>
-          <Text style={[styles.ringPct, { color }]}>{pctDisplay}%</Text>
+          <Text style={[styles.ringScore, { color }]}>{Math.round(score)}</Text>
+          <Text style={[styles.ringMax, { color: colors.text.tertiary }]}>/{max}</Text>
         </View>
       </View>
       <View style={[styles.ringIconBadge, { backgroundColor: color + '20' }]}>
         <Ionicons name={icon} size={12} color={color} />
       </View>
       <Text style={[styles.ringLabel, { color: colors.text.primary }]}>{label}</Text>
-      <Text style={[styles.ringHint, { color: colors.text.tertiary }]}>{hint}</Text>
+      <Text style={[styles.ringDetail, { color: colors.text.tertiary }]}>{detail}</Text>
     </View>
   );
 }
@@ -531,25 +794,56 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 10,
   },
-  avatar: { width: 60, height: 60, borderRadius: 30 },
-  avatarPlaceholder: { justifyContent: 'center', alignItems: 'center' },
   headerUsername: { fontSize: 16, fontWeight: '700', marginBottom: 10 },
   scoreCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
   },
-  scoreValue: { fontSize: 22, fontWeight: '800', color: '#FFF' },
+  scoreValue: { fontSize: 22, fontWeight: '800', color: '#FFF', lineHeight: 24 },
+  scoreLabel: { fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.7)', marginTop: -2 },
   rankBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 14,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 12,
-    marginBottom: 6,
+    marginBottom: 8,
+    gap: 5,
   },
   rankText: { fontSize: 13, fontWeight: '600' },
+  nextRankWrap: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  nextRankTrack: {
+    width: '60%',
+    height: 5,
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 5,
+  },
+  nextRankFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  nextRankText: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  maxRankBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 10,
+    marginBottom: 6,
+  },
   streakRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -557,6 +851,151 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   streakText: { fontSize: 13, fontWeight: '600', color: '#F97316' },
+
+  // How It Works (expandable)
+  howItWorksCard: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  howItWorksHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  howItWorksIconBg: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  howItWorksHeaderText: {
+    flex: 1,
+  },
+  howItWorksTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  howItWorksSubtitle: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+  howItWorksContent: {
+    marginTop: 16,
+    gap: 12,
+  },
+  explainerBox: {
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+  },
+  explainerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  explainerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  explainerBody: {
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  explainerExample: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(128,128,128,0.2)',
+  },
+  explainerExampleText: {
+    fontSize: 11,
+    fontStyle: 'italic',
+  },
+  formulaTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  formulaCard: {
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderLeftWidth: 3,
+  },
+  formulaCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  formulaIconBg: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  formulaCardTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    flex: 1,
+  },
+  formulaCardPts: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  formulaCardDesc: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  formulaTip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+    padding: 8,
+    borderRadius: 8,
+  },
+  formulaTipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    flex: 1,
+  },
+  formulaRanks: {
+    marginTop: 4,
+  },
+  formulaRanksTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  rankTierBar: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  rankTierItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
+  rankTierColor: {
+    height: 6,
+    width: '100%',
+    borderRadius: 3,
+  },
+  rankTierLabel: {
+    fontSize: 9,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
 
   // Calendar
   calendarCard: {
@@ -574,6 +1013,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 12,
+    marginTop: 8,
   },
   calendarTitle: { fontSize: 16, fontWeight: '700' },
   weekdayRow: { flexDirection: 'row', marginBottom: 4 },
@@ -631,7 +1071,7 @@ const styles = StyleSheet.create({
   },
   bidirectionalText: { fontSize: 12, fontWeight: '600' },
 
-  // Bond Breakdown (Ring Gauges)
+  // Bond Breakdown
   breakdownCard: {
     borderRadius: 16,
     padding: 16,
@@ -642,7 +1082,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
-  sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 16 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
+  sectionSubtitle: { fontSize: 12, marginBottom: 14 },
   ringsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -662,10 +1103,16 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
+    flexDirection: 'row',
   },
-  ringPct: {
+  ringScore: {
     fontSize: 16,
     fontWeight: '800',
+  },
+  ringMax: {
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 2,
   },
   ringIconBadge: {
     width: 24,
@@ -680,23 +1127,41 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 4,
   },
-  ringHint: {
-    fontSize: 10,
+  ringDetail: {
+    fontSize: 9,
     fontWeight: '500',
     textAlign: 'center',
-    marginTop: 2,
+    marginTop: 3,
     paddingHorizontal: 2,
   },
 
-  // Friendship Insights
+  // Insights
   insightsCard: {
     borderRadius: 16,
     padding: 16,
+    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
     shadowRadius: 8,
     elevation: 3,
+  },
+
+  // Streak explainer mini
+  streakExplainerMini: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 8,
+    marginBottom: 14,
+  },
+  streakExplainerText: {
+    fontSize: 12,
+    flex: 1,
+    lineHeight: 17,
   },
 
   // Streak Cards
@@ -734,6 +1199,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 4,
   },
+  streakCardScore: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 4,
+  },
 
   // Giving Balance
   balanceSection: {
@@ -745,6 +1215,10 @@ const styles = StyleSheet.create({
   balanceTitle: {
     fontSize: 13,
     fontWeight: '700',
+    marginBottom: 4,
+  },
+  balanceHint: {
+    fontSize: 11,
     marginBottom: 10,
   },
   balanceBar: {

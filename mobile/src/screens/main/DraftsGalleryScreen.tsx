@@ -107,7 +107,7 @@ export default function DraftsGalleryScreen() {
     );
   };
 
-  const renderItem = ({ item }: { item: PostDraft }) => (
+  const renderItem = useCallback(({ item }: { item: PostDraft }) => (
     <TouchableOpacity
       style={styles.cell}
       onPress={() => handleTap(item)}
@@ -130,7 +130,7 @@ export default function DraftsGalleryScreen() {
         <Text style={styles.timeText}>{formatRelativeTime(item.createdAt)}</Text>
       </View>
     </TouchableOpacity>
-  );
+  ), [navigation]);
 
   if (loading) {
     return (
@@ -174,6 +174,9 @@ export default function DraftsGalleryScreen() {
         contentContainerStyle={styles.grid}
         columnWrapperStyle={styles.row}
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews
+        maxToRenderPerBatch={9}
+        windowSize={5}
       />
     </View>
   );

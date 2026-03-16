@@ -579,4 +579,67 @@ export class UserController {
       res.status(500).json({ error: 'Failed to upload profile image' });
     }
   }
+
+  /**
+   * Get current user's interests
+   * @route GET /api/users/me/interests
+   */
+  static async getInterests(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.id;
+      const user = await User.findByPk(userId, { attributes: ['interests'] });
+
+      if (!user) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
+
+      let interests: string[] = [];
+      if (user.interests) {
+        try {
+          interests = JSON.parse(user.interests);
+        } catch {
+          interests = [];
+        }
+      }
+
+      res.json({ success: true, interests });
+    } catch (error) {
+      logger.error('Error fetching interests', { error, userId: req.user?.id });
+      res.status(500).json({ error: 'Failed to fetch interests' });
+    }
+  }
+
+  /**
+   * Update current user's interests
+   * @route PUT /api/users/me/interests
+   */
+  static async updateInterests(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.id;
+      const { interests } = req.body;
+
+      if (!Array.isArray(interests)) {
+        res.status(400).json({ error: 'Interests must be an array of category IDs' });
+        return;
+      }
+
+      const validCategories = ['creative', 'hobbies', 'lifestyle', 'fitness', 'learning', 'tech'];
+      const filtered = interests.filter((i: string) => validCategories.includes(i));
+
+      const user = await User.findByPk(userId);
+      if (!user) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
+
+      user.interests = filtered.length > 0 ? JSON.stringify(filtered) : null;
+      await user.save();
+
+      res.json({ success: true, interests: filtered });
+    } catch (error) {
+      logger.error('Error updating interests', { error, userId: req.user?.id });
+      res.status(500).json({ error: 'Failed to update interests' });
+    }
+  }
 }

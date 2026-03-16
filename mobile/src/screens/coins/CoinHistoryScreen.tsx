@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   FlatList,
@@ -109,7 +109,7 @@ export default function CoinHistoryScreen() {
     return date.toLocaleDateString();
   };
 
-  const renderItem = ({ item }: { item: Transaction }) => {
+  const renderItem = useCallback(({ item }: { item: Transaction }) => {
     const icon = getTransactionIcon(item.type);
     const title = getTransactionTitle(item);
     const isIncrease = !item.type?.includes('give') || item.type === 'receive';
@@ -146,7 +146,7 @@ export default function CoinHistoryScreen() {
         </View>
       </View>
     );
-  };
+  }, [colors]);
 
   if (loading) {
     return (
@@ -168,6 +168,9 @@ export default function CoinHistoryScreen() {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         contentContainerStyle={styles.list}
+        removeClippedSubviews
+        maxToRenderPerBatch={10}
+        windowSize={7}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }

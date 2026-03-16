@@ -12,35 +12,34 @@ export const up = async (queryInterface: QueryInterface): Promise<void> => {
   try {
     logger.info('Starting migration: add-fcm-fields');
 
-    // Check if columns already exist
     const tableDescription = await queryInterface.describeTable('users');
 
-    // Add fcmToken column if it doesn't exist
-    if (!tableDescription.fcmToken) {
-      logger.info('Adding fcmToken column to users table');
-      await queryInterface.addColumn('users', 'fcmToken', {
+    // Add fcm_token column if it doesn't exist (snake_case for underscored: true)
+    if (!tableDescription['fcm_token'] && !tableDescription['fcmToken']) {
+      logger.info('Adding fcm_token column to users table');
+      await queryInterface.addColumn('users', 'fcm_token', {
         type: DataTypes.TEXT,
         allowNull: true,
         defaultValue: null,
         comment: 'Firebase Cloud Messaging token for push notifications'
       });
-      logger.info('fcmToken column added successfully');
+      logger.info('fcm_token column added successfully');
     } else {
-      logger.info('fcmToken column already exists, skipping');
+      logger.info('fcm_token column already exists, skipping');
     }
 
-    // Add chatNotificationsEnabled column if it doesn't exist
-    if (!tableDescription.chatNotificationsEnabled) {
-      logger.info('Adding chatNotificationsEnabled column to users table');
-      await queryInterface.addColumn('users', 'chatNotificationsEnabled', {
+    // Add chat_notifications_enabled column if it doesn't exist
+    if (!tableDescription['chat_notifications_enabled'] && !tableDescription['chatNotificationsEnabled']) {
+      logger.info('Adding chat_notifications_enabled column to users table');
+      await queryInterface.addColumn('users', 'chat_notifications_enabled', {
         type: DataTypes.BOOLEAN,
         allowNull: false,
         defaultValue: true,
         comment: 'Whether user wants to receive chat push notifications'
       });
-      logger.info('chatNotificationsEnabled column added successfully');
+      logger.info('chat_notifications_enabled column added successfully');
     } else {
-      logger.info('chatNotificationsEnabled column already exists, skipping');
+      logger.info('chat_notifications_enabled column already exists, skipping');
     }
 
     logger.info('Migration completed successfully: add-fcm-fields');
@@ -54,19 +53,18 @@ export const down = async (queryInterface: QueryInterface): Promise<void> => {
   try {
     logger.info('Starting rollback: add-fcm-fields');
 
-    // Remove fcmToken column
     const tableDescription = await queryInterface.describeTable('users');
 
-    if (tableDescription.fcmToken) {
-      logger.info('Removing fcmToken column from users table');
-      await queryInterface.removeColumn('users', 'fcmToken');
-      logger.info('fcmToken column removed successfully');
+    if (tableDescription['fcm_token']) {
+      logger.info('Removing fcm_token column from users table');
+      await queryInterface.removeColumn('users', 'fcm_token');
+      logger.info('fcm_token column removed successfully');
     }
 
-    if (tableDescription.chatNotificationsEnabled) {
-      logger.info('Removing chatNotificationsEnabled column from users table');
-      await queryInterface.removeColumn('users', 'chatNotificationsEnabled');
-      logger.info('chatNotificationsEnabled column removed successfully');
+    if (tableDescription['chat_notifications_enabled']) {
+      logger.info('Removing chat_notifications_enabled column from users table');
+      await queryInterface.removeColumn('users', 'chat_notifications_enabled');
+      logger.info('chat_notifications_enabled column removed successfully');
     }
 
     logger.info('Rollback completed successfully: add-fcm-fields');

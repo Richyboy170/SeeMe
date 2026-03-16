@@ -204,6 +204,9 @@ export default function TopicMembersModal({
                         renderItem={renderMember}
                         keyExtractor={item => item.user.id}
                         contentContainerStyle={styles.listContent}
+                        removeClippedSubviews
+                        maxToRenderPerBatch={10}
+                        windowSize={7}
                         onEndReached={handleLoadMore}
                         onEndReachedThreshold={0.3}
                         ListFooterComponent={

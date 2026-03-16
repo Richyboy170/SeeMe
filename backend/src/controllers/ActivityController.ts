@@ -208,4 +208,104 @@ export class ActivityController {
       return res.status(500).json({ error: error.message || 'Failed to complete activity' });
     }
   }
+
+  // ===== Wheel Selection Endpoints =====
+
+  /**
+   * GET /api/activities/available
+   * Browse all activities from joined communities with onWheel flag
+   */
+  static async getAvailableActivities(req: Request, res: Response) {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ error: 'Authentication required' });
+
+      const activities = await ActivityService.getAvailableActivities(userId);
+      return res.json({ activities });
+    } catch (error) {
+      logger.error('Error getting available activities', { error });
+      return res.status(500).json({ error: 'Failed to get activities' });
+    }
+  }
+
+  /**
+   * GET /api/activities/wheel/selections
+   * Get user's current wheel selections
+   */
+  static async getWheelSelections(req: Request, res: Response) {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ error: 'Authentication required' });
+
+      const activities = await ActivityService.getWheelSelections(userId);
+      return res.json({ activities, count: activities.length });
+    } catch (error) {
+      logger.error('Error getting wheel selections', { error });
+      return res.status(500).json({ error: 'Failed to get selections' });
+    }
+  }
+
+  /**
+   * POST /api/activities/wheel/add
+   * Add an activity to user's wheel
+   */
+  static async addToWheel(req: Request, res: Response) {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ error: 'Authentication required' });
+
+      const { activityId } = req.body;
+      if (!activityId) return res.status(400).json({ error: 'activityId is required' });
+
+      await ActivityService.addToWheel(userId, activityId);
+      return res.status(201).json({ success: true });
+    } catch (error: any) {
+      logger.error('Error adding to wheel', { error });
+      const msg = error.message || 'Failed to add activity';
+      if (msg.includes('full') || msg.includes('already') || msg.includes('must join')) {
+        return res.status(400).json({ error: msg });
+      }
+      return res.status(500).json({ error: msg });
+    }
+  }
+
+  /**
+   * POST /api/activities/wheel/remove
+   * Remove an activity from user's wheel
+   */
+  static async removeFromWheel(req: Request, res: Response) {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ error: 'Authentication required' });
+
+      const { activityId } = req.body;
+      if (!activityId) return res.status(400).json({ error: 'activityId is required' });
+
+      await ActivityService.removeFromWheel(userId, activityId);
+      return res.json({ success: true });
+    } catch (error: any) {
+      logger.error('Error removing from wheel', { error });
+      if (error.message === 'Activity not on your wheel') {
+        return res.status(404).json({ error: error.message });
+      }
+      return res.status(500).json({ error: 'Failed to remove activity' });
+    }
+  }
+
+  /**
+   * DELETE /api/activities/wheel/selections
+   * Clear all wheel selections (reset to auto mode)
+   */
+  static async clearWheelSelections(req: Request, res: Response) {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ error: 'Authentication required' });
+
+      await ActivityService.clearWheelSelections(userId);
+      return res.json({ success: true });
+    } catch (error) {
+      logger.error('Error clearing wheel selections', { error });
+      return res.status(500).json({ error: 'Failed to clear selections' });
+    }
+  }
 }

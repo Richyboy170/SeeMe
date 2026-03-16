@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   FlatList,
@@ -368,7 +368,7 @@ export default function ChatScreen({ route, navigation }: ChatScreenProps) {
   const heartScale = useRef(new Animated.Value(1)).current;
 
   // Dynamic styles based on theme
-  const dynamicStyles = createDynamicStyles(colors, isDark);
+  const dynamicStyles = useMemo(() => createDynamicStyles(colors, isDark), [colors, isDark]);
 
   // Hide default navigation header
   useEffect(() => {
@@ -1030,7 +1030,7 @@ export default function ChatScreen({ route, navigation }: ChatScreenProps) {
     return ownMessages.length > 0 ? ownMessages[ownMessages.length - 1].id : null;
   };
 
-  const renderMessage = ({ item, index }: { item: Message; index: number }) => {
+  const renderMessage = useCallback(({ item, index }: { item: Message; index: number }) => {
     const isOwnMessage = item.senderId === currentUserId;
     const isImageMessage = item.messageType === 'image';
     const isGifMessage = item.messageType === 'gif';
@@ -1327,7 +1327,9 @@ export default function ChatScreen({ route, navigation }: ChatScreenProps) {
         )}
       </AnimatedMessage>
     );
-  };
+  }, [currentUserId, messages, dynamicStyles, colors, otherUser, navigation]);
+
+  const messageKeyExtractor = useCallback((item: Message) => item.id, []);
 
   if (loading) {
     return (
@@ -1381,10 +1383,13 @@ export default function ChatScreen({ route, navigation }: ChatScreenProps) {
         ref={flatListRef}
         data={messages}
         renderItem={renderMessage}
-        keyExtractor={(item) => item.id}
+        keyExtractor={messageKeyExtractor}
         contentContainerStyle={dynamicStyles.messagesList}
         onContentSizeChange={scrollToBottom}
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews
+        maxToRenderPerBatch={15}
+        windowSize={11}
         onScrollToIndexFailed={(info) => {
           flatListRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
         }}

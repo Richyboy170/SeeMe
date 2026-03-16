@@ -3,6 +3,8 @@ import { FriendTrust } from '../models/FriendTrust';
 import { FriendTrustDailyLog } from '../models/FriendTrustDailyLog';
 import { Follow } from '../models/Follow';
 import { User } from '../models/User';
+import { AvatarConfigSQL } from '../models/AvatarConfigSQL';
+import { formatAvatarForResponse } from '../utils/formatAvatar';
 import { logger } from '../utils/logger';
 
 /**
@@ -278,6 +280,7 @@ export class TrustScoreService {
       otherUser: {
         id: string;
         username: string;
+        avatarUrl: string | null;
       } | null;
       trustScore: number;
       currentStreak: number;
@@ -323,10 +326,33 @@ export class TrustScoreService {
 
     const users = await User.findAll({
       where: { id: { [Op.in]: otherUserIds } },
-      attributes: ['id', 'username']
+      attributes: ['id', 'username', 'avatarUrl', 'activeAvatarId']
     });
 
     const userMap = new Map(users.map(u => [u.id, u]));
+
+    // Fetch active avatar configs for all other users
+    const avatarConfigs = await AvatarConfigSQL.findAll({
+      where: {
+        userId: { [Op.in]: otherUserIds },
+        isActive: true,
+      },
+    });
+    const avatarMap = new Map(avatarConfigs.map(a => [a.userId, formatAvatarForResponse(a)]));
+
+    // Fallback: for users with activeAvatarId but no active config, fetch by ID
+    const usersWithMissingAvatar = users.filter(u => u.activeAvatarId && !avatarMap.has(u.id));
+    if (usersWithMissingAvatar.length > 0) {
+      const fallbackIds = usersWithMissingAvatar.map(u => u.activeAvatarId!);
+      const fallbackConfigs = await AvatarConfigSQL.findAll({
+        where: { id: { [Op.in]: fallbackIds } },
+      });
+      for (const fc of fallbackConfigs) {
+        if (!avatarMap.has(fc.userId)) {
+          avatarMap.set(fc.userId, formatAvatarForResponse(fc));
+        }
+      }
+    }
 
     // Check mutual follows for all connections
     const mutualFollowChecks = await Promise.all(
@@ -352,7 +378,9 @@ export class TrustScoreService {
         otherUserId,
         otherUser: otherUser ? {
           id: otherUser.id,
-          username: otherUser.username
+          username: otherUser.username,
+          avatarUrl: otherUser.avatarUrl || null,
+          activeAvatar: avatarMap.get(otherUser.id) || null,
         } : null,
         trustScore: trust.trustScore,
         currentStreak: trust.currentStreak,

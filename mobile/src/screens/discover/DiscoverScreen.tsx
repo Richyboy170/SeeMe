@@ -1,4 +1,4 @@
-import React, { useState, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Modal,
   Vibration,
   Platform,
+  Animated,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,11 +24,21 @@ interface DiscoverScreenProps {
   navigation: any;
 }
 
+const SEARCH_PROMPTS = [
+  'Search communities...',
+  'Find your tribe...',
+  'Explore new interests...',
+  'Discover something fun...',
+];
+
 export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
   const { colors, isDark } = useTheme();
   const { activeAccount, accounts, quickSwitch, setShowAccountSwitcher } = useAccountContext();
   const [searchQuery, setSearchQuery] = useState('');
   const [guideVisible, setGuideVisible] = useState(false);
+  const [promptIndex, setPromptIndex] = useState(0);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchFocusAnim = useRef(new Animated.Value(0)).current;
 
   // Current user profile data for avatar
   const [userAvatarUrl, setUserAvatarUrl] = useState<string | null>(null);
@@ -36,6 +47,23 @@ export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
     style: 'cartoon' | 'anime' | 'minimalist';
   } | null>(null);
   const [username, setUsername] = useState<string | undefined>(activeAccount?.username);
+
+  // Cycle search placeholder
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPromptIndex(i => (i + 1) % SEARCH_PROMPTS.length);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Animate search bar focus glow
+  useEffect(() => {
+    Animated.timing(searchFocusAnim, {
+      toValue: searchFocused ? 1 : 0,
+      duration: 200,
+      useNativeDriver: false,
+    }).start();
+  }, [searchFocused]);
 
   // Load current user's profile for avatar
   useFocusEffect(
@@ -109,7 +137,7 @@ export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
   // Guide refs
   const searchBarRef = useRef<View>(null);
   const typeFiltersRef = useRef<View>(null);
-  const categoryFiltersRef = useRef<View>(null);
+  const interestsButtonRef = useRef<View>(null);
   const communityGridRef = useRef<View>(null);
 
   // Build guide steps
@@ -128,11 +156,11 @@ export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
         'Filter communities by type — browse All, public Communities, Private groups, or broadcast Channels.',
     },
     {
-      targetRef: categoryFiltersRef,
-      icon: 'pricetags',
-      title: 'Category Filters',
+      targetRef: interestsButtonRef,
+      icon: 'heart',
+      title: 'Your Interests',
       description:
-        'Browse communities by interest. Tap a category to filter, tap again to clear. Categories include Sports, Music, Art, and more.',
+        'Tap any interest to select it. You can pick multiple — communities matching your choices will appear below. Your picks are saved automatically.',
     },
     {
       targetRef: communityGridRef,
@@ -183,9 +211,9 @@ export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
     });
   }, [navigation, colors, activeAccount, userAvatarUrl, userActiveAvatar, username, handleProfilePress, handleProfileLongPress]);
 
-  const handleClearSearch = () => {
+  const handleClearSearch = useCallback(() => {
     setSearchQuery('');
-  };
+  }, []);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -193,33 +221,56 @@ export default function DiscoverScreen({ navigation }: DiscoverScreenProps) {
       <View
         ref={searchBarRef}
         collapsable={false}
-        style={[styles.searchContainer, { borderBottomColor: colors.border }]}
+        style={styles.searchContainer}
       >
-        <View style={[styles.searchBar, { backgroundColor: colors.inputBackground }]}>
-          <Ionicons name="search" size={20} color={colors.text.secondary} style={styles.searchIcon} />
+        <Animated.View style={[styles.searchBar, {
+          backgroundColor: colors.inputBackground,
+          borderWidth: 1.5,
+          borderColor: searchFocusAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: ['transparent', '#7C3AED'],
+          }),
+        }]}>
+          <Animated.View style={{
+            transform: [{
+              scale: searchFocusAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [1, 1.15],
+              }),
+            }],
+          }}>
+            <Ionicons
+              name="search"
+              size={20}
+              color={searchFocused ? '#7C3AED' : colors.text.secondary}
+              style={styles.searchIcon}
+            />
+          </Animated.View>
           <TextInput
             style={[styles.searchInput, { color: colors.text.primary }]}
-            placeholder="Search communities..."
+            placeholder={SEARCH_PROMPTS[promptIndex]}
             placeholderTextColor={colors.text.secondary}
             value={searchQuery}
             onChangeText={setSearchQuery}
             returnKeyType="search"
             autoCapitalize="none"
             autoCorrect={false}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
           />
           {searchQuery.length > 0 && (
             <TouchableOpacity onPress={handleClearSearch}>
               <Ionicons name="close-circle" size={20} color={colors.text.secondary} />
             </TouchableOpacity>
           )}
-        </View>
+        </Animated.View>
       </View>
 
       {/* Communities Content */}
       <CommunitiesTab
         searchQuery={searchQuery}
         navigation={navigation}
-        guideRefs={{ typeFiltersRef, categoryFiltersRef, communityGridRef }}
+        guideRefs={{ typeFiltersRef, interestsButtonRef, communityGridRef }}
       />
 
       {/* Guide Overlay */}
@@ -260,15 +311,14 @@ const styles = StyleSheet.create({
   },
   searchContainer: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 0.5,
+    paddingVertical: 10,
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 40,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    height: 44,
   },
   searchIcon: {
     marginRight: 8,
